@@ -1,0 +1,283 @@
+export type BuildingType = "hq" | "barracks" | "mine" | "refinery" | "farm" | "lab";
+export type Terrain = "plain" | "forest" | "mountain" | "city" | "oil" | "ruins";
+export type BattleClass = "assault" | "medic" | "engineer" | "scout";
+export type BattlePoint = "A" | "B" | "C";
+export type BattleTeam = "attacker" | "defender";
+export type BattleOrderKind = "attack" | "defend" | "rally";
+export type DiplomacyStatus = "alliance_pending" | "allied" | "truce_pending" | "truce" | "war";
+export type DiplomacyAction = "propose_alliance" | "accept_alliance" | "declare_war" | "offer_truce" | "accept_truce" | "break_alliance";
+export type MissionKey = "check_in" | "join_battle" | "battle_action" | "capture_point";
+
+export interface PlayerView {
+  id: string;
+  telegramId: number;
+  displayName: string;
+  username?: string | null;
+  level: number;
+  xp: number;
+  energy: number;
+  contribution: number;
+  role: string;
+}
+
+export interface StateView {
+  id: string;
+  name: string;
+  color: string;
+  motto: string;
+  emblem: string;
+  theme: string;
+  telegramChatId: number;
+  treasury: {
+    credits: number;
+    steel: number;
+    fuel: number;
+    food: number;
+    tech: number;
+  };
+  productionPerHour: {
+    credits: number;
+    steel: number;
+    fuel: number;
+    food: number;
+    tech: number;
+  };
+  rating: number;
+  memberCount: number;
+  territoryCount: number;
+  seasonRank: number;
+  worldX: number;
+  worldY: number;
+  islandWins: number;
+  islandLosses: number;
+  ratingPeak: number;
+  islandIntegrity: number;
+  winStreak: number;
+  bestWinStreak: number;
+  lastBattleAt?: string | null;
+  destroyedUntil?: string | null;
+  shieldUntil?: string | null;
+  nextAttackAt?: string | null;
+  avatarUrl?: string | null;
+}
+
+export interface BuildingView {
+  type: BuildingType;
+  level: number;
+  upgradeCost: Partial<Record<keyof StateView["treasury"], number>>;
+  label: string;
+  description: string;
+  x: number;
+  y: number;
+}
+
+export interface TileView {
+  id: string;
+  q: number;
+  r: number;
+  terrain: Terrain;
+  resourceType?: string | null;
+  defense: number;
+  ownerStateId?: string | null;
+  ownerName?: string | null;
+  ownerColor?: string | null;
+  isCapital?: boolean;
+}
+
+export interface WarView {
+  id: string;
+  attackerName: string;
+  defenderName?: string | null;
+  tileId: string;
+  winnerStateId?: string | null;
+  attackerPower: number;
+  defenderPower: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface BattlePlayerView {
+  id: string;
+  playerId: string;
+  displayName: string;
+  team: BattleTeam;
+  class: BattleClass;
+  hp: number;
+  point: BattlePoint;
+  kills: number;
+  deaths: number;
+  contribution: number;
+  squadCode?: string | null;
+  cooldownUntil?: string | null;
+  respawnAt?: string | null;
+}
+
+
+export interface BattleOrderView {
+  id: string;
+  team: BattleTeam;
+  stateId: string;
+  point: BattlePoint;
+  kind: BattleOrderKind;
+  issuedBy?: string | null;
+  expiresAt: string;
+}
+
+export interface BattleEventView {
+  id: number;
+  type: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface BattleView {
+  id: string;
+  tileId: string | null;
+  battleKind: "territory" | "island";
+  attackerStateId: string;
+  defenderStateId?: string | null;
+  attackerName: string;
+  defenderName: string;
+  attackerColor: string;
+  defenderColor: string;
+  status: "scheduled" | "active" | "resolved" | "cancelled";
+  startsAt: string;
+  endsAt: string;
+  attackerScore: number;
+  defenderScore: number;
+  pointOwners: Record<BattlePoint, BattleTeam | null>;
+  winnerStateId?: string | null;
+  myTeam?: BattleTeam | null;
+  myRole?: string | null;
+  me?: BattlePlayerView | null;
+  players: BattlePlayerView[];
+  orders: BattleOrderView[];
+  events: BattleEventView[];
+}
+
+
+export interface DiplomacyRelationView {
+  id: string;
+  otherStateId: string;
+  otherStateName: string;
+  otherStateColor: string;
+  status: DiplomacyStatus;
+  requestedByStateId?: string | null;
+  truceUntil?: string | null;
+  updatedAt: string;
+}
+
+export interface WorldEventView {
+  id: number;
+  kind: string;
+  title: string;
+  text: string;
+  actorStateId?: string | null;
+  actorStateName?: string | null;
+  actorStateColor?: string | null;
+  targetStateId?: string | null;
+  targetStateName?: string | null;
+  targetStateColor?: string | null;
+  createdAt: string;
+}
+
+export interface LeaderboardStateView {
+  id: string;
+  name: string;
+  color: string;
+  rating: number;
+  rank: number;
+  territoryCount: number;
+}
+
+
+export interface IslandView {
+  id: string;
+  name: string;
+  color: string;
+  emblem: string;
+  worldX: number;
+  worldY: number;
+  memberCount: number;
+  rating: number;
+  rank: number;
+  wins: number;
+  losses: number;
+  integrity: number;
+  winStreak: number;
+  lastBattleAt?: string | null;
+  destroyedUntil?: string | null;
+  shieldUntil?: string | null;
+  avatarUrl?: string | null;
+  relation?: DiplomacyStatus | null;
+  isMine: boolean;
+}
+
+export interface DailyMissionView {
+  id: string;
+  key: MissionKey;
+  title: string;
+  description: string;
+  progress: number;
+  target: number;
+  rewardXp: number;
+  rewardCredits: number;
+  claimed: boolean;
+}
+
+
+export interface SeasonView {
+  id: string;
+  name: string;
+  number: number;
+  startsAt: string;
+  endsAt: string;
+  active: boolean;
+}
+
+export interface ElectionCandidateView {
+  id: string;
+  playerId: string;
+  displayName: string;
+  statement: string;
+  votes: number;
+  isMe: boolean;
+}
+
+export interface ElectionView {
+  id: string;
+  status: "open" | "resolved" | "cancelled";
+  startsAt: string;
+  endsAt: string;
+  winnerPlayerId?: string | null;
+  myVoteCandidateId?: string | null;
+  candidates: ElectionCandidateView[];
+}
+
+export interface StateBadgeView {
+  id: string;
+  key: string;
+  title: string;
+  description: string;
+  icon: string;
+  earnedAt: string;
+}
+
+export interface GameSnapshot {
+  mode: "demo" | "live";
+  player: PlayerView;
+  state: StateView;
+  buildings: BuildingView[];
+  tiles: TileView[];
+  wars: WarView[];
+  diplomacy: DiplomacyRelationView[];
+  worldFeed: WorldEventView[];
+  leaderboard: LeaderboardStateView[];
+  islands: IslandView[];
+  dailyMissions: DailyMissionView[];
+  season: SeasonView | null;
+  election: ElectionView | null;
+  badges: StateBadgeView[];
+  activeBattle?: BattleView | null;
+  startParam?: string | null;
+}

@@ -1,0 +1,38 @@
+import { authorizeStateAction, jsonError } from "@/lib/request-auth";
+import { castVote, finalizeElection, nominateCandidate, openElection } from "@/lib/politics";
+import { getGameSnapshot } from "@/lib/game";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
+
+export const runtime = "nodejs";
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const stateId = String(body.stateId || "");
+    const action = String(body.action || "");
+    if (!stateId) throw new Error("stateId is required");
+    const auth = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
+
+    if (action === "open") {
+      if (auth.member.role !== "president") throw new Error("Открыть выборы может только президент.");
+      await openElection(stateId, auth.player.id);
+    } else if (action === "nominate") {
+      if (!body.electionId) throw new Error("electionId is required");
+      await nominateCandidate(String(body.electionId), auth.player.id, String(body.statement || ""));
+    } else if (action === "vote") {
+      if (!body.electionId || !body.candidateId) throw new Error("Выберите кандидата.");
+      await castVote(String(body.electionId), auth.player.id, String(body.candidateId));
+    } else if (action === "finalize") {
+      if (!body.electionId) throw new Error("electionId is required");
+      await finalizeElection(String(body.electionId));
+    } else {
+      throw new Error("Неизвестное действие.");
+    }
+
+    const supabase = getSupabaseAdmin();
+    const { data: latestMember } = await supabase.from("state_members").select("role").eq("state_id", stateId).eq("player_id", auth.player.id).single();
+    return Response.json(await getGameSnapshot(auth.player.id, stateId, auth.session.user.id, latestMember?.role || auth.member.role));
+  } catch (error) {
+    return jsonError(error);
+  }
+}

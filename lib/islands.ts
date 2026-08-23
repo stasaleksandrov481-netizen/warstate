@@ -1,0 +1,100 @@
+import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getChat, getChatMemberCount } from "@/lib/telegram-bot";
+import type { DiplomacyRelationView, IslandView } from "@/lib/types";
+
+const META_TTL_MS = 30 * 60 * 1000;
+
+export async function syncStateChatMeta(stateId: string, chatId: number, force = false) {
+  const supabase = getSupabaseAdmin();
+  const { data: current, error } = await supabase
+    .from("states")
+    .select("chat_meta_synced_at,name,telegram_member_count,chat_avatar_file_id")
+    .eq("id", stateId)
+    .single();
+  if (error) throw error;
+
+  const last = current.chat_meta_synced_at ? new Date(current.chat_meta_synced_at).getTime() : 0;
+  if (!force && last && Date.now() - last < META_TTL_MS) return current;
+
+  const [chat, memberCount] = await Promise.all([
+    getChat(chatId).catch(() => null),
+    getChatMemberCount(chatId).catch(() => null),
+  ]);
+  const patch: Record<string, unknown> = { chat_meta_synced_at: new Date().toISOString() };
+  if (chat?.title) patch.name = chat.title;
+  if (chat?.photo?.big_file_id || chat?.photo?.small_file_id) patch.chat_avatar_file_id = chat.photo.big_file_id || chat.photo.small_file_id;
+  if (typeof memberCount === "number") patch.telegram_member_count = Math.max(1, memberCount);
+
+  const { data, error: updateError } = await supabase.from("states").update(patch).eq("id", stateId).select("*").single();
+  if (updateError) throw updateError;
+  return data;
+}
+
+export async function getIslandWorld(
+  stateId: string,
+  diplomacy: DiplomacyRelationView[] = [],
+  center?: { x: number; y: number },
+  radius = 2600,
+): Promise<IslandView[]> {
+  const supabase = getSupabaseAdmin();
+  let origin = center;
+  if (!origin) {
+    const { data: mine, error } = await supabase.from("states").select("world_x,world_y").eq("id", stateId).single();
+    if (error) throw error;
+    origin = { x: Number(mine.world_x || 0), y: Number(mine.world_y || 0) };
+  }
+
+  const { data, error } = await supabase.rpc("gw_get_islands", {
+    p_center_x: origin.x,
+    p_center_y: origin.y,
+    p_radius: radius,
+    p_limit: 120,
+  });
+  if (error) throw error;
+
+  const relationByState = new Map(diplomacy.map((item) => [item.otherStateId, item.status]));
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    name: row.name,
+    color: row.color,
+    emblem: row.emblem || "◆",
+    worldX: Number(row.world_x || 0),
+    worldY: Number(row.world_y || 0),
+    memberCount: Number(row.telegram_member_count || 1),
+    rating: Number(row.rating || 1000),
+    rank: Number(row.rank || 0),
+    wins: Number(row.island_wins || 0),
+    losses: Number(row.island_losses || 0),
+    integrity: Number(row.island_integrity ?? 100),
+    winStreak: Number(row.win_streak || 0),
+    lastBattleAt: row.last_battle_at || null,
+    destroyedUntil: row.destroyed_until || null,
+    shieldUntil: row.shield_until || null,
+    avatarUrl: row.chat_avatar_file_id ? `/api/telegram/chat-photo?stateId=${encodeURIComponent(row.id)}` : null,
+    relation: relationByState.get(row.id) || null,
+    isMine: row.id === stateId,
+  }));
+}
+
+export async function createIslandBattle(attackerStateId: string, defenderStateId: string) {
+  const supabase = getSupabaseAdmin();
+  const { data: battleId, error } = await supabase.rpc("gw_start_island_battle", {
+    p_attacker_state_id: attackerStateId,
+    p_defender_state_id: defenderStateId,
+    p_duration_seconds: 180,
+  });
+  if (error) throw error;
+  if (!battleId) throw new Error("Не удалось начать атаку на остров.");
+  return String(battleId);
+}
+
+
+export async function repairIsland(stateId: string, amount = 25) {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase.rpc("gw_repair_island", {
+    p_state_id: stateId,
+    p_amount: Math.max(1, Math.min(50, Math.round(amount))),
+  });
+  if (error) throw error;
+  return data;
+}

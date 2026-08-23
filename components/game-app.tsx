@@ -37,7 +37,7 @@ function tg(): TelegramWebApp | null {
   return (window as any).Telegram?.WebApp || null;
 }
 
-function mergeIslandLists(current: IslandView[] = [], incoming: IslandView[] = [], max = 700) {
+function mergeIslandLists(current: IslandView[] = [], incoming: IslandView[] = [], max = 420) {
   const incomingIds = new Set(incoming.map((item) => item.id));
   const merged = [...incoming, ...current.filter((item) => !incomingIds.has(item.id))];
   const mine = merged.find((item) => item.isMine);

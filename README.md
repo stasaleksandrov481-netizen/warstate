@@ -1,4 +1,4 @@
-# GROUP WARS v1.4.1 — Audited Freeport + Procedural World
+# GROUP WARS v1.4.2 — Performance + Procedural World Polish
 
 Telegram-native strategy where every real Telegram group becomes an island-state in one persistent ocean world.
 
@@ -51,16 +51,18 @@ Conceptually one Telegram member owns one deterministic house lot. Large-group L
 
 ## World-space ocean
 
-The ocean is a lightweight Canvas renderer, not a fixed wallpaper.
+The ocean is a lightweight Canvas renderer, not a fixed wallpaper. v1.4.2 rewrites the hot path for camera movement.
 
-- Camera position is used in every wave sample.
-- Panning moves through the water field instead of dragging islands over a screen-fixed texture.
-- Three Gerstner-inspired wave components create rolling swells.
-- Smaller world-grid ripples and white caps add motion.
-- Broad depth tone changes with world coordinates.
-- Islands have SVG surf halos and animated broken shoreline foam.
-- DPR and FPS are capped adaptively for mobile devices.
-- Rendering pauses when the document is hidden and respects reduced-motion/far LOD.
+- Camera position comes from a live ref, so water follows the finger without waiting for React renders.
+- During panning/pinch the canvas targets 60 FPS; idle animation drops to an adaptive 18–32 FPS to save battery.
+- Wave fields are pre-rendered into reusable transparent tiles and moved in world coordinates with `CanvasPattern.setTransform`.
+- Expensive per-frame radial gradients, nested wave sampling loops and repeated pattern creation were removed.
+- Canvas DPR is capped at 1.0–1.15 because animated water does not benefit from full 2x/3x phone DPR.
+- Broad depth color is cached by world band instead of rebuilt on every tiny movement.
+- The island world layer moves imperatively on `requestAnimationFrame`; React camera state is throttled to culling/minimap/UI work only.
+- Pointer movement no longer calls `getBoundingClientRect()` every event; the viewport rect is cached for the gesture.
+- Rendering pauses when the document is hidden.
+
 
 ## Battle balance
 
@@ -100,12 +102,16 @@ Role checks happen when a command is executed. Battle/diplomacy/upgrade commands
 ## UI changes
 
 - Removed neon / SaaS-style primary surfaces.
-- Larger readable mobile typography.
-- Equal bottom-navigation buttons; Battle is no longer a floating red CTA.
-- Warm sand/gold cartoon controls and muted teal HUD.
-- Larger island labels and enemy bottom sheet.
+- System UI typography replaces the cramped Trebuchet pass; headings, state names and navigation labels are larger.
+- Header is a roomy two-row game HUD with three equal resource/status chips.
+- All six bottom-navigation buttons have equal visual weight; Battle is not a special red CTA.
+- Active navigation uses the same parchment/gold language as the rest of the game.
+- Island labels are now large game banners with a 50px avatar, league/freeport kicker, rank, population and ELO.
+- Enemy/selected island sheet is larger and easier to read.
+- Map controls and minimap use one consistent cartoon surface language.
+- Ranking, diplomacy, infrastructure, recruitment and battle cards were normalized to the same chunky parchment/teal visual system.
 - Freeport uses the same island/world visual system as all other states.
-- Ocean background is fully Canvas/world-space; old screen-fixed wave textures are disabled.
+
 
 ## Supabase migrations
 
@@ -120,9 +126,9 @@ supabase/migrations/012_live_integrity_audit.sql
 
 If `011` is already applied, run only `012_live_integrity_audit.sql`. Migration `012` enforces one active citizenship per player, deduplicates old memberships, adds the atomic citizenship RPC and re-locks battle RPC privileges to the service role.
 
-v1.4.1 intentionally has no database data fallbacks for missing migrations.
+v1.4.2 intentionally has no database data fallbacks for missing migrations.
 
-## v1.4.1 audit hardening
+## v1.4.1 audit hardening (retained in v1.4.2)
 
 - Telegram webhook is fail-closed when the webhook secret is missing or wrong.
 - Successful Stars payments fail loudly and return HTTP 500 on database/entitlement failure so Telegram can retry an idempotent charge instead of losing paid access.
@@ -135,6 +141,26 @@ v1.4.1 intentionally has no database data fallbacks for missing migrations.
 - Recent-war UI is backed by real island battles instead of an always-empty placeholder array.
 - Required Supabase errors are no longer silently swallowed. Telegram notifications remain best-effort after a committed game action and are logged on failure.
 - Duplicate shoreline render pass was removed from procedural island art.
+
+
+## v1.4.2 performance pass
+
+The performance work is deliberately architectural rather than a CSS-only tweak.
+
+- Camera motion updates the world transform directly at animation-frame speed.
+- React camera commits are limited to roughly every 96 ms while moving, enough for culling without rerendering the whole map at 60 Hz.
+- Minimap points are suspended while dragging and capped at 96 when idle.
+- The local island cache keeps at most 420 explored islands instead of 700.
+- Map LOD is stricter: initial/medium zoom uses a light city representation; full micro detail is reserved for close zoom.
+- Map city rendering is capped at 3,600 individual compound-path houses near and 760 at mid zoom; the deterministic lot model still represents the full Telegram population.
+- The own-island view raises the city-detail budget to 6,000 individual homes, while larger populations remain deterministic but are visually grouped into districts so a 50k-member chat cannot freeze Telegram WebView.
+- House geometry is cached with a small LRU so revisiting an island does not regenerate the same city.
+- Large-city capacity checks no longer sort arrays on every spacing pass.
+- Tree crowns/trunks are batched into compound SVG paths rather than dozens of React nodes.
+- Procedural roads, rocks, shrubs and field rows add detail using a handful of SVG paths.
+- Expensive SVG drop-shadow/blur filters and per-island foam animations are disabled on the world map; visual depth comes from layered shapes and shadows instead.
+
+No new Supabase migration is required for v1.4.2. Keep migrations `001`–`012` from v1.4.1.
 
 ## Environment
 
@@ -153,7 +179,7 @@ No demo environment variable is supported.
 
 ## Verify before deploy
 
-The project includes `scripts/clean-legacy.mjs`. `npm run typecheck`, `npm run build` and `npm run dev` automatically remove the two files deleted since v1.3.1 (`lib/demo.ts` and the obsolete hex attack route), so extracting v1.4.1 over an older working tree cannot accidentally compile them.
+The project includes `scripts/clean-legacy.mjs`. `npm run typecheck`, `npm run build` and `npm run dev` automatically remove the two files deleted since v1.3.1 (`lib/demo.ts` and the obsolete hex attack route), so extracting v1.4.2 over an older working tree cannot accidentally compile them.
 
 ```bash
 npm install

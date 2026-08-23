@@ -116,7 +116,7 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment }: Islan
     <div className="island-home-screen">
       <div className={`my-island-hero game-home-hero ${destroyed ? "ruined" : ""}`} style={{ ["--state-color" as any]: state.color }}>
         <div className="my-island-water" />
-        <div className="home-island-art"><IslandArt id={state.id} members={state.memberCount} color={state.color} integrity={state.islandIntegrity} ruined={destroyed} selected detail="near" /></div>
+        <div className="home-island-art"><IslandArt id={state.id} members={state.memberCount} color={state.color} integrity={state.islandIntegrity} ruined={destroyed} selected detail="near" fullCity /></div>
         <div className="my-island-identity"><span>{state.emblem}</span><div><small>МОЯ СТОЛИЦА</small><h2>{state.name}</h2><p>{state.motto}</p></div></div>
         <div className="island-integrity-float"><span>ОБОРОНА</span><b>{state.islandIntegrity}%</b><i><em style={{ width: `${state.islandIntegrity}%` }} /></i></div>
       </div>

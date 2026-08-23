@@ -41,6 +41,13 @@ function attackReason(snapshot: GameSnapshot, island: IslandView, now: number) {
 }
 
 type Camera = { x: number; y: number; zoom: number };
+
+function cameraTransform(camera: Camera, viewport: { width: number; height: number }) {
+  const tx = viewport.width / 2 - camera.x * camera.zoom;
+  const ty = viewport.height / 2 - camera.y * camera.zoom;
+  return `translate3d(${tx}px, ${ty}px, 0) scale(${camera.zoom})`;
+}
+
 type PointerPoint = { x: number; y: number };
 
 type Props = {
@@ -89,8 +96,12 @@ const IslandNode = memo(function IslandNode({
             {island.avatarUrl ? <Image src={island.avatarUrl} alt="" width={42} height={42} unoptimized draggable={false} /> : <b>{island.emblem || island.name.slice(0, 1)}</b>}
           </span>
           <span className="game-island-copy">
+            <span className="game-island-kicker">
+              <em>{island.isMine ? "МОЙ ОСТРОВ" : island.isFreeport ? "FREEPORT" : league.label.toUpperCase()}</em>
+              {island.rank > 0 && <b>#{island.rank}</b>}
+            </span>
             <strong>{island.name}</strong>
-            <small><span>👥 {COMPACT_NUMBER.format(island.memberCount)}</span><span>{league.icon} {island.rating}</span></small>
+            <small><span>👥 {COMPACT_NUMBER.format(island.memberCount)}</span><span>{league.icon} {island.rating} ELO</span></small>
           </span>
           {relationLabel && <em className={`relation-tag tag-${island.relation}`}>{relationLabel}</em>}
           <i className={`game-status ${island.isFreeport ? "freeport" : ruined ? "ruins" : island.relation === "war" ? "enemy" : island.relation === "allied" ? "ally" : "neutral"}`} />
@@ -104,12 +115,18 @@ const IslandNode = memo(function IslandNode({
 
 function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onOpenBattle, onOpenIsland }: Props) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  const worldLayerRef = useRef<HTMLDivElement>(null);
   const pointersRef = useRef(new Map<number, PointerPoint>());
+  const viewportRectRef = useRef<DOMRect | null>(null);
   const dragRef = useRef<{ id: number; x: number; y: number; cameraX: number; cameraY: number } | null>(null);
   const pinchRef = useRef<{ distance: number; zoom: number; worldX: number; worldY: number } | null>(null);
   const exploreKickRef = useRef<number | null>(null);
   const cameraRafRef = useRef<number | null>(null);
   const pendingCameraRef = useRef<Camera | null>(null);
+  const cameraCommitTimerRef = useRef<number | null>(null);
+  const lastCameraCommitRef = useRef(0);
+  const interactingRef = useRef(false);
+  const viewportSizeRef = useRef({ width: 390, height: 620 });
   const movedRef = useRef(false);
   const cameraRef = useRef<Camera>({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: snapshot.state.isFreeport ? 0.72 : 0.88 });
   const [camera, setCamera] = useState<Camera>(cameraRef.current);
@@ -121,7 +138,10 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
     const node = viewportRef.current;
     if (!node) return;
     const observer = new ResizeObserver(([entry]) => {
-      setViewport({ width: entry.contentRect.width, height: entry.contentRect.height });
+      const nextViewport = { width: entry.contentRect.width, height: entry.contentRect.height };
+      viewportSizeRef.current = nextViewport;
+      setViewport(nextViewport);
+      if (worldLayerRef.current) worldLayerRef.current.style.transform = cameraTransform(cameraRef.current, nextViewport);
     });
     observer.observe(node);
     return () => observer.disconnect();
@@ -132,10 +152,10 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => { cameraRef.current = camera; }, [camera]);
   useEffect(() => () => {
     if (exploreKickRef.current) window.clearTimeout(exploreKickRef.current);
     if (cameraRafRef.current) window.cancelAnimationFrame(cameraRafRef.current);
+    if (cameraCommitTimerRef.current) window.clearTimeout(cameraCommitTimerRef.current);
   }, []);
 
   const kickExplore = useCallback((delay = 0) => {
@@ -147,19 +167,45 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
     }, delay);
   }, [onExplore]);
 
-  const updateCamera = useCallback((next: Camera, explore = false) => {
+  const commitCameraState = useCallback((force = false) => {
+    const pending = pendingCameraRef.current || cameraRef.current;
+    const nowMs = performance.now();
+    const elapsed = nowMs - lastCameraCommitRef.current;
+    if (force || elapsed >= 96) {
+      if (cameraCommitTimerRef.current) {
+        window.clearTimeout(cameraCommitTimerRef.current);
+        cameraCommitTimerRef.current = null;
+      }
+      lastCameraCommitRef.current = nowMs;
+      setCamera(pending);
+      return;
+    }
+    if (!cameraCommitTimerRef.current) {
+      cameraCommitTimerRef.current = window.setTimeout(() => {
+        cameraCommitTimerRef.current = null;
+        lastCameraCommitRef.current = performance.now();
+        setCamera(pendingCameraRef.current || cameraRef.current);
+      }, Math.max(8, 96 - elapsed));
+    }
+  }, []);
+
+  const updateCamera = useCallback((next: Camera, explore = false, forceCommit = false) => {
     const normalized = { ...next, zoom: Math.max(0.30, Math.min(1.60, next.zoom)) };
     cameraRef.current = normalized;
     pendingCameraRef.current = normalized;
+
+    // The world follows the finger imperatively at display refresh rate. React
+    // state is intentionally throttled and is used only for culling/minimap/UI.
     if (!cameraRafRef.current) {
       cameraRafRef.current = window.requestAnimationFrame(() => {
         cameraRafRef.current = null;
-        const pending = pendingCameraRef.current;
-        if (pending) setCamera(pending);
+        const pending = pendingCameraRef.current || cameraRef.current;
+        if (worldLayerRef.current) worldLayerRef.current.style.transform = cameraTransform(pending, viewportSizeRef.current);
       });
     }
-    if (explore) kickExplore(90);
-  }, [kickExplore]);
+    commitCameraState(forceCommit);
+    if (explore) kickExplore(120);
+  }, [commitCameraState, kickExplore]);
 
   const zoomAt = useCallback((nextZoom: number, screenX = viewport.width / 2, screenY = viewport.height / 2, explore = true) => {
     const old = cameraRef.current;
@@ -174,11 +220,11 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
   }, [updateCamera, viewport.height, viewport.width]);
 
   const centerMine = useCallback(() => {
-    updateCamera({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: Math.max(snapshot.state.isFreeport ? 0.76 : 0.98, cameraRef.current.zoom) }, true);
+    updateCamera({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: Math.max(snapshot.state.isFreeport ? 0.76 : 0.98, cameraRef.current.zoom) }, true, true);
   }, [snapshot.state.isFreeport, snapshot.state.worldX, snapshot.state.worldY, updateCamera]);
 
   const localPoint = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
+    const rect = viewportRectRef.current || event.currentTarget.getBoundingClientRect();
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   }, []);
 
@@ -202,9 +248,11 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
   const pointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if ((event.target as HTMLElement).closest("button")) return;
     movedRef.current = false;
+    viewportRectRef.current = event.currentTarget.getBoundingClientRect();
     const point = localPoint(event);
     event.currentTarget.setPointerCapture(event.pointerId);
     pointersRef.current.set(event.pointerId, point);
+    interactingRef.current = true;
     setDragging(true);
     if (pointersRef.current.size === 1) {
       dragRef.current = { id: event.pointerId, x: point.x, y: point.y, cameraX: cameraRef.current.x, cameraY: cameraRef.current.y };
@@ -248,9 +296,12 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
       return;
     }
     dragRef.current = null;
+    viewportRectRef.current = null;
+    interactingRef.current = false;
     setDragging(false);
-    kickExplore(80);
-  }, [beginPinch, kickExplore]);
+    commitCameraState(true);
+    kickExplore(90);
+  }, [beginPinch, commitCameraState, kickExplore]);
 
   const wheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -258,11 +309,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
     zoomAt(cameraRef.current.zoom * (event.deltaY > 0 ? 0.9 : 1.1), event.clientX - rect.left, event.clientY - rect.top);
   }, [zoomAt]);
 
-  const transform = useMemo(() => {
-    const tx = viewport.width / 2 - camera.x * camera.zoom;
-    const ty = viewport.height / 2 - camera.y * camera.zoom;
-    return `translate3d(${tx}px, ${ty}px, 0) scale(${camera.zoom})`;
-  }, [viewport.width, viewport.height, camera.x, camera.y, camera.zoom]);
+  const transform = useMemo(() => cameraTransform(camera, viewport), [camera, viewport]);
 
   const sortedIslands = useMemo(() => [...snapshot.islands].sort((a, b) => islandSize(a.memberCount, a.isFreeport) - islandSize(b.memberCount, b.isFreeport)), [snapshot.islands]);
   const visibleIslands = useMemo(() => {
@@ -272,19 +319,20 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
   }, [sortedIslands, viewport.width, viewport.height, camera.x, camera.y, camera.zoom]);
 
   const ordered = visibleIslands;
-  const detail = camera.zoom < 0.44 ? "far" : camera.zoom < 0.78 ? "mid" : "near";
+  const detail = camera.zoom < 0.50 ? "far" : camera.zoom < 1.02 ? "mid" : "near";
   const selectedReason = selected ? attackReason(snapshot, selected, now) : null;
   const selectedElo = selected ? eloDeltaPreview(snapshot.state.rating, selected.rating) : null;
   const selectedLeague = selected ? eloLeague(selected.rating) : null;
   const war = snapshot.activeBattle;
 
   const minimap = useMemo(() => {
+    if (dragging) return [];
     const range = 5400;
     return snapshot.islands
       .filter((item) => Math.abs(item.worldX - camera.x) < range && Math.abs(item.worldY - camera.y) < range)
-      .slice(0, 160)
+      .slice(0, 96)
       .map((item) => ({ ...item, left: 50 + ((item.worldX - camera.x) / (range * 2)) * 100, top: 50 + ((item.worldY - camera.y) / (range * 2)) * 100 }));
-  }, [snapshot.islands, camera.x, camera.y]);
+  }, [snapshot.islands, camera.x, camera.y, dragging]);
 
   return (
     <div className="island-map-screen game-map-screen">
@@ -306,10 +354,10 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
         onWheel={wheel}
         onClick={() => { if (!movedRef.current) onSelect(null); }}
       >
-        <OceanCanvas camera={camera} viewport={viewport} reduced={detail === "far"} />
+        <OceanCanvas cameraRef={cameraRef} interactingRef={interactingRef} viewport={viewport} reduced={detail === "far"} />
         <div className="ocean-depth-vignette" />
 
-        <div className="game-world-layer" style={{ transform }}>
+        <div ref={worldLayerRef} className="game-world-layer" style={{ transform }}>
           {ordered.map((island) => (
             <IslandNode
               key={island.id}

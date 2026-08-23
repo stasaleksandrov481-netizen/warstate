@@ -11,6 +11,7 @@ type Props = {
   selected?: boolean;
   detail?: "far" | "mid" | "near";
   freeport?: boolean;
+  fullCity?: boolean;
 };
 
 type Pt = { x: number; y: number };
@@ -80,15 +81,15 @@ function generateIsland(seed: number, members: number, freeport: boolean) {
   };
 }
 
-function homeGeometry(seed: number, members: number, detail: "far" | "mid" | "near", rx: number, ry: number, freeport: boolean) {
+function homeGeometry(seed: number, members: number, detail: "far" | "mid" | "near", rx: number, ry: number, freeport: boolean, fullCity: boolean) {
   if (detail === "far" || members <= 0) return { walls: "", roofsA: "", roofsB: "", rendered: 0, overflow: 0 };
 
   // Every Telegram member has a deterministic lot index. At close zoom we draw
-  // tens of thousands of individual houses as three compound paths (not React
-  // nodes). Mid zoom intentionally uses LOD, but the underlying lot assignment
+  // thousands of individual houses as three compound paths (not React nodes).
+  // Very large groups use visual LOD, but the underlying lot assignment
   // stays stable, so zooming in reveals the same city rather than a new random
   // layout.
-  const renderLimit = detail === "near" ? 50_000 : 1_600;
+  const renderLimit = detail === "near" ? (fullCity ? 6_000 : 3_600) : 760;
   const requested = Math.min(Math.max(0, Math.floor(members)), renderLimit);
   const overflow = Math.max(0, members - requested);
   const cx = 160;
@@ -106,46 +107,53 @@ function homeGeometry(seed: number, members: number, detail: "far" | "mid" | "ne
     ...(freeport || members >= 2500 ? [{ x: 202, y: 137, radius: 19 }] : []),
     ...(freeport || members >= 5000 ? [{ x: 126, y: 142, radius: 18 }] : []),
   ];
-  const buildLots = (spacing: number) => {
+  const validLot = (x: number, y: number, spacing: number) => {
+    const nx = (x - cx) / (rx * 0.80);
+    const ny = (y - cy) / (ry * 0.76);
+    if (nx * nx + ny * ny > 1) return null;
+
+    // Civic plaza and port boulevard are hard no-build zones. Keeping these
+    // holes in the lot generator guarantees houses cannot overlap HQ/port.
+    const plaza = ((x - cx) / Math.max(12, rx * 0.25)) ** 2 + ((y - (cy - 2)) / Math.max(9, ry * 0.27)) ** 2;
+    if (plaza < 1) return null;
+    if (y > cy + ry * 0.54 && Math.abs(x - cx) < rx * 0.32) return null;
+    if (civicZones.some((zone) => Math.hypot(x - zone.x, y - zone.y) < zone.radius + spacing * 0.34)) return null;
+    return { nx, ny };
+  };
+
+  const visitLots = (spacing: number, collect: boolean) => {
     const lots: Lot[] = [];
+    let count = 0;
     const dx = spacing;
     const dy = spacing * 0.86;
     let row = 0;
     for (let y = cy - ry * 0.72; y <= cy + ry * 0.68; y += dy, row += 1) {
       const offset = row % 2 ? dx * 0.5 : 0;
       for (let x = cx - rx * 0.79 + offset; x <= cx + rx * 0.79; x += dx) {
-        const nx = (x - cx) / (rx * 0.80);
-        const ny = (y - cy) / (ry * 0.76);
-        if (nx * nx + ny * ny > 1) continue;
-
-        // Civic plaza and port boulevard are hard no-build zones. Keeping these
-        // holes in the lot generator guarantees houses cannot overlap HQ/port.
-        const plaza = ((x - cx) / Math.max(12, rx * 0.25)) ** 2 + ((y - (cy - 2)) / Math.max(9, ry * 0.27)) ** 2;
-        if (plaza < 1) continue;
-        if (y > cy + ry * 0.54 && Math.abs(x - cx) < rx * 0.32) continue;
-        if (civicZones.some((zone) => Math.hypot(x - zone.x, y - zone.y) < zone.radius + spacing * 0.34)) continue;
-
+        const valid = validLot(x, y, spacing);
+        if (!valid) continue;
+        count += 1;
+        if (!collect) continue;
         const key = Math.floor(x * 13) ^ (Math.floor(y * 17) << 1);
-        const radius = Math.hypot(nx, ny);
+        const radius = Math.hypot(valid.nx, valid.ny);
         lots.push({ x, y, score: radius + rand(seed ^ 0x7f4a7c15, key) * 0.10 });
       }
     }
-    lots.sort((a, b) => a.score - b.score);
-    return lots;
+    if (collect) lots.sort((a, b) => a.score - b.score);
+    return { count, lots };
   };
 
-  // Spacing is the collision rule. The SVG is normalized while the world node
-  // grows with population, so dense cities can use smaller normalized lots
-  // without visual overlap in world space. Close zoom keeps one lot per member
-  // up to the explicit 50k rendering budget; only extreme supergroups use LOD.
+  // Spacing is the collision rule. Capacity checks intentionally do not build
+  // or sort arrays, which keeps large 10k–50k cities from freezing the UI.
   let spacing = Math.max(0.34, Math.min(8.5, Math.sqrt((rx * ry * 1.62) / Math.max(1, requested))));
-  let lots = buildLots(spacing);
-  for (let pass = 0; lots.length < requested && pass < 40; pass += 1) {
-    const next = Math.max(0.30, spacing * 0.93);
+  let capacity = visitLots(spacing, false).count;
+  for (let pass = 0; capacity < requested && pass < 12; pass += 1) {
+    const next = Math.max(0.30, spacing * 0.91);
     if (next === spacing) break;
     spacing = next;
-    lots = buildLots(spacing);
+    capacity = visitLots(spacing, false).count;
   }
+  const lots = visitLots(spacing, true).lots;
 
   const walls: string[] = [];
   const roofsA: string[] = [];
@@ -172,25 +180,105 @@ function homeGeometry(seed: number, members: number, detail: "far" | "mid" | "ne
   };
 }
 
-function treePositions(seed: number, count: number, rx: number, ry: number) {
-  const out: Array<{ x: number; y: number; r: number }> = [];
-  for (let i = 0; i < count; i += 1) {
-    const angle = rand(seed, i * 3 + 1) * Math.PI * 2;
-    const radial = 0.86 + rand(seed, i * 3 + 2) * 0.11;
-    out.push({
-      x: 160 + Math.cos(angle) * rx * radial,
-      y: 111 + Math.sin(angle) * ry * radial,
-      r: 1.9 + rand(seed, i * 3 + 3) * 2.1,
-    });
+function roadGeometry(seed: number, rx: number, ry: number, members: number) {
+  const paths: string[] = [];
+  const spokes = members >= 1600 ? 6 : members >= 450 ? 5 : members >= 80 ? 4 : 3;
+  paths.push(`M${(160-rx*.24).toFixed(1)} 111a${(rx*.24).toFixed(1)} ${(ry*.22).toFixed(1)} 0 1 0 ${(rx*.48).toFixed(1)} 0a${(rx*.24).toFixed(1)} ${(ry*.22).toFixed(1)} 0 1 0 -${(rx*.48).toFixed(1)} 0`);
+  for (let i = 0; i < spokes; i += 1) {
+    const phase = rand(seed ^ 0x1f83d9ab, i) * 0.34;
+    const angle = ((i + phase) / spokes) * Math.PI * 2;
+    const ex = 160 + Math.cos(angle) * rx * (0.63 + rand(seed, i + 51) * 0.10);
+    const ey = 111 + Math.sin(angle) * ry * (0.58 + rand(seed, i + 77) * 0.10);
+    const bend = (rand(seed ^ 0x5be0cd19, i) - 0.5) * 16;
+    const mx = 160 + Math.cos(angle + 0.42) * bend;
+    const my = 111 + Math.sin(angle + 0.42) * bend * 0.55;
+    paths.push(`M160 111Q${mx.toFixed(1)} ${my.toFixed(1)} ${ex.toFixed(1)} ${ey.toFixed(1)}`);
   }
-  return out;
+  return paths.join("");
 }
 
-function IslandArtInner({ id, members, color, integrity, ruined = false, selected = false, detail = "near", freeport = false }: Props) {
+const MAP_HOME_CACHE = new Map<string, ReturnType<typeof homeGeometry>>();
+const FULL_HOME_CACHE = new Map<string, ReturnType<typeof homeGeometry>>();
+
+function cachedHomeGeometry(seed: number, members: number, detail: "far" | "mid" | "near", rx: number, ry: number, freeport: boolean, fullCity: boolean) {
+  const cache = fullCity ? FULL_HOME_CACHE : MAP_HOME_CACHE;
+  const key = `${seed}:${members}:${detail}:${rx.toFixed(2)}:${ry.toFixed(2)}:${freeport ? 1 : 0}:${fullCity ? 1 : 0}`;
+  const cached = cache.get(key);
+  if (cached) {
+    cache.delete(key);
+    cache.set(key, cached);
+    return cached;
+  }
+  const geometry = homeGeometry(seed, members, detail, rx, ry, freeport, fullCity);
+  cache.set(key, geometry);
+  const max = fullCity ? 2 : 48;
+  while (cache.size > max) {
+    const oldest = cache.keys().next().value as string | undefined;
+    if (!oldest) break;
+    cache.delete(oldest);
+  }
+  return geometry;
+}
+
+function circlePath(x: number, y: number, r: number) {
+  return `M${(x-r).toFixed(1)} ${y.toFixed(1)}a${r.toFixed(1)} ${r.toFixed(1)} 0 1 0 ${(r*2).toFixed(1)} 0a${r.toFixed(1)} ${r.toFixed(1)} 0 1 0 -${(r*2).toFixed(1)} 0`;
+}
+
+function treeGeometry(seed: number, count: number, rx: number, ry: number) {
+  const trunks: string[] = [];
+  const crownsA: string[] = [];
+  const crownsB: string[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const angle = rand(seed, i * 3 + 1) * Math.PI * 2;
+    const radial = 0.84 + rand(seed, i * 3 + 2) * 0.12;
+    const x = 160 + Math.cos(angle) * rx * radial;
+    const y = 111 + Math.sin(angle) * ry * radial;
+    const r = 1.8 + rand(seed, i * 3 + 3) * 2.2;
+    trunks.push(`M${(x-.65).toFixed(1)} ${y.toFixed(1)}h1.3v${(r*1.75).toFixed(1)}h-1.3Z`);
+    (i % 4 === 0 ? crownsB : crownsA).push(circlePath(x, y, r));
+  }
+  return { trunks: trunks.join(""), crownsA: crownsA.join(""), crownsB: crownsB.join("") };
+}
+
+function detailGeometry(seed: number, rx: number, ry: number, members: number) {
+  const rocks: string[] = [];
+  const shrubs: string[] = [];
+  const fieldRows: string[] = [];
+  const rockCount = members > 1500 ? 16 : members > 200 ? 12 : 8;
+  for (let i = 0; i < rockCount; i += 1) {
+    const a = rand(seed ^ 0x6a09e667, i) * Math.PI * 2;
+    const radial = 0.77 + rand(seed ^ 0xbb67ae85, i) * 0.10;
+    const x = 160 + Math.cos(a) * rx * radial;
+    const y = 111 + Math.sin(a) * ry * radial;
+    const r = 0.8 + rand(seed ^ 0x3c6ef372, i) * 1.25;
+    rocks.push(circlePath(x, y, r));
+  }
+  for (let i = 0; i < 9; i += 1) {
+    const a = rand(seed ^ 0xa54ff53a, i) * Math.PI * 2;
+    const radial = 0.48 + rand(seed ^ 0x510e527f, i) * 0.20;
+    const x = 160 + Math.cos(a) * rx * radial;
+    const y = 111 + Math.sin(a) * ry * radial;
+    shrubs.push(circlePath(x, y, 0.8 + rand(seed, i + 90) * 0.9));
+  }
+  if (members >= 120) {
+    const x0 = 160 - rx * 0.48;
+    const y0 = 111 + ry * 0.22;
+    const width = Math.max(18, rx * 0.25);
+    for (let i = 0; i < 5; i += 1) {
+      const y = y0 + i * 2.1;
+      fieldRows.push(`M${x0.toFixed(1)} ${y.toFixed(1)}q${(width*.5).toFixed(1)} -1.4 ${width.toFixed(1)} 0`);
+    }
+  }
+  return { rocks: rocks.join(""), shrubs: shrubs.join(""), fieldRows: fieldRows.join("") };
+}
+
+function IslandArtInner({ id, members, color, integrity, ruined = false, selected = false, detail = "near", freeport = false, fullCity = false }: Props) {
   const seed = useMemo(() => hash(id), [id]);
   const geo = useMemo(() => generateIsland(seed, members, freeport), [seed, members, freeport]);
-  const homes = useMemo(() => homeGeometry(seed, members, detail, geo.rx, geo.ry, freeport), [seed, members, detail, geo.rx, geo.ry, freeport]);
-  const trees = useMemo(() => treePositions(seed, detail === "far" ? 7 : detail === "mid" ? 18 : 30, geo.rx, geo.ry), [seed, detail, geo.rx, geo.ry]);
+  const homes = useMemo(() => cachedHomeGeometry(seed, members, detail, geo.rx, geo.ry, freeport, fullCity), [seed, members, detail, geo.rx, geo.ry, freeport, fullCity]);
+  const trees = useMemo(() => treeGeometry(seed, detail === "far" ? 5 : detail === "mid" ? 12 : 22, geo.rx, geo.ry), [seed, detail, geo.rx, geo.ry]);
+  const details = useMemo(() => detailGeometry(seed, geo.rx, geo.ry, members), [seed, geo.rx, geo.ry, members]);
+  const roads = useMemo(() => roadGeometry(seed, geo.rx, geo.ry, members), [seed, geo.rx, geo.ry, members]);
   const damage = Math.max(0, Math.min(1, (100 - integrity) / 100));
 
   return (
@@ -206,40 +294,36 @@ function IslandArtInner({ id, members, color, integrity, ruined = false, selecte
           <stop offset=".55" stopColor={ruined ? "#595a4a" : "#45973d"} />
           <stop offset="1" stopColor={ruined ? "#33382f" : "#236735"} />
         </linearGradient>
-        <filter id={`shadow-${seed}`} x="-30%" y="-40%" width="160%" height="190%">
-          <feDropShadow dx="0" dy="8" stdDeviation="5" floodColor="#082f3b" floodOpacity=".38" />
-        </filter>
-        <filter id={`foam-${seed}`} x="-30%" y="-30%" width="160%" height="170%">
-          <feGaussianBlur stdDeviation="1.2" result="blur" />
-          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-        </filter>
         <clipPath id={`land-${seed}`}><path d={geo.landPath} /></clipPath>
       </defs>
 
       <ellipse cx="160" cy="160" rx={freeport ? 116 : 92} ry={freeport ? 22 : 18} fill="#063a49" opacity=".22" />
       <path d={geo.coastPath} fill="none" stroke="#6ed5d3" strokeWidth="18" opacity={ruined ? .2 : .34} />
-      <path className="island-foam-soft" d={geo.coastPath} fill="none" stroke="#d9fff4" strokeWidth="8" opacity={ruined ? .3 : .66} filter={`url(#foam-${seed})`} />
+      <path className="island-foam-soft" d={geo.coastPath} fill="none" stroke="#d9fff4" strokeWidth="8" opacity={ruined ? .3 : .66} />
       <path className="island-foam" d={geo.coastPath} fill="none" stroke="#fffdf0" strokeWidth="3.2" strokeLinecap="round" strokeDasharray="12 6 3 7" opacity={ruined ? .42 : .96} />
-      <path d={geo.coastPath} fill={`url(#sand-${seed})`} filter={detail === "far" ? undefined : `url(#shadow-${seed})`} />
+      <path d={geo.coastPath} fill={`url(#sand-${seed})`} />
       <path d={geo.landPath} fill={`url(#grass-${seed})`} />
 
       <g clipPath={`url(#land-${seed})`}>
         {detail !== "far" && (
-          <g className="island-roads" fill="none" stroke="#e2cf96" strokeLinecap="round" opacity={ruined ? .25 : .55}>
-            <path d="M78 111 C112 95 133 93 160 111 C188 128 211 124 242 108" strokeWidth="2.2" strokeDasharray="3 3" />
-            <path d="M160 57 C149 77 149 95 160 111 C170 127 170 143 160 159" strokeWidth="1.8" strokeDasharray="3 3" />
-            <ellipse cx="160" cy="111" rx="29" ry="18" strokeWidth="1.7" strokeDasharray="2 3" />
+          <g className="island-roads" fill="none" stroke="#e2cf96" strokeLinecap="round" opacity={ruined ? .25 : .58}>
+            <path d={roads} strokeWidth="1.8" strokeDasharray="3 3" />
           </g>
         )}
 
         <g opacity={ruined ? .25 : .9}>
-          {trees.map((tree, i) => (
-            <g key={i} transform={`translate(${tree.x.toFixed(1)} ${tree.y.toFixed(1)})`}>
-              <rect x="-.8" y="0" width="1.6" height={tree.r * 1.8} fill="#704a2d" />
-              <circle cx="0" cy="0" r={tree.r} fill={i % 4 === 0 ? "#65a841" : "#347b38"} />
-            </g>
-          ))}
+          {trees.trunks && <path d={trees.trunks} fill="#704a2d" />}
+          {trees.crownsA && <path d={trees.crownsA} fill="#347b38" />}
+          {trees.crownsB && <path d={trees.crownsB} fill="#65a841" />}
         </g>
+
+        {detail === "near" && (
+          <g className="island-micro-details" opacity={ruined ? .25 : .82}>
+            {details.rocks && <path d={details.rocks} fill="#786d57" opacity=".78" />}
+            {details.shrubs && <path d={details.shrubs} fill="#2e7138" />}
+            {details.fieldRows && <path d={details.fieldRows} fill="none" stroke="#cfbd75" strokeWidth="1" strokeLinecap="round" opacity=".72" />}
+          </g>
+        )}
 
         {homes.walls && <path d={homes.walls} fill={ruined ? "#9b8f79" : "#f1d9a5"} stroke="#6b5943" strokeWidth=".35" opacity={detail === "mid" ? .78 : .96} />}
         {homes.roofsA && <path d={homes.roofsA} fill={ruined ? "#665d58" : color} stroke="#51434a" strokeWidth=".3" opacity={detail === "mid" ? .8 : .98} />}
@@ -247,7 +331,7 @@ function IslandArtInner({ id, members, color, integrity, ruined = false, selecte
         {homes.overflow > 0 && detail === "near" && (
           <g className="island-density-marker" transform="translate(160 146)" opacity={ruined ? .28 : .75}>
             <rect x="-22" y="-5" width="44" height="10" rx="5" fill="#f7e8b8" stroke="#735f3f" strokeWidth="1" />
-            <text x="0" y="2.6" textAnchor="middle" fontSize="5" fontWeight="900" fill="#5b4a32">+{homes.overflow.toLocaleString("ru-RU")} домов в LOD</text>
+            <text x="0" y="2.6" textAnchor="middle" fontSize="5" fontWeight="900" fill="#5b4a32">+{homes.overflow.toLocaleString("ru-RU")} домов · районы</text>
           </g>
         )}
 

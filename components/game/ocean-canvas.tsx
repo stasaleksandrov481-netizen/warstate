@@ -4,7 +4,15 @@ import { memo, useEffect, useRef } from "react";
 
 type Camera = { x: number; y: number; zoom: number };
 type Size = { width: number; height: number };
-type Props = { camera: Camera; viewport: Size; reduced?: boolean };
+type LiveRef<T> = { current: T };
+type Props = {
+  cameraRef: LiveRef<Camera>;
+  viewport: Size;
+  interactingRef?: LiveRef<boolean>;
+  reduced?: boolean;
+};
+
+type WaveTile = { canvas: HTMLCanvasElement; size: number };
 
 function hash2(x: number, y: number) {
   let n = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263);
@@ -13,21 +21,106 @@ function hash2(x: number, y: number) {
   return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
 }
 
-function oceanTone(worldY: number) {
-  const band = (Math.sin(worldY * 0.00042) + 1) * 0.5;
-  const r = Math.round(8 + band * 7);
-  const g = Math.round(104 + band * 24);
-  const b = Math.round(137 + band * 21);
-  return `rgb(${r},${g},${b})`;
+function tone(worldY: number) {
+  const band = (Math.sin(worldY * 0.00033) + 1) * 0.5;
+  return {
+    top: `rgb(${Math.round(9 + band * 5)},${Math.round(112 + band * 15)},${Math.round(145 + band * 17)})`,
+    bottom: `rgb(${Math.round(5 + band * 4)},${Math.round(78 + band * 15)},${Math.round(116 + band * 18)})`,
+  };
 }
 
-function OceanCanvasInner({ camera, viewport, reduced = false }: Props) {
+function makeWaveTile(size: number, seed: number, fine: boolean): WaveTile {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d", { alpha: true });
+  if (!ctx) return { canvas, size };
+
+  ctx.clearRect(0, 0, size, size);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  const rows = fine ? 14 : 9;
+  const cols = fine ? 9 : 7;
+  for (let row = -1; row <= rows; row += 1) {
+    const yBase = ((row + 0.5) / rows) * size;
+    for (let col = -1; col <= cols; col += 1) {
+      const r = hash2(seed + col, row - seed);
+      if (r < (fine ? 0.25 : 0.12)) continue;
+      const x = ((col + 0.35 + r * 0.55) / cols) * size;
+      const y = yBase + (hash2(row + seed * 3, col) - 0.5) * (fine ? 26 : 40);
+      const length = (fine ? 24 : 54) + r * (fine ? 42 : 72);
+      const amp = (fine ? 2.2 : 4.5) + r * (fine ? 3.5 : 6.5);
+      const tilt = (hash2(col * 7, row * 11 + seed) - 0.5) * (fine ? 0.20 : 0.34);
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(tilt);
+      ctx.beginPath();
+      ctx.moveTo(-length / 2, 0);
+      ctx.bezierCurveTo(-length * 0.22, -amp, length * 0.12, amp * 0.8, length / 2, -amp * 0.10);
+      ctx.strokeStyle = fine ? `rgba(185,239,235,${0.09 + r * 0.10})` : `rgba(166,232,228,${0.12 + r * 0.12})`;
+      ctx.lineWidth = fine ? 1.1 : 1.55;
+      ctx.stroke();
+
+      if (r > (fine ? 0.80 : 0.68)) {
+        ctx.beginPath();
+        ctx.moveTo(-length * 0.18, -amp * 0.2);
+        ctx.quadraticCurveTo(0, -amp * 0.85, length * 0.2, -amp * 0.12);
+        ctx.strokeStyle = `rgba(255,252,231,${fine ? 0.15 : 0.22})`;
+        ctx.lineWidth = fine ? 0.8 : 1.05;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  // Cheap caustic patches baked into the texture so no radial gradients are
+  // created every frame.
+  if (!fine) {
+    ctx.globalCompositeOperation = "screen";
+    for (let i = 0; i < 8; i += 1) {
+      const r = hash2(seed * 13 + i, i * 17);
+      const x = r * size;
+      const y = hash2(i * 19, seed * 7) * size;
+      ctx.strokeStyle = `rgba(102,220,215,${0.035 + r * 0.035})`;
+      ctx.lineWidth = 8 + r * 10;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 28 + r * 45, 9 + r * 15, -0.3 + r * 0.6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  return { canvas, size };
+}
+
+function fillWorldPattern(
+  ctx: CanvasRenderingContext2D,
+  pattern: CanvasPattern | null,
+  width: number,
+  height: number,
+  camera: Camera,
+  driftX: number,
+  driftY: number,
+  alpha: number,
+) {
+  if (!pattern) return;
+  const zoom = Math.max(0.28, camera.zoom);
+  const tx = width / 2 - (camera.x + driftX) * zoom;
+  const ty = height / 2 - (camera.y + driftY) * zoom;
+  pattern.setTransform(new DOMMatrix([zoom, 0, 0, zoom, tx, ty]));
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = pattern;
+  ctx.fillRect(0, 0, width, height);
+  ctx.globalAlpha = 1;
+}
+
+function OceanCanvasInner({ cameraRef, viewport, interactingRef, reduced = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const cameraRef = useRef(camera);
   const viewportRef = useRef(viewport);
   const reducedRef = useRef(reduced);
 
-  useEffect(() => { cameraRef.current = camera; }, [camera.x, camera.y, camera.zoom]);
   useEffect(() => { viewportRef.current = viewport; }, [viewport.width, viewport.height]);
   useEffect(() => { reducedRef.current = reduced; }, [reduced]);
 
@@ -37,175 +130,114 @@ function OceanCanvasInner({ camera, viewport, reduced = false }: Props) {
     const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
     if (!ctx) return;
 
+    const swellTile = makeWaveTile(512, 41, false);
+    const rippleTile = makeWaveTile(384, 97, true);
+    const swellPattern = ctx.createPattern(swellTile.canvas, "repeat");
+    const ripplePattern = ctx.createPattern(rippleTile.canvas, "repeat");
     let raf = 0;
-    let last = 0;
-    let active = true;
-    const cores = typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 4 : 4;
+    let lastDraw = 0;
+    let hidden = false;
+    let lastToneBand = Number.NaN;
+    let cachedGradient: CanvasGradient | null = null;
+    let cachedVeil: CanvasGradient | null = null;
+    let cachedWidth = 0;
+    let cachedHeight = 0;
+    const cores = navigator.hardwareConcurrency || 4;
     const lowPower = cores <= 4;
 
-    const draw = (time: number) => {
-      if (!active) return;
-      const reducedMotion = reducedRef.current;
-      const targetFps = reducedMotion ? 12 : lowPower ? 20 : 28;
-      const interval = 1000 / targetFps;
-      if (time - last < interval) {
-        raf = requestAnimationFrame(draw);
-        return;
-      }
-      last = time;
-
-      const { width, height } = viewportRef.current;
-      if (width <= 0 || height <= 0) {
-        raf = requestAnimationFrame(draw);
-        return;
-      }
-      const dpr = Math.min(lowPower ? 1.08 : 1.28, window.devicePixelRatio || 1);
-      const pixelW = Math.max(1, Math.floor(width * dpr));
-      const pixelH = Math.max(1, Math.floor(height * dpr));
+    const ensureSize = (width: number, height: number) => {
+      // A high DPR is wasted on animated water and is one of the largest GPU
+      // costs inside Telegram WebView. 1.15 still looks crisp under the SVG UI.
+      const dpr = Math.min(lowPower ? 1 : 1.15, window.devicePixelRatio || 1);
+      const pixelW = Math.max(1, Math.round(width * dpr));
+      const pixelH = Math.max(1, Math.round(height * dpr));
       if (canvas.width !== pixelW || canvas.height !== pixelH) {
         canvas.width = pixelW;
         canvas.height = pixelH;
         canvas.style.width = `${width}px`;
         canvas.style.height = `${height}px`;
+        cachedGradient = null;
+        cachedVeil = null;
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
 
-      const cam = cameraRef.current;
-      const seconds = time / 1000;
-      const worldLeft = cam.x - width / (2 * cam.zoom);
-      const worldTop = cam.y - height / (2 * cam.zoom);
-      const worldBottom = cam.y + height / (2 * cam.zoom);
+    const draw = (time: number) => {
+      if (hidden) return;
+      const { width, height } = viewportRef.current;
+      if (width <= 0 || height <= 0) {
+        raf = requestAnimationFrame(draw);
+        return;
+      }
 
-      // The sea color itself is sampled from world Y. Even the broad depth
-      // gradient therefore moves when the camera travels through the world.
-      const background = ctx.createLinearGradient(0, 0, 0, height);
-      background.addColorStop(0, oceanTone(worldTop));
-      background.addColorStop(0.52, oceanTone(cam.y));
-      background.addColorStop(1, oceanTone(worldBottom));
-      ctx.fillStyle = background;
+      const interacting = Boolean(interactingRef?.current);
+      // Panning must visually track the finger at display refresh rate. Idle
+      // water can animate slower to save battery.
+      const targetFps = interacting ? 60 : reducedRef.current ? 18 : lowPower ? 24 : 32;
+      const interval = 1000 / targetFps;
+      if (time - lastDraw < interval) {
+        raf = requestAnimationFrame(draw);
+        return;
+      }
+      lastDraw = time;
+      ensureSize(width, height);
+
+      const camera = cameraRef.current;
+      const toneBand = Math.round(camera.y / 420);
+      if (!cachedGradient || cachedWidth !== width || cachedHeight !== height || toneBand !== lastToneBand) {
+        const colors = tone(camera.y);
+        const gradient = ctx.createLinearGradient(0, 0, 0, height);
+        gradient.addColorStop(0, colors.top);
+        gradient.addColorStop(1, colors.bottom);
+        cachedGradient = gradient;
+        cachedWidth = width;
+        cachedHeight = height;
+        lastToneBand = toneBand;
+      }
+      ctx.fillStyle = cachedGradient ?? "#0b7899";
       ctx.fillRect(0, 0, width, height);
 
-      // Gerstner-inspired swell bands. We do not simulate particles: three
-      // directional sine fields produce rolling crests in world coordinates,
-      // which is visually convincing but cheap enough for Telegram WebView.
-      const swellStep = reducedMotion ? 146 : 96;
-      const sampleStep = lowPower || reducedMotion ? 68 : 48;
-      const firstBand = Math.floor(worldTop / swellStep) * swellStep - swellStep * 2;
-      const lastBand = worldBottom + swellStep * 2;
-      ctx.lineCap = "round";
-
-      for (let baseY = firstBand; baseY <= lastBand; baseY += swellStep) {
-        ctx.beginPath();
-        let first = true;
-        for (let sx = -sampleStep; sx <= width + sampleStep; sx += sampleStep) {
-          const wx = worldLeft + sx / cam.zoom;
-          const y1 = Math.sin(wx * 0.0097 + baseY * 0.0019 + seconds * 0.56) * 8.8;
-          const y2 = Math.sin(wx * 0.0042 - baseY * 0.0031 - seconds * 0.27) * 5.0;
-          const y3 = Math.sin((wx + baseY) * 0.0022 + seconds * 0.18) * 2.8;
-          const sy = (baseY + y1 + y2 + y3 - cam.y) * cam.zoom + height / 2;
-          if (first) { ctx.moveTo(sx, sy); first = false; }
-          else ctx.lineTo(sx, sy);
-        }
-        const noise = hash2(Math.floor(baseY / swellStep), 17);
-        ctx.strokeStyle = `rgba(194,244,235,${(0.07 + noise * 0.085).toFixed(3)})`;
-        ctx.lineWidth = Math.max(0.8, 1.25 * cam.zoom);
-        ctx.stroke();
-
-        if (!reducedMotion && cam.zoom > 0.48 && noise > 0.58) {
-          ctx.save();
-          ctx.setLineDash([12 * cam.zoom, 17 * cam.zoom, 3 * cam.zoom, 20 * cam.zoom]);
-          // Moving foam is relative to the world band, not to screen pixels.
-          ctx.lineDashOffset = -(seconds * 7 + baseY * 0.075);
-          ctx.strokeStyle = `rgba(255,253,236,${(0.09 + noise * 0.11).toFixed(3)})`;
-          ctx.lineWidth = Math.max(0.9, 1.55 * cam.zoom);
-          ctx.stroke();
-          ctx.restore();
-        }
+      const seconds = time * 0.001;
+      // Two cached wave fields move at different velocities. Both remain
+      // anchored in world coordinates, so camera movement never feels like the
+      // ocean is glued to the screen.
+      fillWorldPattern(ctx, swellPattern, width, height, camera, seconds * 5.5, seconds * 1.6, reducedRef.current ? 0.54 : 0.86);
+      if (!reducedRef.current || interacting) {
+        fillWorldPattern(ctx, ripplePattern, width, height, camera, -seconds * 8.2, seconds * 3.1, lowPower ? 0.46 : 0.62);
       }
 
-      // Smaller cross-waves are generated from an infinite world grid. Panning
-      // exposes neighbouring cells, so the pattern never sticks to the camera.
-      const cell = reducedMotion ? 138 : 104;
-      const gx0 = Math.floor(worldLeft / cell) - 2;
-      const gy0 = Math.floor(worldTop / cell) - 2;
-      const gx1 = gx0 + Math.ceil(width / (cell * cam.zoom)) + 5;
-      const gy1 = gy0 + Math.ceil(height / (cell * cam.zoom)) + 5;
-
-      for (let gy = gy0; gy <= gy1; gy += 1) {
-        for (let gx = gx0; gx <= gx1; gx += 1) {
-          const random = hash2(gx, gy);
-          const wx = gx * cell + 18 + random * 58;
-          const wy = gy * cell + 14 + hash2(gy, gx) * 64;
-          const sx = (wx - cam.x) * cam.zoom + width / 2;
-          const sy0 = (wy - cam.y) * cam.zoom + height / 2;
-          const phase = gx * 0.67 + gy * 0.43 + seconds * (reducedMotion ? 0.10 : 0.32);
-          const sy = sy0 + Math.sin(phase) * 4.4 * cam.zoom;
-          const len = (32 + random * 50) * cam.zoom;
-          const amp = (2.4 + random * 4.1) * cam.zoom;
-          if (sx < -len || sx > width + len || sy < -30 || sy > height + 30) continue;
-
-          ctx.strokeStyle = `rgba(211,248,242,${(0.10 + random * 0.13).toFixed(3)})`;
-          ctx.lineWidth = Math.max(0.65, 1.15 * cam.zoom);
-          ctx.beginPath();
-          ctx.moveTo(sx - len / 2, sy);
-          ctx.bezierCurveTo(sx - len * 0.20, sy - amp, sx + len * 0.16, sy + amp, sx + len / 2, sy - amp * 0.18);
-          ctx.stroke();
-
-          if (!reducedMotion && random > 0.84 && Math.sin(phase) > 0.58 && cam.zoom > 0.54) {
-            ctx.strokeStyle = `rgba(255,253,237,${(0.19 + random * 0.20).toFixed(3)})`;
-            ctx.lineWidth = Math.max(0.9, 1.5 * cam.zoom);
-            ctx.beginPath();
-            ctx.moveTo(sx - len * 0.18, sy - amp * 0.24);
-            ctx.quadraticCurveTo(sx, sy - amp * 0.85, sx + len * 0.18, sy - amp * 0.14);
-            ctx.stroke();
-          }
-        }
+      // A cheap horizon/depth veil keeps the water dimensional without any
+      // per-frame blur/filter passes.
+      if (!cachedVeil) {
+        const veil = ctx.createLinearGradient(0, 0, width, height);
+        veil.addColorStop(0, "rgba(255,255,255,.018)");
+        veil.addColorStop(0.52, "rgba(255,255,255,0)");
+        veil.addColorStop(1, "rgba(1,35,61,.10)");
+        cachedVeil = veil;
       }
-
-      // Sparse world-space caustics add depth without a WebGL shader.
-      if (!reducedMotion) {
-        ctx.globalCompositeOperation = "screen";
-        const anchorX = Math.floor(cam.x / 620) * 620;
-        const anchorY = Math.floor(cam.y / 520) * 520;
-        for (let i = 0; i < 6; i += 1) {
-          const wx = anchorX + (i - 2.5) * 430 + hash2(i, Math.floor(anchorY / 520)) * 170;
-          const wy = anchorY + ((i * 197) % 880) - 440;
-          const sx = (wx - cam.x) * cam.zoom + width / 2;
-          const sy = (wy - cam.y) * cam.zoom + height / 2;
-          const radius = (86 + i * 11) * cam.zoom;
-          const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, radius);
-          glow.addColorStop(0, "rgba(121,231,220,.06)");
-          glow.addColorStop(1, "rgba(121,231,220,0)");
-          ctx.fillStyle = glow;
-          ctx.beginPath();
-          ctx.ellipse(sx, sy, radius, radius * 0.43, -0.28, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        ctx.globalCompositeOperation = "source-over";
-      }
+      ctx.fillStyle = cachedVeil ?? "rgba(1,35,61,.08)";
+      ctx.fillRect(0, 0, width, height);
 
       raf = requestAnimationFrame(draw);
     };
 
-    const visibility = () => {
-      if (document.visibilityState === "hidden") {
-        active = false;
-        cancelAnimationFrame(raf);
-      } else if (!active) {
-        active = true;
-        last = 0;
+    const onVisibility = () => {
+      hidden = document.visibilityState === "hidden";
+      if (hidden) cancelAnimationFrame(raf);
+      else {
+        lastDraw = 0;
         raf = requestAnimationFrame(draw);
       }
     };
 
-    document.addEventListener("visibilitychange", visibility);
+    document.addEventListener("visibilitychange", onVisibility);
     raf = requestAnimationFrame(draw);
     return () => {
-      active = false;
+      hidden = true;
       cancelAnimationFrame(raf);
-      document.removeEventListener("visibilitychange", visibility);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, []);
+  }, [cameraRef, interactingRef]);
 
   return <canvas ref={canvasRef} className="ocean-physics-canvas" aria-hidden="true" />;
 }

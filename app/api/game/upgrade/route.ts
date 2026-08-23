@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     if (!stateId || !BUILDINGS.includes(buildingType)) throw new Error("Invalid upgrade request");
 
     const { player, member, session } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
-    if (!['president', 'minister'].includes(member.role)) throw new Error("Улучшать город может президент или министр.");
+    if (!['president', 'minister'].includes(member.role)) throw new Error("Развивать остров может президент или министр.");
     await upgradeBuilding(stateId, buildingType);
     await tickState(stateId);
     return Response.json(await getGameSnapshot(player.id, stateId, session.user.id, member.role));

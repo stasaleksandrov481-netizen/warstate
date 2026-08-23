@@ -7,9 +7,10 @@ import { ensureMilestoneBadges, getActiveSeason, getElection, getStateBadges } f
 import { getIslandWorld, syncStateChatMeta } from "@/lib/islands";
 import type { BuildingType, BuildingView, GameSnapshot, TileView } from "@/lib/types";
 import type { TelegramUser } from "@/lib/telegram";
+import { requireData } from "@/lib/invariants";
 
 const BUILDING_META: Record<BuildingType, { label: string; description: string; x: number; y: number }> = {
-  hq: { label: "Штаб", description: "Рейтинг, защита столицы и лимиты государства", x: 50, y: 36 },
+  hq: { label: "Штаб", description: "Рейтинг, оборона острова и лимиты государства", x: 50, y: 36 },
   barracks: { label: "Казармы", description: "Повышают силу атакующей армии", x: 31, y: 53 },
   mine: { label: "Шахта", description: "Производит сталь", x: 69, y: 56 },
   refinery: { label: "НПЗ", description: "Производит топливо", x: 76, y: 30 },
@@ -62,7 +63,7 @@ export async function tickState(stateId: string) {
     p_tech_rate: rates.tech,
   });
   if (error) throw error;
-  return data;
+  return requireData(data, "Не удалось обновить состояние государства.");
 }
 
 async function upsertPlayer(user: TelegramUser) {
@@ -83,7 +84,7 @@ async function upsertPlayer(user: TelegramUser) {
     .select("*")
     .single();
   if (error) throw error;
-  return data;
+  return requireData(data, "Не удалось создать профиль игрока.");
 }
 
 async function ensureStateForChat(chatId: number, playerId: string, telegramUserId: number) {
@@ -115,14 +116,17 @@ async function ensureStateForChat(chatId: number, playerId: string, telegramUser
     .single();
   if (error) {
     if (error.code === "23505") {
-      const { data } = await supabase.from("states").select("*").eq("telegram_chat_id", chatId).single();
-      return data;
+      const { data, error: refetchError } = await supabase.from("states").select("*").eq("telegram_chat_id", chatId).single();
+      if (refetchError) throw refetchError;
+      return requireData(data, "Государство не найдено после параллельного создания.");
     }
     throw error;
   }
 
+  const createdState = requireData(created, "Не удалось создать государство.");
+
   const buildingRows = (Object.keys(BUILDING_META) as BuildingType[]).map((building_type) => ({
-    state_id: created.id,
+    state_id: createdState.id,
     building_type,
     level: 1,
   }));
@@ -132,14 +136,14 @@ async function ensureStateForChat(chatId: number, playerId: string, telegramUser
   await recordWorldEvent({
     eventType: "state_founded",
     title: "Новое государство",
-    body: `${created.name} появилось на мировой карте.`,
-    actorStateId: created.id,
+    body: `${createdState.name} появилось на мировой карте.`,
+    actorStateId: createdState.id,
   }).catch(() => null);
 
   // v0.9+: a chat owns one island directly. The legacy hex map is no longer allocated.
 
 
-  return created;
+  return createdState;
 }
 
 export async function bootstrapGame(user: TelegramUser, chatId: number): Promise<GameSnapshot> {
@@ -170,10 +174,11 @@ export async function bootstrapGame(user: TelegramUser, chatId: number): Promise
     .select("*")
     .single();
   if (memberError) throw memberError;
+  const membershipRow = requireData(member, "Не удалось сохранить гражданство игрока.");
 
   state = await tickState(state.id);
   await recordMissionProgress(player.id, state.id, "check_in").catch(() => null);
-  return getGameSnapshot(player.id, state.id, user.id, member.role, "live");
+  return getGameSnapshot(player.id, state.id, user.id, membershipRow.role, "live");
 }
 
 export async function getGameSnapshot(
@@ -197,6 +202,9 @@ export async function getGameSnapshot(
 
   const player = playerRes.data;
   const state = stateRes.data;
+  if (!player) throw new Error("Игрок не найден.");
+  if (!state) throw new Error("Государство не найдено.");
+
   const buildingsRaw = (buildingsRes.data || []) as Array<{ building_type: BuildingType; level: number }>;
   const rates = production(buildingsRaw);
   // Island World no longer ships the legacy 127-hex map in every snapshot.
@@ -214,7 +222,7 @@ export async function getGameSnapshot(
   ]);
   const islands = await getIslandWorld(stateId, diplomacy, { x: Number(state.world_x || 0), y: Number(state.world_y || 0) });
   if (rankRes.error) throw rankRes.error;
-  await ensureMilestoneBadges(stateId, season?.id || null, state.rating, territoryCount, wins).catch(() => null);
+  await ensureMilestoneBadges(stateId, season?.id || null, state.rating, wins, state.best_win_streak || 0).catch(() => null);
   const badges = await getStateBadges(stateId);
 
   const buildings: BuildingView[] = buildingsRaw.map((b) => ({
@@ -298,9 +306,10 @@ export async function upgradeBuilding(stateId: string, buildingType: BuildingTyp
     .eq("building_type", buildingType)
     .single();
   if (error) throw error;
-  if (building.level >= 12) throw new Error("Максимальный уровень здания достигнут.");
+  const buildingRow = requireData(building, "Здание не найдено.");
+  if (buildingRow.level >= 12) throw new Error("Максимальный уровень здания достигнут.");
 
-  const cost = scaleCost(buildingType, building.level + 1);
+  const cost = scaleCost(buildingType, buildingRow.level + 1);
   const { error: rpcError } = await supabase.rpc("gw_upgrade_building", {
     p_state_id: stateId,
     p_building_type: buildingType,

@@ -1,4 +1,4 @@
-import type { BattleClass, BattlePoint, BattleView, BuildingType, DiplomacyAction, DiplomacyStatus, GameSnapshot, IslandView, MissionKey, PlayerView, TileView } from "@/lib/types";
+import type { BattleClass, BattlePoint, BattleView, BuildingType, DiplomacyAction, DiplomacyStatus, GameSnapshot, IslandView, MissionKey, PlayerView } from "@/lib/types";
 
 const BUILDINGS: Array<{ type: BuildingType; label: string; description: string; x: number; y: number }> = [
   { type: "hq", label: "Штаб", description: "Управление государством", x: 50, y: 36 },
@@ -17,35 +17,6 @@ const DEMO_ISLANDS: IslandView[] = [
   { id:"neon-state",name:"NEON DISTRICT",color:"#53e6a6",emblem:"N",worldX:-980,worldY:-620,memberCount:154,rating:1512,rank:5,wins:8,losses:11,integrity:74,winStreak:1,lastBattleAt:new Date(Date.now()-7*60*60_000).toISOString(),isMine:false,avatarUrl:null },
   { id:"ruins-state",name:"DARK LEGENDS",color:"#7d8796",emblem:"D",worldX:180,worldY:980,memberCount:86,rating:1320,rank:6,wins:4,losses:18,integrity:0,winStreak:0,lastBattleAt:new Date(Date.now()-35*60_000).toISOString(),isMine:false,avatarUrl:null,destroyedUntil:new Date(Date.now()+75*60_000).toISOString() },
 ];
-
-function hexes(radius = 4): TileView[] {
-  const tiles: TileView[] = [];
-  let i = 0;
-  for (let q = -radius; q <= radius; q++) {
-    const r1 = Math.max(-radius, -q - radius);
-    const r2 = Math.min(radius, -q + radius);
-    for (let r = r1; r <= r2; r++) {
-      const terrainCycle: TileView["terrain"][] = ["plain", "forest", "plain", "mountain", "city", "oil", "ruins"];
-      const terrain = terrainCycle[Math.abs(q * 7 + r * 11) % terrainCycle.length];
-      const mine = terrain === "mountain" ? "steel" : terrain === "oil" ? "fuel" : terrain === "city" ? "credits" : null;
-      const ours = (q === 0 && r === 0) || (q === 1 && r === 0) || (q === 0 && r === 1);
-      const enemy = q <= -2 && r <= 1 && r >= -2;
-      tiles.push({
-        id: `demo-${i++}`,
-        q,
-        r,
-        terrain,
-        resourceType: mine,
-        defense: ours ? 3 : enemy ? 4 : 1 + (Math.abs(q + r) % 3),
-        ownerStateId: ours ? "demo-state" : enemy ? "enemy-state" : null,
-        ownerName: ours ? "MEMEX COMMUNITY" : enemy ? "VOID LEGION" : null,
-        ownerColor: ours ? "#9b7cff" : enemy ? "#ff5267" : null,
-        isCapital: q === 0 && r === 0,
-      });
-    }
-  }
-  return tiles;
-}
 
 export function createDemoSnapshot(): GameSnapshot {
   return {
@@ -73,7 +44,7 @@ export function createDemoSnapshot(): GameSnapshot {
       productionPerHour: { credits: 510, steel: 310, fuel: 172, food: 360, tech: 44 },
       rating: 1840,
       memberCount: 248,
-      territoryCount: 3,
+      territoryCount: 1,
       seasonRank: 2,
       worldX: 0,
       worldY: 0,
@@ -94,26 +65,14 @@ export function createDemoSnapshot(): GameSnapshot {
       level: index === 0 ? 3 : index < 3 ? 2 : 1,
       upgradeCost: { credits: 900 + index * 220, steel: 160 + index * 50 },
     })),
-    tiles: hexes(),
-    wars: [
-      {
-        id: "war-demo-1",
-        attackerName: "MEMEX COMMUNITY",
-        defenderName: "VOID LEGION",
-        tileId: "demo-12",
-        winnerStateId: "demo-state",
-        attackerPower: 728,
-        defenderPower: 641,
-        status: "resolved",
-        createdAt: new Date(Date.now() - 36 * 60_000).toISOString(),
-      },
-    ],
+    tiles: [],
+    wars: [],
     diplomacy: [
       { id: "rel-void", otherStateId: "enemy-state", otherStateName: "VOID LEGION", otherStateColor: "#ff5267", status: "war", requestedByStateId: "demo-state", updatedAt: new Date(Date.now()-45*60_000).toISOString() },
       { id: "rel-north", otherStateId: "north-state", otherStateName: "NORTH UNION", otherStateColor: "#55c9ff", status: "allied", requestedByStateId: null, updatedAt: new Date(Date.now()-3*60*60_000).toISOString() },
     ],
     worldFeed: [
-      { id: 5, kind: "battle_resolved", title: "Территория захвачена", text: "MEMEX COMMUNITY отбил сектор у VOID LEGION со счётом 728:641.", actorStateId: "demo-state", actorStateName: "MEMEX COMMUNITY", actorStateColor: "#9b7cff", targetStateId: "enemy-state", targetStateName: "VOID LEGION", targetStateColor: "#ff5267", createdAt: new Date(Date.now()-36*60_000).toISOString() },
+      { id: 5, kind: "island_damaged", title: "Успешный рейд", text: "MEMEX COMMUNITY выиграл морскую операцию против VOID LEGION и повредил остров.", actorStateId: "demo-state", actorStateName: "MEMEX COMMUNITY", actorStateColor: "#9b7cff", targetStateId: "enemy-state", targetStateName: "VOID LEGION", targetStateColor: "#ff5267", createdAt: new Date(Date.now()-36*60_000).toISOString() },
       { id: 4, kind: "alliance", title: "Новый альянс", text: "MEMEX COMMUNITY и NORTH UNION заключили союз.", actorStateId: "demo-state", actorStateName: "MEMEX COMMUNITY", actorStateColor: "#9b7cff", targetStateId: "north-state", targetStateName: "NORTH UNION", targetStateColor: "#55c9ff", createdAt: new Date(Date.now()-3*60*60_000).toISOString() },
       { id: 3, kind: "war_declared", title: "Объявлена война", text: "VOID LEGION объявил войну NEON DISTRICT.", actorStateId: "enemy-state", actorStateName: "VOID LEGION", actorStateColor: "#ff5267", targetStateId: "neon-state", targetStateName: "NEON DISTRICT", targetStateColor: "#53e6a6", createdAt: new Date(Date.now()-5*60*60_000).toISOString() },
     ],
@@ -134,19 +93,19 @@ export function createDemoSnapshot(): GameSnapshot {
       endsAt: new Date(Date.now()+22*60*60_000).toISOString(),
       myVoteCandidateId: null, winnerPlayerId: null,
       candidates: [
-        { id:"cand-me",playerId:"demo-player",displayName:"Konstantin",statement:"Расширяем границы и качаем город.",votes:84,isMe:true },
+        { id:"cand-me",playerId:"demo-player",displayName:"Konstantin",statement:"Качаем флот, инфраструктуру и рейтинг острова.",votes:84,isMe:true },
         { id:"cand-max",playerId:"ally-1",displayName:"Max",statement:"Больше дипломатии, меньше бессмысленных войн.",votes:61,isMe:false },
       ],
     },
     badges: [
       { id:"badge-1",key:"rating_1500",title:"На мировой сцене",description:"Достичь рейтинга 1500",icon:"★",earnedAt:new Date(Date.now()-2*24*60*60_000).toISOString() },
-      { id:"badge-2",key:"wins_5",title:"Закалённые войной",description:"Победить в 5 сражениях",icon:"⚔",earnedAt:new Date(Date.now()-5*24*60*60_000).toISOString() },
+      { id:"badge-2",key:"island_wins_5",title:"Морские волки",description:"Победить в 5 островных войнах",icon:"☠",earnedAt:new Date(Date.now()-5*24*60*60_000).toISOString() },
     ],
     leaderboard: [
-      { id: "alpha-state", name: "ALPHA SQUAD", color: "#8b45ff", rating: 2314, rank: 1, territoryCount: 512 },
-      { id: "demo-state", name: "MEMEX COMMUNITY", color: "#5e73ff", rating: 1840, rank: 2, territoryCount: 248 },
-      { id: "enemy-state", name: "VOID LEGION", color: "#ef495d", rating: 1775, rank: 3, territoryCount: 238 },
-      { id: "north-state", name: "NORTH UNION", color: "#43c0ff", rating: 1690, rank: 4, territoryCount: 312 },
+      { id: "alpha-state", name: "ALPHA SQUAD", color: "#8b45ff", rating: 2314, rank: 1, memberCount: 512 },
+      { id: "demo-state", name: "MEMEX COMMUNITY", color: "#5e73ff", rating: 1840, rank: 2, memberCount: 248 },
+      { id: "enemy-state", name: "VOID LEGION", color: "#ef495d", rating: 1775, rank: 3, memberCount: 238 },
+      { id: "north-state", name: "NORTH UNION", color: "#43c0ff", rating: 1690, rank: 4, memberCount: 312 },
     ],
     islands: DEMO_ISLANDS,
     startParam: "gw_-100123456789",

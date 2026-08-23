@@ -6,7 +6,7 @@ import "./game-theme.css";
 
 export const metadata: Metadata = {
   title: "GROUP WARS",
-  description: "Telegram groups become states. Build, expand and fight.",
+  description: "Telegram groups become island-states. Grow your island, fight rivals and climb the ELO ladder.",
 };
 
 export const viewport: Viewport = {

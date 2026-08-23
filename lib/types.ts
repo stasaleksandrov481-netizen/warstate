@@ -187,7 +187,7 @@ export interface LeaderboardStateView {
   color: string;
   rating: number;
   rank: number;
-  territoryCount: number;
+  memberCount: number;
 }
 
 

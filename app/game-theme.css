@@ -96,3 +96,104 @@ body{overscroll-behavior:none}
 @media(max-width:350px){.game-stat-chip.coin{display:none}.game-header-name b{max-width:92px!important}.island-bottom-nav button small{font-size:5px!important}}
 @media(prefers-reduced-motion:reduce){.island-art.selected,.island-svg-smoke{animation:none!important}.game-island-node{transition:none!important}}
 .game-home-hero{height:270px!important;background:linear-gradient(180deg,#0b5277,#063653)!important;overflow:hidden!important}.game-home-hero .my-island-water{background:repeating-radial-gradient(ellipse at 50% 45%,transparent 0 22px,rgba(151,224,255,.07) 23px 24px,transparent 25px 44px),radial-gradient(circle at 35% 25%,rgba(87,194,231,.2),transparent 28%)!important}.home-island-art{position:absolute;left:50%;top:48%;width:260px;height:174px;transform:translate(-50%,-50%);filter:drop-shadow(0 18px 16px rgba(0,10,18,.42))}.game-home-hero .my-island-identity{z-index:10;background:linear-gradient(180deg,rgba(4,25,40,.9),rgba(3,17,29,.94))!important;border:1px solid rgba(125,198,240,.13)}.game-home-hero .island-integrity-float{z-index:11}
+
+/* ================================================================
+   GROUP WARS v1.2 — mobile game polish
+   Keeps the interface map-first and reduces dashboard/SaaS visual weight.
+   ================================================================ */
+.game-brand-rune{
+  width:30px;height:34px;flex:0 0 30px;display:grid;place-items:center;
+  clip-path:polygon(50% 0,92% 19%,86% 75%,50% 100%,14% 75%,8% 19%);
+  background:linear-gradient(155deg,#4cbcff,#1764c9 60%,#102d69);
+  color:white;font-size:8px;font-weight:1000;letter-spacing:-.05em;
+  border:0;filter:drop-shadow(0 5px 8px rgba(20,105,205,.32));
+}
+.game-mobile-header{height:76px!important;padding:7px 8px!important;background:linear-gradient(180deg,#061827 0,#04111d 100%)!important}
+.island-viewport{height:calc(100dvh - 76px - 68px - env(safe-area-inset-top))!important}
+.game-header-avatar{border-radius:12px!important;width:36px!important;height:36px!important;flex-basis:36px!important}
+.game-header-name b{max-width:104px!important;font-size:10.5px!important}.game-header-name small{font-size:6px!important}
+.game-header-stats{gap:3px}.game-stat-chip{height:42px;min-width:49px;padding:4px 5px;border-radius:10px;background:rgba(10,34,52,.72);border-color:rgba(120,199,243,.1);box-shadow:none}
+.game-stat-chip b{font-size:8.5px}.game-stat-chip small{font-size:4.8px;margin-top:3px}.game-stat-chip svg{width:13px;height:13px}
+
+.game-ocean{
+  background:
+    radial-gradient(ellipse at 20% 8%,rgba(76,205,239,.22),transparent 31%),
+    radial-gradient(ellipse at 84% 73%,rgba(14,126,190,.18),transparent 35%),
+    linear-gradient(180deg,#0a5074 0%,#06405f 44%,#042d47 100%);
+}
+.game-ocean::before{opacity:.34;background-size:auto;background-image:
+  repeating-radial-gradient(ellipse at 40% 30%,transparent 0 19px,rgba(172,232,255,.065) 20px 21px,transparent 22px 43px),
+  repeating-linear-gradient(168deg,transparent 0 49px,rgba(198,239,255,.035) 50px 51px,transparent 52px 91px)}
+.game-ocean::after{background:linear-gradient(180deg,rgba(0,14,26,.16),transparent 13%,transparent 68%,rgba(0,10,19,.34)),radial-gradient(ellipse at center,transparent 45%,rgba(0,13,23,.16) 100%)}
+.ocean-current{opacity:.34}.ocean-light{opacity:.3}
+
+.game-island-node{filter:drop-shadow(0 13px 9px rgba(0,10,19,.34));transition:filter .14s ease}
+.game-island-node.selected{filter:drop-shadow(0 13px 10px rgba(0,10,20,.42)) drop-shadow(0 0 10px rgba(85,202,255,.48))}
+.detail-far .game-island-node:not(.mine):not(.selected){filter:none}
+.detail-far .game-island-label{backdrop-filter:none!important;background:rgba(3,18,30,.91);box-shadow:0 5px 12px rgba(0,0,0,.25)}
+.detail-far .island-wave-rings,.detail-far .island-svg-smoke{display:none}
+.island-wave-rings{transform-origin:120px 105px;animation:islandWaterBreath 4.8s ease-in-out infinite}
+@keyframes islandWaterBreath{50%{opacity:.32;transform:scale(1.035)}}
+
+.game-island-label{
+  min-width:126px;max-width:170px;height:42px;padding:5px 9px 5px 39px;border-radius:10px;
+  background:linear-gradient(180deg,rgba(3,20,33,.95),rgba(2,13,23,.96));
+  border-color:rgba(151,218,250,.13);box-shadow:0 7px 16px rgba(0,0,0,.31);
+}
+.game-island-avatar{left:5px;top:5px;width:31px;height:31px;border-width:1px;font-size:11px}
+.game-island-copy strong{font-size:8.5px}.game-island-copy small{font-size:6px;margin-top:3px}.game-status{right:5px;top:5px;width:5px;height:5px}
+.relation-tag{position:absolute;right:5px;bottom:4px;font-style:normal;font-size:4.8px;font-weight:1000;letter-spacing:.07em;padding:2px 4px;border-radius:4px;background:#193044;color:#94afc2}
+.relation-tag.tag-war{background:rgba(175,41,51,.72);color:#ffd4d6}.relation-tag.tag-allied{background:rgba(31,132,79,.68);color:#d5ffe5}.relation-tag.tag-truce{background:rgba(34,102,148,.72);color:#d4f1ff}
+
+.game-map-tools button{width:40px;height:40px;border-radius:12px;background:linear-gradient(180deg,rgba(8,34,52,.95),rgba(3,19,32,.97));font-size:18px}
+.game-minimap{width:88px;height:50px;border-radius:10px;background:rgba(2,17,29,.82);backdrop-filter:blur(5px)}
+.game-war-banner{top:7px;left:8px;right:8px;min-height:50px;border-radius:12px;padding:6px 8px;grid-template-columns:27px minmax(0,1fr) auto}
+.game-war-banner strong{padding:8px 10px}.game-war-banner b{font-size:8px}.game-war-banner small{font-size:6.5px}
+
+.game-island-sheet{
+  border-radius:22px 22px 0 0!important;border:1px solid rgba(151,215,250,.14)!important;border-bottom:0!important;
+  background:linear-gradient(180deg,rgba(5,26,42,.985),rgba(2,13,23,.995))!important;
+  box-shadow:0 -16px 42px rgba(0,0,0,.42),inset 0 2px 0 color-mix(in srgb,var(--sheet-color),transparent 25%)!important;
+  padding-top:13px!important;
+}
+.game-island-sheet::before{content:"";position:absolute;top:5px;left:50%;width:38px;height:3px;border-radius:4px;transform:translateX(-50%);background:rgba(173,213,236,.22)}
+.sheet-close{background:rgba(30,54,70,.55)!important;color:#abc0cf!important}
+.sheet-island-id h3{font-size:15px!important;letter-spacing:-.02em}.sheet-island-id p{color:#86a0b4!important}.sheet-island-id>span{border-radius:13px!important}
+.sheet-integrity-track{height:5px;background:#071724;border-radius:8px;overflow:hidden;margin:11px 0 9px}.sheet-integrity-track i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#ff555a,#ffbb45 45%,#53dc88)}
+.sheet-game-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.sheet-game-stats span{padding:7px 6px;border-radius:9px;background:rgba(12,40,58,.64);border:1px solid rgba(133,197,233,.08)}.sheet-game-stats b{display:block;font-size:11px}.sheet-game-stats b em{font-style:normal;color:#8199aa;font-size:8px}.sheet-game-stats small{font-size:5.4px;color:#728b9e}
+.sheet-status-row{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}.sheet-status{font-size:5.7px;font-weight:900;letter-spacing:.06em;padding:5px 7px;border-radius:7px;background:#163047;color:#9bb7c8}.sheet-status.enemy{background:rgba(133,35,43,.52);color:#ffb9bd}.sheet-status.ally{background:rgba(25,111,66,.5);color:#b9f7d1}.sheet-status.truce{background:rgba(28,87,127,.52);color:#bee8ff}.sheet-status.shield{background:rgba(56,73,122,.55);color:#cbd7ff}
+.sheet-attack,.sheet-home{min-height:51px!important;border-radius:12px!important;margin-top:9px!important}.sheet-attack{background:linear-gradient(180deg,#e34d53,#ad2932)!important;box-shadow:0 8px 18px rgba(174,40,49,.24)!important}.sheet-attack:disabled{background:#183042!important;box-shadow:none!important}.sheet-attack span,.sheet-home span{font-size:9px!important;letter-spacing:.06em}.sheet-attack small,.sheet-home small{font-size:6px!important}.sheet-home{background:linear-gradient(180deg,#2477b4,#164d78)!important;color:#eaf7ff!important}
+.sheet-danger{margin-top:9px;padding:10px;border-radius:10px;background:rgba(84,35,31,.65);color:#efb8ad;font-size:7px;text-align:center}
+
+/* Game-like island home: one command strip instead of four SaaS KPI cards. */
+.island-command-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin:8px 0 11px;padding:0 1px}
+.island-command-strip>span{min-width:0;padding:8px 5px;border-radius:11px;background:linear-gradient(180deg,#0b2c43,#071c2d);border:1px solid rgba(128,195,233,.1);text-align:center;box-shadow:inset 0 1px 0 rgba(255,255,255,.025)}
+.island-command-strip small{display:block;font-size:4.8px;color:#6e8ba0;letter-spacing:.07em}.island-command-strip b{display:block;margin-top:3px;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.island-command-strip em{display:block;margin-top:2px;font-size:5.2px;color:#6e8799;font-style:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.infra-card{border-radius:12px!important;background:linear-gradient(100deg,rgba(8,35,52,.96),rgba(5,22,35,.98))!important;border-color:rgba(117,190,231,.09)!important;box-shadow:none!important}.infra-card:has(button:not(:disabled)):active{transform:scale(.995)}
+.infra-card button{min-width:58px!important;background:linear-gradient(180deg,#236ba3,#17466d)!important}.infra-card button:disabled{background:#14293a!important;color:#668297!important}
+.repair-card,.rebuild-card{box-shadow:none!important}
+
+/* Bottom bar: battle is the one deliberately loud action. */
+.island-bottom-nav{height:68px!important;padding:4px 4px calc(5px + env(safe-area-inset-bottom))!important;background:linear-gradient(180deg,#051827,#020d16)!important}
+.island-bottom-nav button{position:relative;border-radius:10px!important;transition:transform .12s ease,background .12s ease!important}
+.nav-icon-wrap{position:relative;display:grid;place-items:center;width:24px;height:23px}.nav-live-dot{position:absolute;right:-2px;top:-2px;width:6px;height:6px;border-radius:50%;background:#ff4d57;border:1px solid #07121c;box-shadow:0 0 8px #ff4d57}
+.island-bottom-nav button:nth-child(3){transform:translateY(-7px);color:#ffd7d9!important;background:linear-gradient(180deg,#bd3942,#76242c)!important;border:1px solid rgba(255,101,108,.3)!important;box-shadow:0 8px 20px rgba(147,35,43,.28)!important}
+.island-bottom-nav button:nth-child(3).active{color:white!important;background:linear-gradient(180deg,#e65057,#a52831)!important;box-shadow:0 8px 24px rgba(200,43,52,.35)!important}
+.island-bottom-nav button:nth-child(3) .nav-icon-wrap{width:30px;height:27px}.island-bottom-nav button:nth-child(3) svg{width:22px;height:22px}
+
+/* Battle scene receives more contrast than profile panels. */
+.battle-screen{background:radial-gradient(circle at 50% 20%,rgba(47,99,132,.14),transparent 30%),linear-gradient(180deg,#041523,#020c15)!important}
+.battle-head-v2{border-bottom-color:rgba(130,196,235,.12)!important}.scoreboard-v2{box-shadow:inset 0 0 0 1px rgba(255,255,255,.035)}
+.capture-point-v2{border-color:rgba(131,195,231,.12)!important;background:radial-gradient(circle at 50% 45%,rgba(24,84,113,.22),rgba(3,18,29,.88))!important}.capture-point-v2.current{box-shadow:inset 0 0 0 1px rgba(92,205,255,.4),0 0 20px rgba(66,174,229,.12)!important}
+.combat-card-v2{background:linear-gradient(180deg,#0a2a40,#061a2b)!important;border-color:rgba(123,197,239,.12)!important}
+
+@media(max-width:390px){
+  .game-mobile-header{height:72px!important}.island-viewport{height:calc(100dvh - 72px - 66px - env(safe-area-inset-top))!important}.island-bottom-nav{height:66px!important}
+  .game-brand-rune{width:27px;height:31px;flex-basis:27px}.game-header-avatar{width:33px!important;height:33px!important;flex-basis:33px!important}.game-header-name b{max-width:82px!important;font-size:9.5px!important}.game-header-stats{gap:2px}.game-stat-chip{min-width:44px;height:39px;padding-inline:4px}.game-stat-chip b{font-size:8px}.game-stat-chip small{font-size:4.5px}
+  .game-island-label{min-width:118px;max-width:155px;height:40px;padding-left:37px}.game-island-avatar{width:29px;height:29px}.game-island-copy strong{font-size:8px}
+  .island-command-strip{gap:3px}.island-command-strip>span{padding-inline:3px}.island-command-strip b{font-size:8px}
+}
+@media(max-width:350px){
+  .game-stat-chip:nth-child(2){display:none}.game-header-name b{max-width:96px!important}.island-command-strip{grid-template-columns:repeat(2,1fr)}
+}
+@media(prefers-reduced-motion:reduce){.island-wave-rings{animation:none!important}.island-bottom-nav button{transition:none!important}}

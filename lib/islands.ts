@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { getChat, getChatMemberCount } from "@/lib/telegram-bot";
 import type { DiplomacyRelationView, IslandView } from "@/lib/types";
+import { requireData, safeInteger, safeNumber } from "@/lib/invariants";
 
 const META_TTL_MS = 30 * 60 * 1000;
 
@@ -12,9 +13,10 @@ export async function syncStateChatMeta(stateId: string, chatId: number, force =
     .eq("id", stateId)
     .single();
   if (error) throw error;
+  const currentState = requireData(current, "Государство не найдено.");
 
-  const last = current.chat_meta_synced_at ? new Date(current.chat_meta_synced_at).getTime() : 0;
-  if (!force && last && Date.now() - last < META_TTL_MS) return current;
+  const last = currentState.chat_meta_synced_at ? new Date(currentState.chat_meta_synced_at).getTime() : 0;
+  if (!force && last && Date.now() - last < META_TTL_MS) return currentState;
 
   const [chat, memberCount] = await Promise.all([
     getChat(chatId).catch(() => null),
@@ -27,7 +29,7 @@ export async function syncStateChatMeta(stateId: string, chatId: number, force =
 
   const { data, error: updateError } = await supabase.from("states").update(patch).eq("id", stateId).select("*").single();
   if (updateError) throw updateError;
-  return data;
+  return requireData(data, "Не удалось обновить данные Telegram-группы.");
 }
 
 export async function getIslandWorld(
@@ -41,7 +43,8 @@ export async function getIslandWorld(
   if (!origin) {
     const { data: mine, error } = await supabase.from("states").select("world_x,world_y").eq("id", stateId).single();
     if (error) throw error;
-    origin = { x: Number(mine.world_x || 0), y: Number(mine.world_y || 0) };
+    const ownState = requireData(mine, "Государство не найдено.");
+    origin = { x: safeNumber(ownState.world_x), y: safeNumber(ownState.world_y) };
   }
 
   const { data, error } = await supabase.rpc("gw_get_islands", {
@@ -58,15 +61,15 @@ export async function getIslandWorld(
     name: row.name,
     color: row.color,
     emblem: row.emblem || "◆",
-    worldX: Number(row.world_x || 0),
-    worldY: Number(row.world_y || 0),
-    memberCount: Number(row.telegram_member_count || 1),
-    rating: Number(row.rating || 1000),
-    rank: Number(row.rank || 0),
-    wins: Number(row.island_wins || 0),
-    losses: Number(row.island_losses || 0),
-    integrity: Number(row.island_integrity ?? 100),
-    winStreak: Number(row.win_streak || 0),
+    worldX: safeNumber(row.world_x),
+    worldY: safeNumber(row.world_y),
+    memberCount: Math.max(1, safeInteger(row.telegram_member_count, 1)),
+    rating: safeInteger(row.rating, 1000),
+    rank: Math.max(0, safeInteger(row.rank)),
+    wins: Math.max(0, safeInteger(row.island_wins)),
+    losses: Math.max(0, safeInteger(row.island_losses)),
+    integrity: Math.max(0, Math.min(100, safeInteger(row.island_integrity, 100))),
+    winStreak: Math.max(0, safeInteger(row.win_streak)),
     lastBattleAt: row.last_battle_at || null,
     destroyedUntil: row.destroyed_until || null,
     shieldUntil: row.shield_until || null,

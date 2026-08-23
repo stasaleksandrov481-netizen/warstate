@@ -7,6 +7,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const battleId = String(body.battleId || "");
     const klass = String(body.class || "assault") as BattleClass;
+    if (!["assault", "medic", "engineer", "scout"].includes(klass)) throw new Error("Неизвестный класс бойца.");
     const { player, member } = await authorizeBattleAction(request, battleId);
     return Response.json(await joinBattle(battleId, player.id, member.state_id, klass));
   } catch (error) { return jsonError(error); }

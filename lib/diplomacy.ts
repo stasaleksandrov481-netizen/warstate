@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import type { DiplomacyAction, DiplomacyRelationView, DiplomacyStatus, LeaderboardStateView, WorldEventView } from "@/lib/types";
+import { requireData } from "@/lib/invariants";
 
 function canonicalPair(a: string, b: string) {
   return a.localeCompare(b) < 0 ? [a, b] as const : [b, a] as const;
@@ -109,8 +110,7 @@ export async function getLeaderboard(limit = 10): Promise<LeaderboardStateView[]
     color: state.color,
     rating: state.rating,
     rank: index + 1,
-    // Kept for backwards-compatible UI types; in Island World this value represents population.
-    territoryCount: state.telegram_member_count || 1,
+    memberCount: Math.max(1, Number(state.telegram_member_count || 1)),
   }));
 }
 
@@ -134,7 +134,7 @@ async function upsertRelation(a: string, b: string, status: DiplomacyStatus, req
     updated_at: new Date().toISOString(),
   }, { onConflict: "state_a_id,state_b_id" }).select("*").single();
   if (error) throw error;
-  return data;
+  return requireData(data, "Не удалось обновить дипломатические отношения.");
 }
 
 export async function ensureWarRelation(attackerStateId: string, defenderStateId: string | null) {

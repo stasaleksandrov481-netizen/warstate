@@ -30,7 +30,8 @@ export async function POST(request: Request) {
     }
 
     const supabase = getSupabaseAdmin();
-    const { data: latestMember } = await supabase.from("state_members").select("role").eq("state_id", stateId).eq("player_id", auth.player.id).single();
+    const { data: latestMember, error: latestMemberError } = await supabase.from("state_members").select("role").eq("state_id", stateId).eq("player_id", auth.player.id).maybeSingle();
+    if (latestMemberError) throw latestMemberError;
     return Response.json(await getGameSnapshot(auth.player.id, stateId, auth.session.user.id, latestMember?.role || auth.member.role));
   } catch (error) {
     return jsonError(error);

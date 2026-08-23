@@ -39,7 +39,7 @@ function BattleScreenInner({ battle, playerName, onJoin, onAction }: {
     const timer = window.setInterval(() => setNow(Date.now()), 500);
     return () => window.clearInterval(timer);
   }, [battle?.me?.id, battle?.status]);
-  if (!battle) return <div className="empty-battle game-scene"><div className="battle-emblem">⚔</div><h2>Сейчас тихо</h2><p>Выберите соседний сектор на карте и начните операцию.</p></div>;
+  if (!battle) return <div className="empty-battle game-scene"><div className="battle-emblem">⚔</div><h2>Сейчас тихо</h2><p>Выберите в океане вражеский остров и начните морскую операцию.</p></div>;
   const myTeam = battle.me?.team || battle.myTeam;
   const teamPlayers = battle.players.filter((player) => player.team === myTeam);
   const enemyPlayers = battle.players.filter((player) => player.team !== myTeam);

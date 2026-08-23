@@ -8,8 +8,10 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const stateId = String(body.stateId || "");
-    const amount = Number(body.amount || 25);
+    const rawAmount = Number(body.amount ?? 25);
     if (!stateId) throw new Error("stateId is required");
+    if (!Number.isFinite(rawAmount)) throw new Error("Некорректный объём ремонта.");
+    const amount = Math.max(1, Math.min(50, Math.round(rawAmount)));
 
     const { player, member, session } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
     if (!["president", "minister"].includes(member.role)) {

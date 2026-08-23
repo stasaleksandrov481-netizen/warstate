@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { recordWorldEvent } from "@/lib/diplomacy";
 import { recordMissionProgress } from "@/lib/missions";
 import type { BattleClass, BattleEventView, BattleOrderKind, BattleOrderView, BattlePlayerView, BattlePoint, BattleTeam, BattleView } from "@/lib/types";
+import { requireData } from "@/lib/invariants";
 
 const POINTS: BattlePoint[] = ["A", "B", "C"];
 const BATTLE_SECONDS = 180;
@@ -45,17 +46,27 @@ async function resolveBattleRow(battle: any, attackerScore: number, defenderScor
   if (error) throw error;
 
   const resolved = result?.battle || battle;
-  if (!result?.applied) return resolved;
 
-  const { data: participants } = await supabase.from("battle_players").select("player_id,state_id,contribution").eq("battle_id", battle.id);
-  await Promise.all((participants || []).map((participant: any) => {
+  // Rewarding is idempotent per battle/player. Run this even when the battle was
+  // already resolved so a serverless retry can heal a partial previous request.
+  const { data: participants, error: participantsError } = await supabase
+    .from("battle_players")
+    .select("player_id,state_id,contribution")
+    .eq("battle_id", battle.id);
+  if (participantsError) throw participantsError;
+  const rewardResults = await Promise.all((participants || []).map((participant: any) => {
     const rewardXp = 35 + Math.min(140, participant.contribution || 0);
-    return supabase.rpc("gw_award_battle_player", {
+    return supabase.rpc("gw_award_battle_player_once", {
+      p_battle_id: battle.id,
       p_player_id: participant.player_id,
       p_state_id: participant.state_id,
       p_reward_xp: rewardXp,
     });
   }));
+  const rewardError = rewardResults.find((item) => item.error)?.error;
+  if (rewardError) throw rewardError;
+
+  if (!result?.applied) return resolved;
 
   const islandBattle = (resolved as any).battle_kind === "island" || battle.battle_kind === "island";
   await addEvent(battle.id, null, "finish", {
@@ -108,25 +119,26 @@ export async function tickBattle(battleId: string) {
   const supabase = getSupabaseAdmin();
   const { data: battle, error } = await supabase.from("battles").select("*").eq("id", battleId).single();
   if (error) throw error;
-  if (battle.status === "resolved" || battle.status === "cancelled") return battle;
+  const battleRow = requireData(battle, "Битва не найдена.");
+  if (battleRow.status === "resolved" || battleRow.status === "cancelled") return battleRow;
 
   const now = Date.now();
-  const last = new Date(battle.last_tick_at).getTime();
-  const end = new Date(battle.ends_at).getTime();
+  const last = new Date(battleRow.last_tick_at).getTime();
+  const end = new Date(battleRow.ends_at).getTime();
   const cappedNow = Math.min(now, end);
   const elapsedSeconds = Math.max(0, Math.floor((cappedNow - last) / 1000));
-  let attackerScore = battle.attacker_score || 0;
-  let defenderScore = battle.defender_score || 0;
+  let attackerScore = battleRow.attacker_score || 0;
+  let defenderScore = battleRow.defender_score || 0;
 
   if (elapsedSeconds > 0) {
-    const owners = [battle.point_a_owner, battle.point_b_owner, battle.point_c_owner];
+    const owners = [battleRow.point_a_owner, battleRow.point_b_owner, battleRow.point_c_owner];
     attackerScore += owners.filter((owner) => owner === "attacker").length * elapsedSeconds;
     defenderScore += owners.filter((owner) => owner === "defender").length * elapsedSeconds;
     const { data: ticked } = await supabase.from("battles").update({
       attacker_score: attackerScore,
       defender_score: defenderScore,
       last_tick_at: new Date(cappedNow).toISOString(),
-    }).eq("id", battleId).eq("last_tick_at", battle.last_tick_at).select("*").maybeSingle();
+    }).eq("id", battleId).eq("last_tick_at", battleRow.last_tick_at).select("*").maybeSingle();
     if (!ticked) {
       const { data: concurrent } = await supabase.from("battles").select("attacker_score,defender_score,last_tick_at").eq("id", battleId).single();
       attackerScore = concurrent?.attacker_score ?? attackerScore;
@@ -147,11 +159,11 @@ export async function tickBattle(battleId: string) {
   }
 
   if (now >= end || attackerScore >= SCORE_TO_WIN || defenderScore >= SCORE_TO_WIN) {
-    return resolveBattleRow(battle, attackerScore, defenderScore);
+    return resolveBattleRow(battleRow, attackerScore, defenderScore);
   }
 
   const { data: refreshed } = await supabase.from("battles").select("*").eq("id", battleId).single();
-  return refreshed || battle;
+  return refreshed || battleRow;
 }
 
 export async function createBattle(attackerStateId: string, tileId: string) {
@@ -162,30 +174,31 @@ export async function createBattle(attackerStateId: string, tileId: string) {
   ]);
   if (targetError) throw targetError;
   if (ownError) throw ownError;
-  if (target.owner_state_id === attackerStateId) throw new Error("Эта территория уже ваша.");
+  const targetTile = requireData(target, "Сектор не найден.");
+  if (targetTile.owner_state_id === attackerStateId) throw new Error("Эта территория уже ваша.");
 
   const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
-  const adjacent = (ownTiles || []).some((own: any) => dirs.some(([dq, dr]) => own.q + dq === target.q && own.r + dr === target.r));
+  const adjacent = (ownTiles || []).some((own: any) => dirs.some(([dq, dr]) => own.q + dq === targetTile.q && own.r + dr === targetTile.r));
   if (!adjacent) throw new Error("Атаковать можно только соседний сектор.");
 
   const { data: battleId, error: startError } = await supabase.rpc("gw_start_battle", {
     p_attacker_state_id: attackerStateId,
-    p_expected_defender_state_id: target.owner_state_id || null,
+    p_expected_defender_state_id: targetTile.owner_state_id || null,
     p_tile_id: tileId,
     p_duration_seconds: BATTLE_SECONDS,
   });
   if (startError) throw startError;
   if (!battleId) throw new Error("Не удалось создать битву.");
 
-  const { data: namedStates } = await supabase.from("states").select("id,name").in("id", [attackerStateId, target.owner_state_id].filter(Boolean));
+  const { data: namedStates } = await supabase.from("states").select("id,name").in("id", [attackerStateId, targetTile.owner_state_id].filter(Boolean));
   const attackerName = namedStates?.find((row: any) => row.id === attackerStateId)?.name || "Государство";
-  const defenderName = namedStates?.find((row: any) => row.id === target.owner_state_id)?.name || "Нейтральный сектор";
+  const defenderName = namedStates?.find((row: any) => row.id === targetTile.owner_state_id)?.name || "Нейтральный сектор";
   await recordWorldEvent({
     eventType: "battle_started",
     title: "Началась битва",
     body: `${attackerName} атакует ${defenderName}. Операция продлится 3 минуты.`,
     actorStateId: attackerStateId,
-    targetStateId: target.owner_state_id || null,
+    targetStateId: targetTile.owner_state_id || null,
     payload: { battleId, tileId },
   }).catch(() => null);
   return getBattleView(String(battleId), null);
@@ -198,27 +211,35 @@ export async function joinBattle(battleId: string, playerId: string, stateId: st
   const team: BattleTeam | null = stateId === battle.attacker_state_id ? "attacker" : stateId === battle.defender_state_id ? "defender" : null;
   if (!team) throw new Error("Ваше государство не участвует в этой битве.");
 
-  const [{ data: player }, { count: teamCount }, { data: existingPlayer }] = await Promise.all([
+  const [{ data: player }, { count: teamCount }, { data: existingPlayer, error: existingError }] = await Promise.all([
     supabase.from("players").select("display_name").eq("id", playerId).single(),
     supabase.from("battle_players").select("id", { count: "exact", head: true }).eq("battle_id", battleId).eq("team", team),
-    supabase.from("battle_players").select("squad_code").eq("battle_id", battleId).eq("player_id", playerId).maybeSingle(),
+    supabase.from("battle_players").select("id,squad_code,team").eq("battle_id", battleId).eq("player_id", playerId).maybeSingle(),
   ]);
+  if (existingError) throw existingError;
   const squads = ["ALPHA", "BRAVO", "CHARLIE"] as const;
   const squadCode = existingPlayer?.squad_code || squads[(teamCount || 0) % squads.length];
-  const { error } = await supabase.from("battle_players").upsert({
-    battle_id: battleId,
-    player_id: playerId,
-    state_id: stateId,
-    team,
-    class: klass,
-    squad_code: squadCode,
-    hp: 100,
-    point: team === "attacker" ? "A" : "C",
-    respawn_at: null,
-    updated_at: nowIso(),
-  }, { onConflict: "battle_id,player_id" });
-  if (error) throw error;
-  await addEvent(battleId, playerId, "join", { name: player?.display_name || "Игрок", team, class: klass });
+
+  if (existingPlayer) {
+    if (existingPlayer.team !== team) throw new Error("Игрок уже зарегистрирован за другую сторону.");
+    const { error: updateError } = await supabase.from("battle_players").update({ class: klass, updated_at: nowIso() }).eq("id", existingPlayer.id);
+    if (updateError) throw updateError;
+  } else {
+    const { error: insertError } = await supabase.from("battle_players").insert({
+      battle_id: battleId,
+      player_id: playerId,
+      state_id: stateId,
+      team,
+      class: klass,
+      squad_code: squadCode,
+      hp: 100,
+      point: team === "attacker" ? "A" : "C",
+      respawn_at: null,
+      updated_at: nowIso(),
+    });
+    if (insertError) throw insertError;
+    await addEvent(battleId, playerId, "join", { name: player?.display_name || "Игрок", team, class: klass });
+  }
   await recordMissionProgress(playerId, stateId, "join_battle").catch(() => null);
   return getBattleView(battleId, playerId);
 }
@@ -278,7 +299,7 @@ export async function getBattleView(battleId: string, playerId: string | null): 
   if (playersRes.error) throw playersRes.error;
   if (eventsRes.error) throw eventsRes.error;
   if (ordersRes.error) throw ordersRes.error;
-  const battle: any = battleRes.data;
+  const battle: any = requireData(battleRes.data, "Битва не найдена.");
   const players: BattlePlayerView[] = (playersRes.data || []).map((row: any) => ({
     id: row.id,
     playerId: row.player_id,

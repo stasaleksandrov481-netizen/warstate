@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 import { eloLeague } from "@/lib/elo";
 import type { BuildingType, GameSnapshot } from "@/lib/types";
 import { IslandArt } from "@/components/game/island-art";
@@ -24,15 +24,21 @@ function IslandHomeInner({
   onRepair: (amount?: number) => void;
 }) {
   const state = snapshot.state;
-  const destroyed = Boolean(state.destroyedUntil && new Date(state.destroyedUntil).getTime() > Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const destroyed = Boolean(state.destroyedUntil && new Date(state.destroyedUntil).getTime() > now);
   const league = eloLeague(state.rating);
+  const canManage = ["president", "minister"].includes(snapshot.player.role);
   const missingIntegrity = Math.max(0, 100 - state.islandIntegrity);
   const repairAmount = Math.min(25, missingIntegrity);
   const repairCredits = repairAmount * 24;
   const repairSteel = repairAmount * 3;
   const canRepair = !destroyed
     && repairAmount > 0
-    && ["president", "minister"].includes(snapshot.player.role)
+    && canManage
     && state.treasury.credits >= repairCredits
     && state.treasury.steel >= repairSteel;
 
@@ -52,11 +58,11 @@ function IslandHomeInner({
         </div>
       </div>
 
-      <div className="island-kpi-grid">
-        <article><small>ELO</small><b>{state.rating}</b><span>{league.icon} {league.label}</span></article>
-        <article><small>Участники</small><b>{state.memberCount}</b><span>масштаб острова</span></article>
-        <article><small>Серия</small><b>{state.winStreak}</b><span>рекорд {state.bestWinStreak}</span></article>
-        <article><small>Место</small><b>#{state.seasonRank}</b><span>{state.islandWins}W · {state.islandLosses}L</span></article>
+      <div className="island-command-strip">
+        <span><small>ЛИГА</small><b>{league.icon} {league.label}</b><em>{state.rating} ELO</em></span>
+        <span><small>НАСЕЛЕНИЕ</small><b>{state.memberCount.toLocaleString("ru-RU")}</b><em>бойцов острова</em></span>
+        <span><small>СЕРИЯ</small><b>×{state.winStreak}</b><em>рекорд ×{state.bestWinStreak}</em></span>
+        <span><small>МИР</small><b>#{state.seasonRank}</b><em>{state.islandWins}W · {state.islandLosses}L</em></span>
       </div>
 
       {destroyed ? (
@@ -82,13 +88,13 @@ function IslandHomeInner({
             const meta = INFRA[building.type];
             const credits = building.upgradeCost.credits || 0;
             const steel = building.upgradeCost.steel || 0;
-            const canUpgrade = state.treasury.credits >= credits && state.treasury.steel >= steel;
+            const canUpgrade = canManage && !destroyed && building.level < 12 && state.treasury.credits >= credits && state.treasury.steel >= steel;
             return (
               <article className="infra-card" key={building.type}>
                 <div className="infra-icon">{meta.icon}</div>
                 <div className="infra-copy"><b>{meta.label}</b><small>{meta.desc}</small><span>ур. {building.level}</span></div>
-                <button type="button" disabled={!canUpgrade} onClick={() => onUpgrade(building.type)}>
-                  ↑ <small>{credits.toLocaleString("ru-RU")} ₡</small>
+                <button type="button" disabled={!canUpgrade} onClick={() => onUpgrade(building.type)} title={!canManage ? "Улучшения доступны президенту и министру" : undefined}>
+                  {building.level >= 12 ? "MAX" : "↑"} <small>{building.level >= 12 ? "уровень" : `${credits.toLocaleString("ru-RU")} ₡`}</small>
                 </button>
               </article>
             );

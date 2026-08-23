@@ -1,6 +1,6 @@
-# GROUP WARS v1.1 — Game UI / Island World
+# GROUP WARS v1.2 — Island World Polish
 
-Telegram-native multiplayer strategy. **Every Telegram group becomes an island-state** on an expandable ocean.
+Telegram-native multiplayer strategy where **every Telegram group becomes a persistent island-state** on an expandable ocean.
 
 Stack:
 
@@ -10,87 +10,57 @@ Stack:
 - Telegram Bot API + Mini App
 - Telegram Stars foundation
 
-## v1.1: interface redesign
+## What changed in v1.2
 
-This version replaces the previous dashboard/SaaS-looking presentation with a mobile game-first UI.
+This is a correctness + performance + mobile game-UI release, not a cosmetic version bump.
 
-### Main map
+### Build / TypeScript fixes
 
-The primary screen is now the ocean itself:
+- Fixed strict Supabase nullability that caused Vercel `TS18047: state is possibly null` errors.
+- Added explicit guards around required `.single()` results instead of scattering unsafe non-null assertions.
+- Added route validation for battle classes/actions, island coordinates and repair amount.
+- Background state refreshes no longer leak transient network failures as unhandled promises.
 
-- full-screen pannable ocean;
-- pinch-to-zoom and wheel zoom;
-- lightweight SVG island art rendered directly by React, not generated images;
-- several deterministic coast shapes so islands do not look identical;
-- beach, land relief, trees, houses, fortress, flag and pier;
-- larger Telegram groups visually receive larger/more developed islands;
-- destroyed islands render crater/smoke/ruins state;
-- damaged islands display integrity;
-- compact floating Telegram group label with avatar, members and ELO;
-- alliance / war / ruin status markers;
-- selected island opens a game-style attack sheet;
-- minimap and center-on-my-island control;
-- live world event ticker;
-- active war banner leading directly to battle.
+### Island world
 
-No external art pack or WebGL engine is required. The island scene is normal React + SVG + CSS, so it stays realistic for a Telegram Mini App and can be iterated without an artist pipeline.
+- One Telegram chat = one island-state.
+- Island physical size scales nonlinearly with Telegram member count.
+- Telegram avatar, title, members, ELO, integrity and relation status appear on-map.
+- Infinite-feeling ocean with pan, pinch zoom, minimap and center-on-home.
+- Nearby island queries are viewport-based rather than downloading the whole world.
+- Island viewport query now has world-coordinate indexes and capped radius/result count.
+- Removed the old per-island global-rank `COUNT` from map queries, which scaled badly as the world grew.
 
-### Mobile shell
+### Mobile game UI polish
 
-- compact game HUD instead of dashboard widgets;
-- Telegram group avatar/name plus ELO, member count and treasury;
-- game-style bottom navigation with inline SVG icons;
-- dark navy / ocean visual language;
-- other screens inherit game cards instead of corporate SaaS panels.
+- Compact HUD instead of SaaS KPI cards.
+- Bottom navigation treats **Battle** as the primary action.
+- SVG islands have coast variation, beaches, trees, houses, fortress, pier, flag, damage and ruins.
+- Far zoom automatically drops expensive shadows, blur and decorative animations.
+- Selected enemy opens a combat bottom-sheet with ELO stake, integrity and attack state.
+- Own island screen is a command panel with upgrade/repair states, not a corporate dashboard.
+- Better small-phone breakpoints and `prefers-reduced-motion` support.
 
-### Own island
+### Island campaigns / ELO
 
-The own-island screen now uses the same reusable SVG island renderer as the world map, so the map and island-management screen have a consistent visual language.
+- Battles affect ELO.
+- Successful invasions damage island integrity rather than deleting an island in one match.
+- At 0 integrity the island becomes temporary ruins.
+- Ruined islands produce less, cannot attack and later recover to partial integrity with protection.
+- Wins, losses, streak, best streak, peak ELO and badges persist.
 
-## Island world rules
+### Battle correctness fixes
 
-### One chat = one island
+- Rejoining a battle can no longer heal the player back to 100 HP or reset respawn/position.
+- Combat actions remain atomic in PostgreSQL.
+- Battle reward delivery is now idempotent: a Vercel retry can finish a missed XP/contribution grant without duplicating it.
+- High-frequency battle actions use a short Telegram membership-verification TTL instead of calling `getChatMember` on every tap.
 
-When an admin launches the Mini App from a Telegram group for the first time:
+### Telegram Stars hardening
 
-1. the state is created;
-2. a permanent world coordinate is allocated;
-3. Telegram title/avatar/member count are synchronized;
-4. the island appears in the ocean.
-
-The world does not have a fixed visible boundary. The client requests nearby islands for the current camera viewport.
-
-### Island scale
-
-Physical island size is derived from Telegram member count with a capped nonlinear scale. Small groups remain small; large communities become visually dominant without covering the whole screen.
-
-## ELO and island campaigns
-
-Island battles use ELO. Beating a stronger opponent is worth more; losing to a weaker opponent costs more.
-
-The current campaign system also includes island integrity:
-
-- attacks damage island infrastructure;
-- an island is only destroyed when integrity reaches zero;
-- destroyed islands become temporary ruins rather than being deleted;
-- ruins disable attacks and heavily reduce production;
-- recovery grants temporary protection against chain-farming;
-- wins, losses, streaks and peak ELO remain in history.
-
-## Realtime battle engine
-
-Island invasion starts the existing 3-minute server-authoritative realtime battle:
-
-- points A / B / C;
-- assault / medic / engineer / scout;
-- HP, kills, respawn and cooldowns;
-- commander orders;
-- Supabase Realtime;
-- atomic PostgreSQL battle actions.
-
-## Important technical fix in v1.1
-
-A duplicated Supabase `.subscribe()` statement in the in-progress v1.0 branch was removed. The v1.1 sources pass parser-level syntax validation.
+- Product catalog is centralized in `lib/products.ts`.
+- Pre-checkout validates SKU, Stars price, currency, Telegram user and entitlement scope.
+- Successful-payment processing is retry-safe: duplicate Telegram updates do not duplicate payment rows, but can heal a partially-created entitlement.
 
 ## Project structure
 
@@ -99,19 +69,32 @@ app/
   api/
     game/
     telegram/
+  game-theme.css
   globals.css
-  game-theme.css        # v1.1 game-first visual layer
 
 components/
   game-app.tsx
   game/
-    island-art.tsx      # reusable SVG island renderer
-    island-map.tsx      # infinite ocean / mobile world
+    island-art.tsx
+    island-map.tsx
     island-home.tsx
     island-ranking.tsx
     island-alliances.tsx
     battle-screen.tsx
     state-view.tsx
+
+lib/
+  battle.ts
+  demo.ts
+  diplomacy.ts
+  elo.ts
+  game.ts
+  invariants.ts
+  islands.ts
+  missions.ts
+  politics.ts
+  products.ts
+  request-auth.ts
 
 supabase/migrations/
   001_init.sql
@@ -123,36 +106,20 @@ supabase/migrations/
   007_seasons_politics_identity.sql
   008_island_world_elo.sql
   009_island_integrity_campaigns.sql
+  010_island_world_polish.sql
 ```
 
-## Supabase
+## Supabase upgrade
 
-Create a Supabase project and run migrations in numerical order through:
+For a fresh database, run migrations `001` through `010` in order.
+
+If your existing Supabase project already has v1.1 migrations through `009`, run only:
 
 ```text
-009_island_integrity_campaigns.sql
+supabase/migrations/010_island_world_polish.sql
 ```
 
-Environment:
-
-```bash
-NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...
-```
-
-## Telegram
-
-```bash
-TELEGRAM_BOT_TOKEN=...
-TELEGRAM_BOT_USERNAME=...
-TELEGRAM_MINI_APP_SHORT_NAME=...
-TELEGRAM_WEBHOOK_SECRET=...
-```
-
-The bot should be added to a group. Initial state creation must be launched by a group admin.
-
-## Vercel
+## Environment variables
 
 ```bash
 NEXT_PUBLIC_APP_URL=https://your-project.vercel.app
@@ -166,11 +133,19 @@ TELEGRAM_WEBHOOK_SECRET=...
 NEXT_PUBLIC_DEMO_MODE=false
 ```
 
-Then:
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY` are also supported by the Supabase helpers where configured.
+
+## Local / Vercel verification
 
 ```bash
 npm install
+npm run typecheck
 npm run build
+```
+
+Then configure the Telegram webhook after the public Vercel URL is live:
+
+```bash
 npm run telegram:configure
 ```
 
@@ -178,4 +153,12 @@ For browser-only UI testing without Telegram/Supabase:
 
 ```bash
 NEXT_PUBLIC_DEMO_MODE=true
+npm run dev
 ```
+
+## Notes
+
+- Production writes go through server routes and validate Telegram `initData`.
+- Sensitive actions also verify current Telegram-group membership.
+- The service-role key must never be exposed as `NEXT_PUBLIC_*`.
+- No generated images are required for the island renderer; the map uses React + SVG + CSS so it stays lightweight and editable.

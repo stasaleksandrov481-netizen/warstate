@@ -27,7 +27,7 @@ function IslandRankingInner({ snapshot }: { snapshot: GameSnapshot }) {
             <article key={row.id} className={row.id === snapshot.state.id ? "mine" : ""}>
               <span className="ranking-pos">{row.rank}</span>
               <span className="ranking-emblem" style={{ background: row.color }}>{row.name.slice(0,1)}</span>
-              <div><b>{row.name}</b><small>{league.icon} {league.label} · 👥 {row.territoryCount}</small></div>
+              <div><b>{row.name}</b><small>{league.icon} {league.label} · 👥 {row.memberCount.toLocaleString("ru-RU")}</small></div>
               <strong>{row.rating}</strong>
             </article>
           );

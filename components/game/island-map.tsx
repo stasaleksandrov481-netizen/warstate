@@ -10,29 +10,25 @@ function islandSize(members: number) {
   return Math.max(112, Math.min(252, 86 + Math.sqrt(Math.max(1, members)) * 5.4));
 }
 
-function shortNumber(value: number) {
-  return new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 }).format(value);
-}
-
-function timeLeft(iso?: string | null) {
+function timeLeft(iso?: string | null, now = Date.now()) {
   if (!iso) return null;
-  const ms = new Date(iso).getTime() - Date.now();
+  const ms = new Date(iso).getTime() - now;
   if (ms <= 0) return null;
   const hours = Math.floor(ms / 3_600_000);
   const minutes = Math.max(1, Math.floor((ms % 3_600_000) / 60_000));
   return hours ? `${hours}ч ${minutes}м` : `${minutes}м`;
 }
 
-function attackReason(snapshot: GameSnapshot, island: IslandView) {
+function attackReason(snapshot: GameSnapshot, island: IslandView, now: number) {
   if (island.isMine) return "Это ваш остров";
   if (!["president", "minister", "general"].includes(snapshot.player.role)) return "Атаку запускает командование";
   if (snapshot.activeBattle) return "Ваш флот уже участвует в битве";
-  if (snapshot.state.destroyedUntil && new Date(snapshot.state.destroyedUntil).getTime() > Date.now()) return "Ваш остров восстанавливается";
-  if (island.destroyedUntil && new Date(island.destroyedUntil).getTime() > Date.now()) return "Остров уже в руинах";
-  if (island.shieldUntil && new Date(island.shieldUntil).getTime() > Date.now()) return "Защитный щит активен";
+  if (snapshot.state.destroyedUntil && new Date(snapshot.state.destroyedUntil).getTime() > now) return "Ваш остров восстанавливается";
+  if (island.destroyedUntil && new Date(island.destroyedUntil).getTime() > now) return "Остров уже в руинах";
+  if (island.shieldUntil && new Date(island.shieldUntil).getTime() > now) return "Защитный щит активен";
   if (island.relation === "allied") return "Союзный остров";
   if (island.relation === "truce") return "Действует перемирие";
-  if (snapshot.state.nextAttackAt && new Date(snapshot.state.nextAttackAt).getTime() > Date.now()) return `Флот готовится · ${timeLeft(snapshot.state.nextAttackAt) || "скоро"}`;
+  if (snapshot.state.nextAttackAt && new Date(snapshot.state.nextAttackAt).getTime() > now) return `Флот готовится · ${timeLeft(snapshot.state.nextAttackAt, now) || "скоро"}`;
   if (snapshot.state.treasury.fuel < 120 || snapshot.state.treasury.food < 80) return "Нужно 120 топлива и 80 еды";
   return null;
 }
@@ -47,19 +43,72 @@ type Props = {
   onAttack: (island: IslandView) => void;
   onExplore?: (x: number, y: number, radius: number) => void;
   onOpenBattle?: () => void;
+  onOpenIsland?: () => void;
 };
 
-function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onOpenBattle }: Props) {
+const COMPACT_NUMBER = new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 });
+
+const IslandNode = memo(function IslandNode({
+  island,
+  selectedId,
+  detail,
+  now,
+  onSelect,
+}: {
+  island: IslandView;
+  selectedId: string | null;
+  detail: "far" | "mid" | "near";
+  now: number;
+  onSelect: (island: IslandView) => void;
+}) {
+  const size = islandSize(island.memberCount);
+  const ruined = Boolean(island.destroyedUntil && new Date(island.destroyedUntil).getTime() > now);
+  const selected = selectedId === island.id;
+  const league = eloLeague(island.rating);
+  const showLabel = detail !== "far" || island.isMine || selected || (island.rank > 0 && island.rank <= 5);
+  const relationLabel = island.relation === "war" ? "ВРАГ" : island.relation === "allied" ? "СОЮЗ" : island.relation === "truce" ? "МИР" : null;
+  return (
+    <button
+      type="button"
+      className={`game-island-node ${island.isMine ? "mine" : ""} ${ruined ? "ruined" : ""} ${selected ? "selected" : ""} ${island.relation ? `relation-${island.relation}` : ""}`}
+      style={{ left: island.worldX, top: island.worldY, width: size, height: size * 0.69, ["--island-color" as string]: island.color }}
+      onClick={(event) => { event.stopPropagation(); onSelect(island); }}
+      aria-label={`${island.name}, ${island.memberCount} участников, рейтинг ${island.rating}`}
+    >
+      <IslandArt id={island.id} members={island.memberCount} color={island.color} integrity={island.integrity} ruined={ruined} selected={selected} detail={detail} />
+      {showLabel && (
+        <span className="game-island-label">
+          <span className="game-island-avatar" style={{ background: island.color }}>
+            {island.avatarUrl ? <Image src={island.avatarUrl} alt="" width={42} height={42} unoptimized draggable={false} /> : <b>{island.emblem || island.name.slice(0, 1)}</b>}
+          </span>
+          <span className="game-island-copy">
+            <strong>{island.name}</strong>
+            <small><span>👥 {COMPACT_NUMBER.format(island.memberCount)}</span><span>{league.icon} {island.rating}</span></small>
+          </span>
+          {relationLabel && <em className={`relation-tag tag-${island.relation}`}>{relationLabel}</em>}
+          <i className={`game-status ${ruined ? "ruins" : island.relation === "war" ? "enemy" : island.relation === "allied" ? "ally" : "neutral"}`} />
+        </span>
+      )}
+      {island.integrity < 100 && !ruined && <span className="game-integrity"><i style={{ width: `${island.integrity}%` }} /></span>}
+      {ruined && <span className="game-ruins-timer">РУИНЫ · {timeLeft(island.destroyedUntil, now) || "восстановление"}</span>}
+    </button>
+  );
+});
+
+function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onOpenBattle, onOpenIsland }: Props) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const pointersRef = useRef(new Map<number, PointerPoint>());
   const dragRef = useRef<{ id: number; x: number; y: number; cameraX: number; cameraY: number } | null>(null);
   const pinchRef = useRef<{ distance: number; zoom: number; worldX: number; worldY: number } | null>(null);
   const exploreKickRef = useRef<number | null>(null);
+  const cameraRafRef = useRef<number | null>(null);
+  const pendingCameraRef = useRef<Camera | null>(null);
   const movedRef = useRef(false);
   const cameraRef = useRef<Camera>({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: 0.82 });
   const [camera, setCamera] = useState<Camera>(cameraRef.current);
   const [viewport, setViewport] = useState({ width: 390, height: 620 });
   const [dragging, setDragging] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     const node = viewportRef.current;
@@ -71,8 +120,16 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   useEffect(() => { cameraRef.current = camera; }, [camera]);
-  useEffect(() => () => { if (exploreKickRef.current) window.clearTimeout(exploreKickRef.current); }, []);
+  useEffect(() => () => {
+    if (exploreKickRef.current) window.clearTimeout(exploreKickRef.current);
+    if (cameraRafRef.current) window.cancelAnimationFrame(cameraRafRef.current);
+  }, []);
 
   const kickExplore = useCallback((delay = 0) => {
     if (!onExplore) return;
@@ -86,7 +143,14 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
   const updateCamera = useCallback((next: Camera, explore = false) => {
     const normalized = { ...next, zoom: Math.max(0.38, Math.min(1.48, next.zoom)) };
     cameraRef.current = normalized;
-    setCamera(normalized);
+    pendingCameraRef.current = normalized;
+    if (!cameraRafRef.current) {
+      cameraRafRef.current = window.requestAnimationFrame(() => {
+        cameraRafRef.current = null;
+        const pending = pendingCameraRef.current;
+        if (pending) setCamera(pending);
+      });
+    }
     if (explore) kickExplore(90);
   }, [kickExplore]);
 
@@ -193,15 +257,16 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
     return `translate3d(${tx}px, ${ty}px, 0) scale(${camera.zoom})`;
   }, [viewport.width, viewport.height, camera.x, camera.y, camera.zoom]);
 
+  const sortedIslands = useMemo(() => [...snapshot.islands].sort((a, b) => islandSize(a.memberCount) - islandSize(b.memberCount)), [snapshot.islands]);
   const visibleIslands = useMemo(() => {
     const halfW = viewport.width / (2 * camera.zoom) + 360;
     const halfH = viewport.height / (2 * camera.zoom) + 360;
-    return snapshot.islands.filter((island) => Math.abs(island.worldX - camera.x) <= halfW && Math.abs(island.worldY - camera.y) <= halfH);
-  }, [snapshot.islands, viewport.width, viewport.height, camera.x, camera.y, camera.zoom]);
+    return sortedIslands.filter((island) => Math.abs(island.worldX - camera.x) <= halfW && Math.abs(island.worldY - camera.y) <= halfH);
+  }, [sortedIslands, viewport.width, viewport.height, camera.x, camera.y, camera.zoom]);
 
-  const ordered = useMemo(() => [...visibleIslands].sort((a, b) => islandSize(a.memberCount) - islandSize(b.memberCount)), [visibleIslands]);
+  const ordered = visibleIslands;
   const detail = camera.zoom < 0.57 ? "far" : camera.zoom < 0.85 ? "mid" : "near";
-  const selectedReason = selected ? attackReason(snapshot, selected) : null;
+  const selectedReason = selected ? attackReason(snapshot, selected, now) : null;
   const selectedElo = selected ? eloDeltaPreview(snapshot.state.rating, selected.rating) : null;
   const selectedLeague = selected ? eloLeague(selected.rating) : null;
   const war = snapshot.activeBattle;
@@ -241,38 +306,16 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
         <div className="ocean-current current-two" />
 
         <div className="game-world-layer" style={{ transform }}>
-          {ordered.map((island) => {
-            const size = islandSize(island.memberCount);
-            const ruined = Boolean(island.destroyedUntil && new Date(island.destroyedUntil).getTime() > Date.now());
-            const league = eloLeague(island.rating);
-            const showLabel = detail !== "far" || island.isMine || selected?.id === island.id || island.rank <= 5;
-            return (
-              <button
-                type="button"
-                key={island.id}
-                className={`game-island-node ${island.isMine ? "mine" : ""} ${ruined ? "ruined" : ""} ${selected?.id === island.id ? "selected" : ""} ${island.relation ? `relation-${island.relation}` : ""}`}
-                style={{ left: island.worldX, top: island.worldY, width: size, height: size * 0.69, ["--island-color" as any]: island.color }}
-                onClick={(event) => { event.stopPropagation(); onSelect(island); }}
-                aria-label={`${island.name}, ${island.memberCount} участников, рейтинг ${island.rating}`}
-              >
-                <IslandArt id={island.id} members={island.memberCount} color={island.color} integrity={island.integrity} ruined={ruined} selected={selected?.id === island.id} />
-                {showLabel && (
-                  <span className="game-island-label">
-                    <span className="game-island-avatar" style={{ background: island.color }}>
-                      {island.avatarUrl ? <Image src={island.avatarUrl} alt="" width={42} height={42} unoptimized draggable={false} /> : <b>{island.emblem || island.name.slice(0, 1)}</b>}
-                    </span>
-                    <span className="game-island-copy">
-                      <strong>{island.name}</strong>
-                      <small><span>👥 {shortNumber(island.memberCount)}</span><span>{league.icon} {island.rating}</span></small>
-                    </span>
-                    <i className={`game-status ${ruined ? "ruins" : island.relation === "war" ? "enemy" : island.relation === "allied" ? "ally" : "neutral"}`} />
-                  </span>
-                )}
-                {island.integrity < 100 && !ruined && <span className="game-integrity"><i style={{ width: `${island.integrity}%` }} /></span>}
-                {ruined && <span className="game-ruins-timer">РУИНЫ · {timeLeft(island.destroyedUntil) || "восстановление"}</span>}
-              </button>
-            );
-          })}
+          {ordered.map((island) => (
+            <IslandNode
+              key={island.id}
+              island={island}
+              selectedId={selected?.id || null}
+              detail={detail}
+              now={now}
+              onSelect={onSelect}
+            />
+          ))}
         </div>
 
         <div className="game-map-tools game-map-tools-left">
@@ -298,21 +341,30 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
             <span className="sheet-avatar" style={{ background: selected.color }}>
               {selected.avatarUrl ? <Image src={selected.avatarUrl} alt="" width={48} height={48} unoptimized /> : selected.emblem}
             </span>
-            <div><small>{selectedLeague?.icon} {selectedLeague?.label} · #{selected.rank || "—"}</small><h3>{selected.name}</h3><p>{selected.memberCount} участников · ELO {selected.rating}</p></div>
+            <div><small>{selectedLeague?.icon} {selectedLeague?.label}{selected.rank > 0 ? ` · #${selected.rank}` : ""}</small><h3>{selected.name}</h3><p>{selected.memberCount} участников · ELO {selected.rating}</p></div>
           </div>
+          <div className="sheet-integrity-track" aria-label={`Прочность ${selected.integrity}%`}><i style={{ width: `${selected.integrity}%` }} /></div>
           <div className="sheet-game-stats">
             <span><b>{selected.integrity}%</b><small>прочность</small></span>
-            <span><b>{selected.wins}</b><small>побед</small></span>
-            <span><b>{selected.winStreak}</b><small>серия</small></span>
+            <span><b>{selected.wins}<em> / {selected.losses}</em></b><small>победы / поражения</small></span>
+            <span><b>{selected.winStreak}</b><small>серия побед</small></span>
           </div>
-          {selected.destroyedUntil && timeLeft(selected.destroyedUntil) ? (
-            <div className="sheet-danger">☠ Остров восстанавливается · {timeLeft(selected.destroyedUntil)}</div>
+          <div className="sheet-status-row">
+            {selected.relation === "war" && <span className="sheet-status enemy">⚔ ВОЙНА</span>}
+            {selected.relation === "allied" && <span className="sheet-status ally">◆ СОЮЗ</span>}
+            {selected.relation === "truce" && <span className="sheet-status truce">◌ ПЕРЕМИРИЕ</span>}
+            {selected.shieldUntil && timeLeft(selected.shieldUntil, now) && <span className="sheet-status shield">◈ ЩИТ {timeLeft(selected.shieldUntil, now)}</span>}
+          </div>
+          {selected.destroyedUntil && timeLeft(selected.destroyedUntil, now) ? (
+            <div className="sheet-danger">☠ Остров восстанавливается · {timeLeft(selected.destroyedUntil, now)}</div>
           ) : selected.isMine ? (
-            <div className="sheet-tip">Размер острова растёт вместе с количеством участников вашего Telegram-чата.</div>
+            <button className="sheet-home" type="button" onClick={onOpenIsland}>
+              <span>⌂ МОЙ ОСТРОВ</span><small>Инфраструктура, ремонт и развитие</small>
+            </button>
           ) : (
             <button className="sheet-attack" type="button" disabled={Boolean(selectedReason)} onClick={() => onAttack(selected)}>
               <span>⚔ АТАКОВАТЬ</span>
-              <small>{selectedReason || `ELO +${selectedElo?.win || 0} / −${selectedElo?.lose || 0}`}</small>
+              <small>{selectedReason || `120 топлива · 80 еды · ELO +${selectedElo?.win || 0} / −${selectedElo?.lose || 0}`}</small>
             </button>
           )}
         </section>

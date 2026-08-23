@@ -6,6 +6,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const battleId = String(body.battleId || "");
     const action = String(body.action || "");
+    if (!["move", "capture", "fire", "heal", "fortify", "class", "order"].includes(action)) throw new Error("Неизвестное боевое действие.");
     const { player, member } = await authorizeBattleAction(request, battleId);
     return Response.json(await battleAction(battleId, player.id, action, { ...body, stateId: member.state_id, role: member.role }));
   } catch (error) { return jsonError(error); }

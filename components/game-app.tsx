@@ -27,9 +27,9 @@ import type {
   StateView,
 } from "@/lib/types";
 import { IslandMap } from "@/components/game/island-map";
-import { IslandHome } from "@/components/game/island-home";
-import { IslandRanking } from "@/components/game/island-ranking";
-import { IslandAlliances } from "@/components/game/island-alliances";
+const IslandHome = dynamic(() => import("@/components/game/island-home").then((m) => m.IslandHome), { ssr: false, loading: () => <SceneLoading label="Поднимаем остров…" /> });
+const IslandRanking = dynamic(() => import("@/components/game/island-ranking").then((m) => m.IslandRanking), { ssr: false, loading: () => <SceneLoading label="Считаем рейтинг…" /> });
+const IslandAlliances = dynamic(() => import("@/components/game/island-alliances").then((m) => m.IslandAlliances), { ssr: false, loading: () => <SceneLoading label="Открываем дипломатию…" /> });
 
 const BattleScreen = dynamic(() => import("@/components/game/battle-screen").then((m) => m.BattleScreen), { ssr: false, loading: () => <SceneLoading label="Поднимаем фронт…" /> });
 const StateViewPanel = dynamic(() => import("@/components/game/state-view").then((m) => m.StateViewPanel), { ssr: false, loading: () => <SceneLoading label="Открываем профиль…" /> });
@@ -76,10 +76,16 @@ async function api<T>(path: string, initData: string, init?: RequestInit): Promi
     },
     cache: "no-store",
   });
-  const json = await response.json();
-  if (!response.ok) throw new Error(json.error || "Request failed");
-  return json;
+  let json: unknown = null;
+  try { json = await response.json(); } catch { /* non-JSON gateway errors */ }
+  if (!response.ok) {
+    const message = typeof json === "object" && json && "error" in json ? String((json as { error?: unknown }).error || "") : "";
+    throw new Error(message || `Request failed (${response.status})`);
+  }
+  return json as T;
 }
+
+const COMPACT_FORMATTER = new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 });
 
 const NAV: Array<{ key: View; label: string }> = [
   { key: "map", label: "Карта" },
@@ -101,6 +107,9 @@ export default function GameApp() {
   const refreshBattleTimer = useRef<number | null>(null);
   const toastTimer = useRef<number | null>(null);
   const exploreTimer = useRef<number | null>(null);
+  const exploreAbortRef = useRef<AbortController | null>(null);
+  const refreshLiveInFlightRef = useRef(false);
+  const refreshBattleInFlightRef = useRef(false);
   const lastExploreRef = useRef<{ x: number; y: number; radius: number; at: number } | null>(null);
   const demo = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
   const telegram = typeof window !== "undefined" ? tg() : null;
@@ -128,18 +137,23 @@ export default function GameApp() {
       app?.expand?.();
       if (demo || !app?.initData) {
         const fresh = createDemoSnapshot();
-        const saved = localStorage.getItem("groupwars-demo-v11-islands");
+        const saved = localStorage.getItem("groupwars-demo-v12-islands");
         if (!saved) setSnapshot(fresh);
         else {
-          const parsed = JSON.parse(saved) as Partial<GameSnapshot>;
-          setSnapshot({
-            ...fresh,
-            ...parsed,
-            state: { ...fresh.state, ...(parsed.state || {}) },
-            player: { ...fresh.player, ...(parsed.player || {}) },
-            islands: parsed.islands || fresh.islands,
-            dailyMissions: parsed.dailyMissions || fresh.dailyMissions,
-          });
+          try {
+            const parsed = JSON.parse(saved) as Partial<GameSnapshot>;
+            setSnapshot({
+              ...fresh,
+              ...parsed,
+              state: { ...fresh.state, ...(parsed.state || {}) },
+              player: { ...fresh.player, ...(parsed.player || {}) },
+              islands: parsed.islands || fresh.islands,
+              dailyMissions: parsed.dailyMissions || fresh.dailyMissions,
+            });
+          } catch {
+            localStorage.removeItem("groupwars-demo-v12-islands");
+            setSnapshot(fresh);
+          }
         }
       } else {
         const data = await api<GameSnapshot>("/api/game/bootstrap", app.initData, {
@@ -161,15 +175,30 @@ export default function GameApp() {
     if (refreshLiveTimer.current) window.clearTimeout(refreshLiveTimer.current);
     if (refreshBattleTimer.current) window.clearTimeout(refreshBattleTimer.current);
     if (exploreTimer.current) window.clearTimeout(exploreTimer.current);
+    exploreAbortRef.current?.abort();
   }, []);
   useEffect(() => {
-    if (snapshot?.mode === "demo") localStorage.setItem("groupwars-demo-v11-islands", JSON.stringify(snapshot));
+    if (snapshot?.mode === "demo") localStorage.setItem("groupwars-demo-v12-islands", JSON.stringify(snapshot));
   }, [snapshot]);
 
+  useEffect(() => {
+    if (!selectedIsland || !snapshot) return;
+    const fresh = snapshot.islands.find((item) => item.id === selectedIsland.id);
+    if (fresh && fresh !== selectedIsland) setSelectedIsland(fresh);
+  }, [snapshot?.islands, selectedIsland?.id]);
+
   const refreshLive = useCallback(async () => {
-    if (!snapshot || snapshot.mode !== "live" || !initData) return;
-    const fresh = await api<GameSnapshot>(`/api/game/state?stateId=${snapshot.state.id}`, initData);
-    acceptSnapshot(fresh);
+    if (!snapshot || snapshot.mode !== "live" || !initData || refreshLiveInFlightRef.current) return;
+    refreshLiveInFlightRef.current = true;
+    try {
+      const fresh = await api<GameSnapshot>(`/api/game/state?stateId=${snapshot.state.id}`, initData);
+      acceptSnapshot(fresh);
+    } catch {
+      // Realtime/visibility refreshes are best-effort. A transient Vercel or
+      // mobile-network failure must not become an unhandled promise rejection.
+    } finally {
+      refreshLiveInFlightRef.current = false;
+    }
   }, [snapshot?.state.id, snapshot?.mode, initData, acceptSnapshot]);
 
   const scheduleRefreshLive = useCallback(() => {
@@ -179,12 +208,14 @@ export default function GameApp() {
 
   const refreshBattle = useCallback(async () => {
     const battleId = snapshot?.activeBattle?.id;
-    if (!battleId || snapshot?.mode !== "live" || !initData) return;
+    if (!battleId || snapshot?.mode !== "live" || !initData || refreshBattleInFlightRef.current) return;
+    refreshBattleInFlightRef.current = true;
     try {
       const battle = await api<BattleView>(`/api/game/battle?battleId=${battleId}`, initData);
       setSnapshot((current) => current ? { ...current, activeBattle: battle } : current);
       if (battle.status === "resolved") window.setTimeout(() => scheduleRefreshLive(), 500);
     } catch { /* realtime can race with resolution */ }
+    finally { refreshBattleInFlightRef.current = false; }
   }, [snapshot?.activeBattle?.id, snapshot?.mode, initData, scheduleRefreshLive]);
 
   const scheduleRefreshBattle = useCallback(() => {
@@ -199,11 +230,18 @@ export default function GameApp() {
     const channel = supabase
       .channel(`island-world-${snapshot.state.id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "states", filter: `id=eq.${snapshot.state.id}` }, scheduleRefreshLive)
-      .on("postgres_changes", { event: "*", schema: "public", table: "diplomacy_relations" }, scheduleRefreshLive)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "world_events" }, scheduleRefreshLive)
+      .on("postgres_changes", { event: "*", schema: "public", table: "diplomacy_relations", filter: `state_a_id=eq.${snapshot.state.id}` }, scheduleRefreshLive)
+      .on("postgres_changes", { event: "*", schema: "public", table: "diplomacy_relations", filter: `state_b_id=eq.${snapshot.state.id}` }, scheduleRefreshLive)
       .on("postgres_changes", { event: "*", schema: "public", table: "state_elections", filter: `state_id=eq.${snapshot.state.id}` }, scheduleRefreshLive)
       .subscribe();
-    return () => { void supabase.removeChannel(channel); };
+    const refreshWhenVisible = () => { if (document.visibilityState === "visible") scheduleRefreshLive(); };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    const slowTimer = window.setInterval(() => { if (document.visibilityState === "visible") scheduleRefreshLive(); }, 45_000);
+    return () => {
+      window.clearInterval(slowTimer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      void supabase.removeChannel(channel);
+    };
   }, [snapshot?.state.id, snapshot?.mode, scheduleRefreshLive]);
 
   useEffect(() => {
@@ -218,7 +256,7 @@ export default function GameApp() {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "battle_events", filter: `battle_id=eq.${battleId}` }, scheduleRefreshBattle)
       .on("postgres_changes", { event: "*", schema: "public", table: "battle_orders", filter: `battle_id=eq.${battleId}` }, scheduleRefreshBattle)
       .subscribe();
-    const timer = window.setInterval(refreshBattle, 5000);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refreshBattle(); }, 5000);
     return () => { window.clearInterval(timer); void supabase.removeChannel(channel); };
   }, [snapshot?.activeBattle?.id, snapshot?.mode, scheduleRefreshBattle, refreshBattle]);
 
@@ -230,11 +268,15 @@ export default function GameApp() {
     lastExploreRef.current = { x, y, radius, at: Date.now() };
     if (exploreTimer.current) window.clearTimeout(exploreTimer.current);
     exploreTimer.current = window.setTimeout(async () => {
+      exploreAbortRef.current?.abort();
+      const controller = new AbortController();
+      exploreAbortRef.current = controller;
       try {
-        const data = await api<{ islands: IslandView[] }>(`/api/game/islands?stateId=${snapshot.state.id}&x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}&radius=${Math.round(radius)}`, initData);
+        const data = await api<{ islands: IslandView[] }>(`/api/game/islands?stateId=${snapshot.state.id}&x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}&radius=${Math.round(radius)}`, initData, { signal: controller.signal });
         setSnapshot((current) => current ? { ...current, islands: mergeIslandLists(current.islands, data.islands) } : current);
         setSelectedIsland((current) => current ? data.islands.find((item) => item.id === current.id) || current : null);
       } catch { /* blank water is better than noisy errors while panning */ }
+      finally { if (exploreAbortRef.current === controller) exploreAbortRef.current = null; }
     }, 220);
   }, [snapshot?.state.id, snapshot?.mode, initData]);
 
@@ -408,6 +450,7 @@ export default function GameApp() {
             onAttack={attackIsland}
             onExplore={exploreIslands}
             onOpenBattle={() => setView("battle")}
+            onOpenIsland={() => setView("island")}
           />
         )}
         {view === "island" && <IslandHome snapshot={snapshot} onUpgrade={upgrade} onRepair={repairOwnIsland} />}
@@ -419,8 +462,8 @@ export default function GameApp() {
 
       <nav className="bottom-nav island-bottom-nav">
         {NAV.map((item) => (
-          <button type="button" key={item.key} aria-current={view === item.key ? "page" : undefined} aria-label={item.label} className={view === item.key ? "active" : ""} onClick={() => setView(item.key)}>
-            <NavIcon type={item.key} /><small>{item.label}</small>
+          <button type="button" key={item.key} aria-current={view === item.key ? "page" : undefined} aria-label={item.label} className={view === item.key ? "active" : ""} onClick={() => { tg()?.HapticFeedback?.impactOccurred?.("light"); setView(item.key); }}>
+            <span className="nav-icon-wrap"><NavIcon type={item.key} />{item.key === "battle" && snapshot.activeBattle ? <i className="nav-live-dot" /> : null}</span><small>{item.label}</small>
           </button>
         ))}
       </nav>
@@ -437,17 +480,17 @@ function Splash({ text, action, onAction }: { text: string; action?: string; onA
 const MobileHeader = memo(function MobileHeader({ snapshot }: { snapshot: GameSnapshot }) {
   const state = snapshot.state;
   const role = snapshot.player.role === "president" ? "Президент" : snapshot.player.role === "minister" ? "Министр" : snapshot.player.role === "general" ? "Генерал" : "Гражданин";
-  const compact = (value: number) => new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+  const compact = (value: number) => COMPACT_FORMATTER.format(value);
   return (
     <header className="island-mobile-header game-mobile-header">
       <div className="game-header-identity">
-        <button className="hamburger game-hamburger" type="button" aria-label="Меню"><i /><i /><i /></button>
+        <span className="game-brand-rune" aria-hidden="true">GW</span>
         <span className="header-avatar game-header-avatar" style={{ background: state.color }}>{state.avatarUrl ? <Image src={state.avatarUrl} alt="" width={42} height={42} unoptimized /> : state.emblem}</span>
-        <div className="header-state-name game-header-name"><b>{state.name}</b><small>{role}</small></div>
+        <div className="header-state-name game-header-name"><b>{state.name}</b><small>{role} · #{state.seasonRank}</small></div>
       </div>
       <div className="game-header-stats">
         <div className="game-stat-chip"><NavIcon type="rating" /><div><b>{state.rating}</b><small>ELO</small></div></div>
-        <div className="game-stat-chip"><NavIcon type="profile" /><div><b>{compact(state.memberCount)}</b><small>людей</small></div></div>
+        <div className="game-stat-chip"><NavIcon type="profile" /><div><b>{compact(state.memberCount)}</b><small>бойцов</small></div></div>
         <div className="game-stat-chip coin"><span className="coin-mark">●</span><div><b>{compact(state.treasury.credits)}</b><small>казна</small></div></div>
       </div>
     </header>

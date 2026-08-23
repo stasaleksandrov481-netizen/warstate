@@ -9,6 +9,7 @@ type Props = {
   integrity: number;
   ruined?: boolean;
   selected?: boolean;
+  detail?: "far" | "mid" | "near";
 };
 
 function hash(input: string) {
@@ -34,12 +35,13 @@ const LAND = [
   "M44 84 C44 65 61 52 80 52 C98 39 125 40 141 51 C161 44 184 55 192 72 C201 91 188 105 169 112 C151 123 127 120 108 113 C85 124 64 115 55 103 C47 98 41 91 44 84 Z",
 ];
 
-function IslandArtInner({ id, members, color, integrity, ruined = false, selected = false }: Props) {
+function IslandArtInner({ id, members, color, integrity, ruined = false, selected = false, detail = "near" }: Props) {
   const seed = useMemo(() => hash(id), [id]);
   const variant = seed % COASTS.length;
-  const tier = members >= 700 ? 4 : members >= 300 ? 3 : members >= 120 ? 2 : 1;
-  const treeCount = Math.min(10, 3 + tier * 2);
-  const houseCount = Math.min(7, 1 + tier * 2);
+  const tier = members >= 1500 ? 5 : members >= 700 ? 4 : members >= 300 ? 3 : members >= 120 ? 2 : 1;
+  const density = detail === "far" ? 0.42 : detail === "mid" ? 0.72 : 1;
+  const treeCount = Math.max(2, Math.round(Math.min(12, 3 + tier * 2) * density));
+  const houseCount = Math.max(detail === "far" ? 0 : 1, Math.round(Math.min(9, 1 + tier * 2) * density));
   const cliffOpacity = Math.max(0.15, Math.min(0.72, (100 - integrity) / 100));
 
   const trees = useMemo(() => Array.from({ length: treeCount }, (_, index) => {
@@ -86,12 +88,22 @@ function IslandArtInner({ id, members, color, integrity, ruined = false, selecte
       </defs>
 
       <ellipse cx="121" cy="120" rx="84" ry="22" fill="#001827" opacity=".55" />
+      {detail !== "far" && (
+        <g className="island-wave-rings" opacity={ruined ? .25 : .58}>
+          <path d="M34 119 C66 143 160 146 206 112" fill="none" stroke="#b7f3ff" strokeWidth="1.3" strokeLinecap="round" />
+          <path d="M49 130 C90 149 159 145 194 126" fill="none" stroke="#4bc9f2" strokeWidth="1" strokeLinecap="round" opacity=".7" />
+        </g>
+      )}
       <path d={COASTS[variant]} fill={`url(#seaGlow-${seed})`} opacity=".78" transform="translate(0 4)" filter={`url(#select-${seed})`} />
       <path d={COASTS[variant]} fill={`url(#beach-${seed})`} filter={`url(#shadow-${seed})`} />
       <path d={LAND[variant]} fill={`url(#land-${seed})`} />
 
       <path d="M45 91 C73 111 112 119 155 110 C178 105 191 91 199 78 C195 103 182 117 161 124 C137 139 105 134 89 126 C67 132 48 119 39 103 Z" fill="#123b2b" opacity=".55" />
       <path d="M52 101 C79 117 111 123 148 116 C172 111 188 99 196 88" fill="none" stroke="#7b6547" strokeWidth="5" strokeLinecap="round" opacity=".72" />
+      {detail === "near" && <g opacity={ruined ? .28 : .76}>
+        <path d="M79 94 C95 88 105 78 120 74 C139 77 153 87 170 95" fill="none" stroke="#d8c48c" strokeWidth="2.2" strokeLinecap="round" strokeDasharray="2 3" />
+        <path d="M119 74 C118 89 110 102 100 112" fill="none" stroke="#d8c48c" strokeWidth="1.8" strokeLinecap="round" strokeDasharray="2 3" />
+      </g>}
 
       <g opacity={ruined ? .3 : .98}>
         {trees.map((tree, index) => (
@@ -122,10 +134,12 @@ function IslandArtInner({ id, members, color, integrity, ruined = false, selecte
         <rect x="-2" y="10" width="5" height="10" fill="#27313a" />
         {tier >= 3 && <><rect x="-20" y="3" width="8" height="20" fill="#aeb5b5" /><polygon points="-22,3 -16,-8 -10,3" fill={color} /><rect x="12" y="3" width="8" height="20" fill="#aeb5b5" /><polygon points="10,3 16,-8 22,3" fill={color} /></>}
         {tier >= 4 && <><rect x="-3" y="-27" width="6" height="15" fill="#adb3b2" /><polygon points="-6,-27 0,-37 6,-27" fill={color} /></>}
+        {tier >= 5 && <><rect x="-31" y="10" width="15" height="13" rx="2" fill="#7f888d" /><rect x="16" y="10" width="15" height="13" rx="2" fill="#7f888d" /><path d="M-31 9h15M16 9h15" stroke={color} strokeWidth="2" /></>}
       </g>
 
       {tier >= 2 && <g transform="translate(66 101)"><rect x="0" y="0" width="26" height="4" rx="2" fill="#9d7544" /><rect x="2" y="4" width="3" height="10" fill="#5f482f" /><rect x="20" y="4" width="3" height="10" fill="#5f482f" /></g>}
       {tier >= 3 && <g transform="translate(171 86)"><rect x="0" y="0" width="2" height="22" fill="#d8e5ef" /><path d="M2 2 L17 7 L2 13 Z" fill={color} /></g>}
+      {tier >= 4 && detail !== "far" && <g transform="translate(184 103)"><rect x="-3" y="-15" width="7" height="15" fill="#eef2e6" /><rect x="-5" y="-18" width="11" height="4" rx="2" fill={color} /><circle cx=".5" cy="-16" r="1.8" fill="#fff7b8" /><path d="M7 -16 L25 -21" stroke="#fff7b8" strokeWidth="2" opacity=".32" /></g>}
 
       {integrity < 100 && !ruined && (
         <g opacity={cliffOpacity + .2}>

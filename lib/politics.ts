@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { recordWorldEvent } from "@/lib/diplomacy";
 import type { ElectionView, SeasonView, StateBadgeView } from "@/lib/types";
+import { requireData } from "@/lib/invariants";
 
 export async function getActiveSeason(): Promise<SeasonView | null> {
   const supabase = getSupabaseAdmin();
@@ -45,13 +46,15 @@ export async function getStateBadges(stateId: string, limit = 12): Promise<State
   }));
 }
 
-export async function ensureMilestoneBadges(stateId: string, seasonId: string | null, rating: number, territoryCount: number, wins: number) {
+export async function ensureMilestoneBadges(stateId: string, seasonId: string | null, rating: number, wins: number, bestWinStreak: number) {
   const supabase = getSupabaseAdmin();
   const badges: Array<{ key: string; title: string; description: string; icon: string }> = [];
-  if (territoryCount >= 5) badges.push({ key: "frontier_5", title: "Первые рубежи", description: "Контролировать 5 территорий", icon: "⬡" });
-  if (territoryCount >= 12) badges.push({ key: "frontier_12", title: "Региональная держава", description: "Контролировать 12 территорий", icon: "◈" });
+  if (wins >= 1) badges.push({ key: "island_first_win", title: "Первый рейд", description: "Выиграть первую островную войну", icon: "⚔" });
+  if (wins >= 5) badges.push({ key: "island_wins_5", title: "Морские волки", description: "Победить в 5 островных войнах", icon: "☠" });
+  if (wins >= 20) badges.push({ key: "island_wins_20", title: "Штормовой фронт", description: "Победить в 20 островных войнах", icon: "♜" });
   if (rating >= 1500) badges.push({ key: "rating_1500", title: "На мировой сцене", description: "Достичь рейтинга 1500", icon: "★" });
-  if (wins >= 5) badges.push({ key: "wins_5", title: "Закалённые войной", description: "Победить в 5 сражениях", icon: "⚔" });
+  if (bestWinStreak >= 3) badges.push({ key: "streak_3", title: "На волне", description: "Выиграть 3 войны подряд", icon: "≈" });
+  if (bestWinStreak >= 7) badges.push({ key: "streak_7", title: "Непотопляемые", description: "Выиграть 7 войн подряд", icon: "◆" });
   if (!badges.length) return;
   for (const badge of badges) {
     const { error } = await supabase.from("state_badges").upsert({
@@ -89,17 +92,19 @@ export async function openElection(stateId: string, playerId: string) {
     if (error.code === "23505") throw new Error("Выборы уже идут.");
     throw error;
   }
-  await supabase.from("election_candidates").insert({ election_id: data.id, player_id: playerId, statement: "Продолжить курс государства." });
+  const election = requireData(data, "Не удалось открыть выборы.");
+  await supabase.from("election_candidates").insert({ election_id: election.id, player_id: playerId, statement: "Продолжить курс государства." });
   await recordWorldEvent({ eventType: "election_opened", title: "Начались выборы", body: "В государстве открыто голосование за президента.", actorStateId: stateId });
-  return data.id;
+  return election.id;
 }
 
 export async function nominateCandidate(electionId: string, playerId: string, statement: string) {
   const supabase = getSupabaseAdmin();
   const { data: election, error: electionError } = await supabase.from("state_elections").select("state_id,status,ends_at").eq("id", electionId).single();
   if (electionError) throw electionError;
-  if (election.status !== "open" || new Date(election.ends_at).getTime() <= Date.now()) throw new Error("Выборы уже закрыты.");
-  const { data: member, error: memberError } = await supabase.from("state_members").select("id").eq("state_id", election.state_id).eq("player_id", playerId).maybeSingle();
+  const electionRow = requireData(election, "Выборы не найдены.");
+  if (electionRow.status !== "open" || new Date(electionRow.ends_at).getTime() <= Date.now()) throw new Error("Выборы уже закрыты.");
+  const { data: member, error: memberError } = await supabase.from("state_members").select("id").eq("state_id", electionRow.state_id).eq("player_id", playerId).maybeSingle();
   if (memberError) throw memberError;
   if (!member) throw new Error("Только граждане могут выдвигаться.");
   const { error } = await supabase.from("election_candidates").upsert({

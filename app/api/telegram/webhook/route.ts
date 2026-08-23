@@ -1,13 +1,28 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { miniAppLink, telegramApi } from "@/lib/telegram-bot";
 import { getProduct } from "@/lib/products";
+import { handleGroupTextCommand } from "@/lib/chat-commands";
 
 export const runtime = "nodejs";
 
 function validWebhookSecret(request: Request) {
   const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (!expected) return true;
+  if (!expected) return false;
   return request.headers.get("x-telegram-bot-api-secret-token") === expected;
+}
+
+
+async function sendFreeportMessage(chatId: number) {
+  return telegramApi("sendMessage", {
+    chat_id: chatId,
+    text:
+      `⚓ FREEPORT\n\n` +
+      `Нейтральная гавань GROUP WARS. Здесь можно начать одному, прокачать профиль, найти государство и подать заявку на вступление.\n\n` +
+      `Когда вступишь в Telegram-группу государства, открой игру из той группы — привязка подтвердится автоматически.`,
+    reply_markup: {
+      inline_keyboard: [[{ text: "⚓ Войти в Freeport", url: miniAppLink() }]],
+    },
+  });
 }
 
 async function sendLaunchMessage(chatId: number, title?: string) {
@@ -43,17 +58,26 @@ function parseInvoicePayload(raw: unknown) {
 }
 
 async function processSuccessfulPayment(message: any) {
-  const payment = message.successful_payment;
-  if (!payment) return;
+  const payment = message?.successful_payment;
+  if (!payment) throw new Error("Telegram sent a payment update without successful_payment payload.");
+
+  const senderId = Number(message?.from?.id);
   const payload = parseInvoicePayload(payment.invoice_payload);
-  if (!payload || payload.telegramId !== Number(message.from?.id)) return;
-  if (payment.currency !== "XTR" || Number(payment.total_amount) !== payload.product.stars) return;
+  if (!payload) throw new Error("Invalid successful-payment invoice payload.");
+  if (!Number.isSafeInteger(senderId) || senderId <= 0 || payload.telegramId !== senderId) {
+    throw new Error("Successful-payment Telegram user does not match invoice payload.");
+  }
+  if (payment.currency !== "XTR" || Number(payment.total_amount) !== payload.product.stars) {
+    throw new Error("Successful-payment amount or currency does not match the product catalog.");
+  }
+
+  const chargeId = String(payment.telegram_payment_charge_id || "").trim();
+  if (!chargeId) throw new Error("Successful payment has no Telegram charge id.");
 
   const supabase = getSupabaseAdmin();
-  const chargeId = payment.telegram_payment_charge_id;
-  const { data: player, error: playerError } = await supabase.from("players").select("id").eq("telegram_id", message.from.id).maybeSingle();
+  const { data: player, error: playerError } = await supabase.from("players").select("id").eq("telegram_id", senderId).maybeSingle();
   if (playerError) throw playerError;
-  if (!player) return;
+  if (!player) throw new Error("Paid Telegram account has no GROUP WARS player row.");
 
   const { error: paymentError } = await supabase.from("payments").insert({
     telegram_charge_id: chargeId,
@@ -85,8 +109,14 @@ async function processSuccessfulPayment(message: any) {
 }
 
 export async function POST(request: Request) {
+  if (!process.env.TELEGRAM_WEBHOOK_SECRET) return new Response("TELEGRAM_WEBHOOK_SECRET is not configured", { status: 500 });
   if (!validWebhookSecret(request)) return new Response("forbidden", { status: 403 });
-  const update = await request.json();
+  let update: any;
+  try {
+    update = await request.json();
+  } catch {
+    return new Response("invalid JSON", { status: 400 });
+  }
 
   try {
     if (update.pre_checkout_query) {
@@ -107,8 +137,15 @@ export async function POST(request: Request) {
     }
 
     if (update.message?.successful_payment) {
-      await processSuccessfulPayment(update.message);
-      return Response.json({ ok: true });
+      try {
+        await processSuccessfulPayment(update.message);
+        return Response.json({ ok: true });
+      } catch (error) {
+        // Payment/entitlement writes are idempotent by Telegram charge id. Returning
+        // 500 here lets Telegram retry instead of silently losing a paid entitlement.
+        console.error("Telegram successful_payment processing failed", error);
+        return Response.json({ ok: false }, { status: 500 });
+      }
     }
 
     const membership = update.my_chat_member;
@@ -121,7 +158,16 @@ export async function POST(request: Request) {
     }
 
     const message = update.message;
+    if (message?.chat?.id && message.chat.type === "private") {
+      const text = String(message.text || "").trim();
+      if (text.startsWith("/start") || text === "/freeport") {
+        await sendFreeportMessage(message.chat.id);
+      }
+      return Response.json({ ok: true });
+    }
+
     if (message?.chat?.id && ["group", "supergroup"].includes(message.chat.type)) {
+      if (await handleGroupTextCommand(message)) return Response.json({ ok: true });
       const text = String(message.text || "").split("@")[0].trim();
       if (["/groupwars", "/gw", "/war"].includes(text)) {
         await sendLaunchMessage(message.chat.id, message.chat.title);

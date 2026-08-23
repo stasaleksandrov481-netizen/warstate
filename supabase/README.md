@@ -14,9 +14,11 @@ migrations/007_seasons_politics_identity.sql
 migrations/008_island_world_elo.sql
 migrations/009_island_integrity_campaigns.sql
 migrations/010_island_world_polish.sql
+migrations/011_freeport_live_recruitment.sql
+migrations/012_live_integrity_audit.sql
 ```
 
-If your existing project already has `001`–`009`, run only `010_island_world_polish.sql` for v1.2.
+For v1.4.1, if your existing project is already on `010`, run `011_freeport_live_recruitment.sql` and then `012_live_integrity_audit.sql`. If `011` is already applied, run only `012_live_integrity_audit.sql`.
 
 3. In Project Settings/API copy:
    - Project URL -> `NEXT_PUBLIC_SUPABASE_URL`
@@ -37,3 +39,5 @@ Writes are intentionally performed only from Vercel server routes after Telegram
 - `008_island_world_elo.sql` — infinite island placement, Telegram group metadata, viewport query, island battles and ELO.
 - `009_island_integrity_campaigns.sql` — integrity, multi-battle destruction, ruins, repair and streaks.
 - `010_island_world_polish.sql` — map-query indexes/limits, cheaper island viewport reads and idempotent battle rewards.
+- `011_freeport_live_recruitment.sql` — real Freeport onboarding, recruitment, neutral-island guardrails, battle size modifiers and wider procedural island placement.
+- `012_live_integrity_audit.sql` — deduplicates old citizenship rows, enforces one active state per player, adds atomic citizenship changes and reasserts service-role-only battle RPC access.

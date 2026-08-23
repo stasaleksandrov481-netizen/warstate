@@ -19,13 +19,16 @@ export async function syncStateChatMeta(stateId: string, chatId: number, force =
   if (!force && last && Date.now() - last < META_TTL_MS) return currentState;
 
   const [chat, memberCount] = await Promise.all([
-    getChat(chatId).catch(() => null),
-    getChatMemberCount(chatId).catch(() => null),
+    getChat(chatId),
+    getChatMemberCount(chatId),
   ]);
-  const patch: Record<string, unknown> = { chat_meta_synced_at: new Date().toISOString() };
-  if (chat?.title) patch.name = chat.title;
-  if (chat?.photo?.big_file_id || chat?.photo?.small_file_id) patch.chat_avatar_file_id = chat.photo.big_file_id || chat.photo.small_file_id;
-  if (typeof memberCount === "number") patch.telegram_member_count = Math.max(1, memberCount);
+  if (!chat.title) throw new Error("Telegram не вернул название группы.");
+  const patch: Record<string, unknown> = {
+    chat_meta_synced_at: new Date().toISOString(),
+    name: chat.title,
+    telegram_member_count: Math.max(1, memberCount),
+    chat_avatar_file_id: chat.photo?.big_file_id || chat.photo?.small_file_id || null,
+  };
 
   const { data, error: updateError } = await supabase.from("states").update(patch).eq("id", stateId).select("*").single();
   if (updateError) throw updateError;
@@ -76,11 +79,20 @@ export async function getIslandWorld(
     avatarUrl: row.chat_avatar_file_id ? `/api/telegram/chat-photo?stateId=${encodeURIComponent(row.id)}` : null,
     relation: relationByState.get(row.id) || null,
     isMine: row.id === stateId,
+    isFreeport: Boolean(row.is_freeport),
   }));
 }
 
 export async function createIslandBattle(attackerStateId: string, defenderStateId: string) {
   const supabase = getSupabaseAdmin();
+  const { data: states, error: statesError } = await supabase
+    .from("states")
+    .select("id,is_freeport")
+    .in("id", [attackerStateId, defenderStateId]);
+  if (statesError) throw statesError;
+  if ((states || []).some((state: any) => state.is_freeport)) {
+    throw new Error("Freeport — нейтральная территория. Здесь запрещены войны.");
+  }
   const { data: battleId, error } = await supabase.rpc("gw_start_island_battle", {
     p_attacker_state_id: attackerStateId,
     p_defender_state_id: defenderStateId,

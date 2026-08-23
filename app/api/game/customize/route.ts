@@ -13,6 +13,7 @@ export async function POST(request: Request) {
     const stateId = String(body.stateId || "");
     if (!stateId) throw new Error("stateId is required");
     const auth = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
+    if (auth.state.is_freeport) throw new Error("Freeport — нейтральная территория и не меняет оформление игроками.");
     if (!["president","minister"].includes(auth.member.role)) throw new Error("Оформление меняют президент или министр.");
 
     const patch: Record<string, string> = {};

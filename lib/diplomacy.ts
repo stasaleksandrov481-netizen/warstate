@@ -23,8 +23,7 @@ export async function recordWorldEvent(input: {
     body: input.body,
     payload: input.payload || {},
   });
-  // Migration 004 may not exist while a developer is applying migrations incrementally.
-  if (error && error.code !== "42P01") throw error;
+  if (error) throw error;
 }
 
 export async function getDiplomacyForState(stateId: string): Promise<DiplomacyRelationView[]> {
@@ -34,10 +33,7 @@ export async function getDiplomacyForState(stateId: string): Promise<DiplomacyRe
     .select("*")
     .or(`state_a_id.eq.${stateId},state_b_id.eq.${stateId}`)
     .order("updated_at", { ascending: false });
-  if (error) {
-    if (error.code === "42P01") return [];
-    throw error;
-  }
+  if (error) throw error;
   const otherIds = [...new Set((rows || []).map((r: any) => r.state_a_id === stateId ? r.state_b_id : r.state_a_id))];
   if (!otherIds.length) return [];
   const { data: states, error: statesError } = await supabase.from("states").select("id,name,color").in("id", otherIds);
@@ -66,16 +62,15 @@ export async function getWorldFeed(limit = 24): Promise<WorldEventView[]> {
     .select("*")
     .order("created_at", { ascending: false })
     .limit(limit);
-  if (error) {
-    if (error.code === "42P01") return [];
-    throw error;
-  }
+  if (error) throw error;
   const ids = [...new Set((events || []).flatMap((e: any) => [e.actor_state_id, e.target_state_id]).filter(Boolean))];
-  const { data: states, error: statesError } = ids.length
-    ? await supabase.from("states").select("id,name,color").in("id", ids)
-    : { data: [], error: null as any };
-  if (statesError) throw statesError;
-  const byId = new Map((states || []).map((s: any) => [s.id, s]));
+  let states: any[] = [];
+  if (ids.length) {
+    const { data, error: statesError } = await supabase.from("states").select("id,name,color").in("id", ids);
+    if (statesError) throw statesError;
+    states = data || [];
+  }
+  const byId = new Map(states.map((s: any) => [s.id, s]));
   return (events || []).map((event: any) => {
     const actor: any = event.actor_state_id ? byId.get(event.actor_state_id) : null;
     const target: any = event.target_state_id ? byId.get(event.target_state_id) : null;
@@ -99,7 +94,8 @@ export async function getLeaderboard(limit = 10): Promise<LeaderboardStateView[]
   const supabase = getSupabaseAdmin();
   const { data: states, error } = await supabase
     .from("states")
-    .select("id,name,color,rating,telegram_member_count")
+    .select("id,name,color,rating,telegram_member_count,is_freeport")
+    .eq("is_freeport", false)
     .order("rating", { ascending: false })
     .order("created_at", { ascending: true })
     .limit(limit);
@@ -118,7 +114,7 @@ async function getRelation(a: string, b: string) {
   const supabase = getSupabaseAdmin();
   const [stateA, stateB] = canonicalPair(a, b);
   const { data, error } = await supabase.from("diplomacy_relations").select("*").eq("state_a_id", stateA).eq("state_b_id", stateB).maybeSingle();
-  if (error && error.code !== "42P01") throw error;
+  if (error) throw error;
   return data || null;
 }
 

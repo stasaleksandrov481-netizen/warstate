@@ -9,7 +9,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const stateId = String(url.searchParams.get("stateId") || "");
     if (!stateId) throw new Error("stateId is required");
-    await authorizeStateAction(request, stateId);
+    await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
     const rawX = Number(url.searchParams.get("x") || 0);
     const rawY = Number(url.searchParams.get("y") || 0);
     const rawRadius = Number(url.searchParams.get("radius") || 2600);

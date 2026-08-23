@@ -38,11 +38,14 @@ export function validateTelegramInitData(initData: string, botToken: string, max
 
   const authDate = Number(params.get("auth_date") || 0);
   const now = Math.floor(Date.now() / 1000);
-  if (!authDate || now - authDate > maxAgeSeconds) throw new Error("Telegram initData expired");
+  if (!authDate || authDate > now + 30 || now - authDate > maxAgeSeconds) throw new Error("Telegram initData expired");
 
   const userRaw = params.get("user");
   if (!userRaw) throw new Error("Telegram user missing");
   const user = JSON.parse(userRaw) as TelegramUser;
+  if (!Number.isSafeInteger(user.id) || user.id <= 0 || !String(user.first_name || "").trim()) {
+    throw new Error("Telegram user payload is invalid");
+  }
 
   return {
     user,
@@ -55,5 +58,6 @@ export function parseGroupStartParam(startParam?: string | null) {
   if (!startParam) return null;
   const match = /^gw_(-?\d+)$/.exec(startParam);
   if (!match) return null;
-  return Number(match[1]);
+  const chatId = Number(match[1]);
+  return Number.isSafeInteger(chatId) && chatId !== 0 ? chatId : null;
 }

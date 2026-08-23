@@ -2,8 +2,8 @@ const token = process.env.TELEGRAM_BOT_TOKEN;
 const appUrl = process.env.NEXT_PUBLIC_APP_URL;
 const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
 
-if (!token || !appUrl) {
-  console.error("Set TELEGRAM_BOT_TOKEN and NEXT_PUBLIC_APP_URL first.");
+if (!token || !appUrl || !secret) {
+  console.error("Set TELEGRAM_BOT_TOKEN, NEXT_PUBLIC_APP_URL and TELEGRAM_WEBHOOK_SECRET first.");
   process.exit(1);
 }
 
@@ -21,7 +21,7 @@ async function api(method, body) {
 
 await api("setWebhook", {
   url: `${appUrl.replace(/\/$/, "")}/api/telegram/webhook`,
-  secret_token: secret || undefined,
+  secret_token: secret,
   allowed_updates: ["message", "my_chat_member", "pre_checkout_query"],
 });
 

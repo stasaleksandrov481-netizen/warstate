@@ -15,7 +15,8 @@ export async function POST(request: Request) {
     const targetStateId = String(body.targetStateId || "");
     if (!stateId || !targetStateId) throw new Error("stateId and targetStateId are required");
 
-    const { player, member, session } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
+    const { player, member, session, state: authState } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
+    if (authState.is_freeport) throw new Error("Freeport — нейтральная территория. Сначала вступите в государство.");
     if (!["president", "minister", "general"].includes(member.role)) {
       throw new Error("Морскую атаку может начать президент, министр или генерал.");
     }
@@ -23,10 +24,11 @@ export async function POST(request: Request) {
     const battleId = await createIslandBattle(stateId, targetStateId);
     const battle = await getBattleView(battleId, player.id);
     const supabase = getSupabaseAdmin();
-    const { data: states } = await supabase
+    const { data: states, error: statesError } = await supabase
       .from("states")
       .select("id,telegram_chat_id,name")
       .in("id", [stateId, targetStateId]);
+    if (statesError) throw statesError;
 
     const attacker = states?.find((row: any) => row.id === stateId);
     const defender = states?.find((row: any) => row.id === targetStateId);
@@ -36,7 +38,7 @@ export async function POST(request: Request) {
         chat_id: Number(state.telegram_chat_id),
         text,
         reply_markup: { inline_keyboard: [[{ text: "⚔️ Войти в бой", url: miniAppLink(Number(state.telegram_chat_id)) }]] },
-      }).catch(() => null);
+      }).catch((error) => console.error("island Telegram notification failed", error));
     }
 
     await recordWorldEvent({
@@ -46,7 +48,7 @@ export async function POST(request: Request) {
       actorStateId: stateId,
       targetStateId,
       payload: { battleId },
-    }).catch(() => null);
+    });
 
     const snapshot = await getGameSnapshot(player.id, stateId, session.user.id, member.role);
     return Response.json({ snapshot, battle });

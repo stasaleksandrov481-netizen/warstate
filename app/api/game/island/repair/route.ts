@@ -13,7 +13,8 @@ export async function POST(request: Request) {
     if (!Number.isFinite(rawAmount)) throw new Error("Некорректный объём ремонта.");
     const amount = Math.max(1, Math.min(50, Math.round(rawAmount)));
 
-    const { player, member, session } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
+    const { player, member, session, state } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
+    if (state.is_freeport) throw new Error("Freeport не нуждается в ремонте игроков.");
     if (!["president", "minister"].includes(member.role)) {
       throw new Error("Ремонт из казны запускает президент или министр.");
     }

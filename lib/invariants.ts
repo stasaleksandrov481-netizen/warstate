@@ -3,12 +3,12 @@ export function requireData<T>(value: T | null | undefined, message: string): T 
   return value;
 }
 
-export function safeInteger(value: unknown, fallback = 0): number {
+export function safeInteger(value: unknown, defaultValue = 0): number {
   const n = Number(value);
-  return Number.isFinite(n) ? Math.trunc(n) : fallback;
+  return Number.isFinite(n) ? Math.trunc(n) : defaultValue;
 }
 
-export function safeNumber(value: unknown, fallback = 0): number {
+export function safeNumber(value: unknown, defaultValue = 0): number {
   const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
+  return Number.isFinite(n) ? n : defaultValue;
 }

@@ -13,7 +13,8 @@ export async function POST(request: Request) {
     const buildingType = body.buildingType as BuildingType;
     if (!stateId || !BUILDINGS.includes(buildingType)) throw new Error("Invalid upgrade request");
 
-    const { player, member, session } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
+    const { player, member, session, state } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
+    if (state.is_freeport) throw new Error("Freeport развивается через личный прогресс игроков, а не общую казну.");
     if (!['president', 'minister'].includes(member.role)) throw new Error("Развивать остров может президент или министр.");
     await upgradeBuilding(stateId, buildingType);
     await tickState(stateId);

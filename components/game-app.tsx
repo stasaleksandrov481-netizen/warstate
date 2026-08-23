@@ -4,18 +4,6 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import { getSupabaseBrowser } from "@/lib/supabase/browser";
-import {
-  createDemoSnapshot,
-  demoBattleAction,
-  demoClaimMission,
-  demoCustomizeState,
-  demoDiplomacyAction,
-  demoIslandAttack,
-  demoPoliticsAction,
-  demoProgressMission,
-  demoRepairIsland,
-  demoUpgrade,
-} from "@/lib/demo";
 import type {
   BattleClass,
   BattleView,
@@ -47,15 +35,6 @@ type TelegramWebApp = {
 function tg(): TelegramWebApp | null {
   if (typeof window === "undefined") return null;
   return (window as any).Telegram?.WebApp || null;
-}
-
-function startParam() {
-  const telegram = tg();
-  return (
-    telegram?.initDataUnsafe?.start_param ||
-    new URLSearchParams(window.location.search).get("startapp") ||
-    new URLSearchParams(window.location.search).get("tgWebAppStartParam")
-  );
 }
 
 function mergeIslandLists(current: IslandView[] = [], incoming: IslandView[] = [], max = 700) {
@@ -111,7 +90,6 @@ export default function GameApp() {
   const refreshLiveInFlightRef = useRef(false);
   const refreshBattleInFlightRef = useRef(false);
   const lastExploreRef = useRef<{ x: number; y: number; radius: number; at: number } | null>(null);
-  const demo = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
   const telegram = typeof window !== "undefined" ? tg() : null;
   const initData = telegram?.initData || "";
 
@@ -135,39 +113,17 @@ export default function GameApp() {
       const app = tg();
       app?.ready?.();
       app?.expand?.();
-      if (demo || !app?.initData) {
-        const fresh = createDemoSnapshot();
-        const saved = localStorage.getItem("groupwars-demo-v12-islands");
-        if (!saved) setSnapshot(fresh);
-        else {
-          try {
-            const parsed = JSON.parse(saved) as Partial<GameSnapshot>;
-            setSnapshot({
-              ...fresh,
-              ...parsed,
-              state: { ...fresh.state, ...(parsed.state || {}) },
-              player: { ...fresh.player, ...(parsed.player || {}) },
-              islands: parsed.islands || fresh.islands,
-              dailyMissions: parsed.dailyMissions || fresh.dailyMissions,
-            });
-          } catch {
-            localStorage.removeItem("groupwars-demo-v12-islands");
-            setSnapshot(fresh);
-          }
-        }
-      } else {
-        const data = await api<GameSnapshot>("/api/game/bootstrap", app.initData, {
-          method: "POST",
-          body: JSON.stringify({ startParam: startParam() }),
-        });
-        setSnapshot(data);
+      if (!app?.initData) {
+        throw new Error("Откройте live-версию игры внутри Telegram Mini App.");
       }
+      const data = await api<GameSnapshot>("/api/game/bootstrap", app.initData, { method: "POST" });
+      setSnapshot(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось открыть игру");
     } finally {
       setLoading(false);
     }
-  }, [demo]);
+  }, []);
 
   useEffect(() => { void bootstrap(); }, [bootstrap]);
   useEffect(() => () => {
@@ -177,9 +133,7 @@ export default function GameApp() {
     if (exploreTimer.current) window.clearTimeout(exploreTimer.current);
     exploreAbortRef.current?.abort();
   }, []);
-  useEffect(() => {
-    if (snapshot?.mode === "demo") localStorage.setItem("groupwars-demo-v12-islands", JSON.stringify(snapshot));
-  }, [snapshot]);
+
 
   useEffect(() => {
     if (!selectedIsland || !snapshot) return;
@@ -188,7 +142,7 @@ export default function GameApp() {
   }, [snapshot?.islands, selectedIsland?.id]);
 
   const refreshLive = useCallback(async () => {
-    if (!snapshot || snapshot.mode !== "live" || !initData || refreshLiveInFlightRef.current) return;
+    if (!snapshot || !initData || refreshLiveInFlightRef.current) return;
     refreshLiveInFlightRef.current = true;
     try {
       const fresh = await api<GameSnapshot>(`/api/game/state?stateId=${snapshot.state.id}`, initData);
@@ -199,7 +153,7 @@ export default function GameApp() {
     } finally {
       refreshLiveInFlightRef.current = false;
     }
-  }, [snapshot?.state.id, snapshot?.mode, initData, acceptSnapshot]);
+  }, [snapshot?.state.id, initData, acceptSnapshot]);
 
   const scheduleRefreshLive = useCallback(() => {
     if (refreshLiveTimer.current) window.clearTimeout(refreshLiveTimer.current);
@@ -208,7 +162,7 @@ export default function GameApp() {
 
   const refreshBattle = useCallback(async () => {
     const battleId = snapshot?.activeBattle?.id;
-    if (!battleId || snapshot?.mode !== "live" || !initData || refreshBattleInFlightRef.current) return;
+    if (!battleId || !initData || refreshBattleInFlightRef.current) return;
     refreshBattleInFlightRef.current = true;
     try {
       const battle = await api<BattleView>(`/api/game/battle?battleId=${battleId}`, initData);
@@ -216,7 +170,7 @@ export default function GameApp() {
       if (battle.status === "resolved") window.setTimeout(() => scheduleRefreshLive(), 500);
     } catch { /* realtime can race with resolution */ }
     finally { refreshBattleInFlightRef.current = false; }
-  }, [snapshot?.activeBattle?.id, snapshot?.mode, initData, scheduleRefreshLive]);
+  }, [snapshot?.activeBattle?.id, initData, scheduleRefreshLive]);
 
   const scheduleRefreshBattle = useCallback(() => {
     if (refreshBattleTimer.current) window.clearTimeout(refreshBattleTimer.current);
@@ -224,7 +178,7 @@ export default function GameApp() {
   }, [refreshBattle]);
 
   useEffect(() => {
-    if (!snapshot || snapshot.mode !== "live") return;
+    if (!snapshot) return;
     const supabase = getSupabaseBrowser();
     if (!supabase) return;
     const channel = supabase
@@ -242,11 +196,11 @@ export default function GameApp() {
       document.removeEventListener("visibilitychange", refreshWhenVisible);
       void supabase.removeChannel(channel);
     };
-  }, [snapshot?.state.id, snapshot?.mode, scheduleRefreshLive]);
+  }, [snapshot?.state.id, scheduleRefreshLive]);
 
   useEffect(() => {
     const battleId = snapshot?.activeBattle?.id;
-    if (!battleId || snapshot?.mode !== "live") return;
+    if (!battleId) return;
     const supabase = getSupabaseBrowser();
     if (!supabase) return;
     const channel = supabase
@@ -258,10 +212,10 @@ export default function GameApp() {
       .subscribe();
     const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refreshBattle(); }, 5000);
     return () => { window.clearInterval(timer); void supabase.removeChannel(channel); };
-  }, [snapshot?.activeBattle?.id, snapshot?.mode, scheduleRefreshBattle, refreshBattle]);
+  }, [snapshot?.activeBattle?.id, scheduleRefreshBattle, refreshBattle]);
 
   const exploreIslands = useCallback((x: number, y: number, radius: number) => {
-    if (!snapshot || snapshot.mode !== "live" || !initData) return;
+    if (!snapshot || !initData) return;
     const previous = lastExploreRef.current;
     const distance = previous ? Math.hypot(x - previous.x, y - previous.y) : Number.POSITIVE_INFINITY;
     if (previous && Date.now() - previous.at < 4500 && distance < Math.min(radius, previous.radius) * 0.18 && radius <= previous.radius * 1.12) return;
@@ -278,17 +232,11 @@ export default function GameApp() {
       } catch { /* blank water is better than noisy errors while panning */ }
       finally { if (exploreAbortRef.current === controller) exploreAbortRef.current = null; }
     }, 220);
-  }, [snapshot?.state.id, snapshot?.mode, initData]);
+  }, [snapshot?.state.id, initData]);
 
   async function upgrade(type: BuildingType) {
     if (!snapshot) return;
     try {
-      if (snapshot.mode === "demo") {
-        setSnapshot(demoUpgrade(snapshot, type));
-        tg()?.HapticFeedback?.impactOccurred?.("medium");
-        notify("Инфраструктура улучшена");
-        return;
-      }
       const fresh = await api<GameSnapshot>("/api/game/upgrade", initData, {
         method: "POST",
         body: JSON.stringify({ stateId: snapshot.state.id, buildingType: type }),
@@ -301,14 +249,6 @@ export default function GameApp() {
   async function repairOwnIsland(amount = 25) {
     if (!snapshot) return;
     try {
-      if (snapshot.mode === "demo") {
-        const before = snapshot.state.islandIntegrity;
-        const next = demoRepairIsland(snapshot, amount);
-        if (next.state.islandIntegrity === before) return notify("Ремонт сейчас недоступен или не хватает ресурсов");
-        setSnapshot(next);
-        notify(`Прочность восстановлена до ${next.state.islandIntegrity}%`);
-        return;
-      }
       const result = await api<{ snapshot: GameSnapshot; repair: { integrity: number; repaired: number; creditsCost: number; steelCost: number } }>("/api/game/island/repair", initData, {
         method: "POST",
         body: JSON.stringify({ stateId: snapshot.state.id, amount }),
@@ -321,15 +261,6 @@ export default function GameApp() {
   async function attackIsland(island: IslandView) {
     if (!snapshot) return;
     try {
-      if (snapshot.mode === "demo") {
-        const result = demoIslandAttack(snapshot, island.id);
-        if (!result.result) return notify("Сейчас этот остров атаковать нельзя");
-        setSnapshot(result.snapshot);
-        setSelectedIsland(null);
-        setView("battle");
-        notify("Флот вышел к острову. Битва началась.");
-        return;
-      }
       const result = await api<{ snapshot: GameSnapshot; battle: BattleView }>("/api/game/island/attack", initData, {
         method: "POST",
         body: JSON.stringify({ stateId: snapshot.state.id, targetStateId: island.id }),
@@ -343,14 +274,6 @@ export default function GameApp() {
 
   async function joinBattle(klass: BattleClass) {
     if (!snapshot?.activeBattle) return;
-    if (snapshot.mode === "demo") {
-      setSnapshot((current) => {
-        if (!current?.activeBattle) return current;
-        const joined = { ...current, activeBattle: demoBattleAction(current.activeBattle, "join", { class: klass }, current.player) };
-        return demoProgressMission(joined, "join_battle");
-      });
-      return;
-    }
     try {
       const battle = await api<BattleView>("/api/game/battle/join", initData, { method: "POST", body: JSON.stringify({ battleId: snapshot.activeBattle.id, class: klass }) });
       setSnapshot({ ...snapshot, activeBattle: battle });
@@ -359,14 +282,6 @@ export default function GameApp() {
 
   async function actBattle(action: string, payload: Record<string, unknown> = {}) {
     if (!snapshot?.activeBattle) return;
-    if (snapshot.mode === "demo") {
-      const battle = demoBattleAction(snapshot.activeBattle, action, payload, snapshot.player);
-      let next: GameSnapshot = { ...snapshot, activeBattle: battle };
-      if (["move", "capture", "fire", "heal", "fortify"].includes(action)) next = demoProgressMission(next, "battle_action");
-      if (action === "capture") next = demoProgressMission(next, "capture_point");
-      setSnapshot(next);
-      return;
-    }
     try {
       const battle = await api<BattleView>("/api/game/battle/action", initData, { method: "POST", body: JSON.stringify({ battleId: snapshot.activeBattle.id, action, ...payload }) });
       setSnapshot({ ...snapshot, activeBattle: battle });
@@ -376,11 +291,6 @@ export default function GameApp() {
   async function diplomacy(targetStateId: string, action: DiplomacyAction) {
     if (!snapshot) return;
     try {
-      if (snapshot.mode === "demo") {
-        setSnapshot(demoDiplomacyAction(snapshot, targetStateId, action));
-        notify("Дипломатическая команда отправлена");
-        return;
-      }
       await api<{ diplomacy: DiplomacyRelationView[] }>("/api/game/diplomacy", initData, {
         method: "POST",
         body: JSON.stringify({ stateId: snapshot.state.id, targetStateId, action }),
@@ -393,13 +303,6 @@ export default function GameApp() {
   async function claimMission(missionId: string) {
     if (!snapshot) return;
     try {
-      if (snapshot.mode === "demo") {
-        const mission = snapshot.dailyMissions.find((item) => item.id === missionId);
-        if (!mission || mission.claimed || mission.progress < mission.target) return notify("Задание ещё не выполнено");
-        setSnapshot(demoClaimMission(snapshot, missionId));
-        notify(`Награда: +${mission.rewardXp} XP, +${mission.rewardCredits} ₡`);
-        return;
-      }
       const fresh = await api<GameSnapshot>("/api/game/missions/claim", initData, { method: "POST", body: JSON.stringify({ stateId: snapshot.state.id, missionId }) });
       acceptSnapshot(fresh);
       notify("Награда получена");
@@ -409,11 +312,6 @@ export default function GameApp() {
   async function politics(action: string, payload: Record<string, string> = {}) {
     if (!snapshot) return;
     try {
-      if (snapshot.mode === "demo") {
-        setSnapshot(demoPoliticsAction(snapshot, action, payload));
-        notify(action === "vote" ? "Голос учтён" : "Политическое действие выполнено");
-        return;
-      }
       const fresh = await api<GameSnapshot>("/api/game/politics", initData, { method: "POST", body: JSON.stringify({ stateId: snapshot.state.id, action, ...payload }) });
       acceptSnapshot(fresh);
       notify(action === "vote" ? "Голос учтён" : "Государство обновлено");
@@ -423,19 +321,30 @@ export default function GameApp() {
   async function customizeState(patch: Partial<Pick<StateView, "motto" | "emblem" | "theme" | "color">>) {
     if (!snapshot) return;
     try {
-      if (snapshot.mode === "demo") {
-        setSnapshot(demoCustomizeState(snapshot, patch));
-        notify("Оформление острова обновлено");
-        return;
-      }
       const fresh = await api<GameSnapshot>("/api/game/customize", initData, { method: "POST", body: JSON.stringify({ stateId: snapshot.state.id, ...patch }) });
       acceptSnapshot(fresh);
       notify("Оформление острова обновлено");
     } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить оформление"); }
   }
 
-  if (loading) return <Splash text="Ищем ваш остров…" />;
+  async function recruitment(action: string, payload: Record<string, unknown> = {}) {
+    if (!snapshot) return;
+    try {
+      const fresh = await api<GameSnapshot>("/api/game/recruitment", initData, {
+        method: "POST",
+        body: JSON.stringify({ stateId: snapshot.state.id, action, ...payload }),
+      });
+      acceptSnapshot(fresh);
+      notify("Набор обновлён");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Не удалось выполнить действие набора");
+    }
+  }
+
+  if (loading) return <Splash text="Открываем мировой океан…" />;
   if (error || !snapshot) return <Splash text={error || "Ошибка"} action="Повторить" onAction={bootstrap} />;
+
+  const availableNav = NAV;
 
   return (
     <main className="app-shell island-app-shell">
@@ -453,22 +362,21 @@ export default function GameApp() {
             onOpenIsland={() => setView("island")}
           />
         )}
-        {view === "island" && <IslandHome snapshot={snapshot} onUpgrade={upgrade} onRepair={repairOwnIsland} />}
-        {view === "battle" && <BattleScreen battle={snapshot.activeBattle || null} playerName={snapshot.player.displayName} onJoin={joinBattle} onAction={actBattle} />}
+        {view === "island" && <IslandHome snapshot={snapshot} onUpgrade={upgrade} onRepair={repairOwnIsland} onRecruitment={recruitment} />}
+        {view === "battle" && <BattleScreen battle={snapshot.activeBattle || null} playerName={snapshot.player.displayName} freeport={snapshot.state.isFreeport} onJoin={joinBattle} onAction={actBattle} />}
         {view === "rating" && <IslandRanking snapshot={snapshot} />}
         {view === "alliances" && <IslandAlliances snapshot={snapshot} onDiplomacy={diplomacy} />}
         {view === "profile" && <StateViewPanel snapshot={snapshot} onClaim={claimMission} onPolitics={politics} onCustomize={customizeState} />}
       </section>
 
       <nav className="bottom-nav island-bottom-nav">
-        {NAV.map((item) => (
+        {availableNav.map((item) => (
           <button type="button" key={item.key} aria-current={view === item.key ? "page" : undefined} aria-label={item.label} className={view === item.key ? "active" : ""} onClick={() => { tg()?.HapticFeedback?.impactOccurred?.("light"); setView(item.key); }}>
             <span className="nav-icon-wrap"><NavIcon type={item.key} />{item.key === "battle" && snapshot.activeBattle ? <i className="nav-live-dot" /> : null}</span><small>{item.label}</small>
           </button>
         ))}
       </nav>
       {toast && <div className="toast">{toast}</div>}
-      {snapshot.mode === "demo" && <div className="demo-badge">DEMO</div>}
     </main>
   );
 }
@@ -479,19 +387,29 @@ function Splash({ text, action, onAction }: { text: string; action?: string; onA
 
 const MobileHeader = memo(function MobileHeader({ snapshot }: { snapshot: GameSnapshot }) {
   const state = snapshot.state;
-  const role = snapshot.player.role === "president" ? "Президент" : snapshot.player.role === "minister" ? "Министр" : snapshot.player.role === "general" ? "Генерал" : "Гражданин";
+  const role = state.isFreeport ? "Свободный игрок" : snapshot.player.role === "president" ? "Президент" : snapshot.player.role === "minister" ? "Министр" : snapshot.player.role === "general" ? "Генерал" : "Гражданин";
   const compact = (value: number) => COMPACT_FORMATTER.format(value);
   return (
     <header className="island-mobile-header game-mobile-header">
       <div className="game-header-identity">
         <span className="game-brand-rune" aria-hidden="true">GW</span>
         <span className="header-avatar game-header-avatar" style={{ background: state.color }}>{state.avatarUrl ? <Image src={state.avatarUrl} alt="" width={42} height={42} unoptimized /> : state.emblem}</span>
-        <div className="header-state-name game-header-name"><b>{state.name}</b><small>{role} · #{state.seasonRank}</small></div>
+        <div className="header-state-name game-header-name"><b>{state.name}</b><small>{role}{state.isFreeport ? " · нейтральная гавань" : ` · #${state.seasonRank}`}</small></div>
       </div>
       <div className="game-header-stats">
-        <div className="game-stat-chip"><NavIcon type="rating" /><div><b>{state.rating}</b><small>ELO</small></div></div>
-        <div className="game-stat-chip"><NavIcon type="profile" /><div><b>{compact(state.memberCount)}</b><small>бойцов</small></div></div>
-        <div className="game-stat-chip coin"><span className="coin-mark">●</span><div><b>{compact(state.treasury.credits)}</b><small>казна</small></div></div>
+        {state.isFreeport ? (
+          <>
+            <div className="game-stat-chip"><NavIcon type="profile" /><div><b>ур. {snapshot.player.level}</b><small>уровень</small></div></div>
+            <div className="game-stat-chip"><span className="header-xp-mark">XP</span><div><b>{compact(snapshot.player.xp)}</b><small>опыт</small></div></div>
+            <div className="game-stat-chip coin"><span className="coin-mark">●</span><div><b>{compact(state.memberCount)}</b><small>свободных</small></div></div>
+          </>
+        ) : (
+          <>
+            <div className="game-stat-chip"><NavIcon type="rating" /><div><b>{state.rating}</b><small>ELO</small></div></div>
+            <div className="game-stat-chip"><NavIcon type="profile" /><div><b>{compact(state.memberCount)}</b><small>участников</small></div></div>
+            <div className="game-stat-chip coin"><span className="coin-mark">●</span><div><b>{compact(state.treasury.credits)}</b><small>казна</small></div></div>
+          </>
+        )}
       </div>
     </header>
   );

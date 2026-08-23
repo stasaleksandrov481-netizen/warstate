@@ -55,8 +55,19 @@ export async function recordMissionProgress(playerId: string, stateId: string, k
   if (error) throw error;
 }
 
-export async function getDailyMissions(playerId: string, stateId: string): Promise<DailyMissionView[]> {
+export async function getDailyMissions(playerId: string, stateId: string, freeport = false): Promise<DailyMissionView[]> {
   await ensureDailyMissions(playerId, stateId);
+  if (freeport) {
+    const supabase = getSupabaseAdmin();
+    const today = new Date().toISOString().slice(0, 10);
+    const { error: tuneError } = await supabase.from("player_daily_missions")
+      .update({ reward_credits: 0 })
+      .eq("player_id", playerId)
+      .eq("state_id", stateId)
+      .eq("mission_date", today)
+      .eq("mission_key", "check_in");
+    if (tuneError) throw tuneError;
+  }
   const supabase = getSupabaseAdmin();
   const today = new Date().toISOString().slice(0, 10);
   const { data, error } = await supabase
@@ -67,7 +78,7 @@ export async function getDailyMissions(playerId: string, stateId: string): Promi
     .eq("mission_date", today)
     .order("created_at");
   if (error) throw error;
-  return (data || []).map((row: any) => ({
+  return (data || []).filter((row: any) => !freeport || row.mission_key === "check_in").map((row: any) => ({
     id: row.id,
     key: row.mission_key,
     title: row.title,

@@ -1,170 +1,142 @@
-# GROUP WARS
+# GROUP WARS v1.4.1 — Audited Freeport + Procedural World
 
-> v1.3.1 hotfix: corrected React SVG typing in island shading (`transformOrigin` was removed from `<path>` props). v1.3 — Cartoon Island UI Overhaul
+Telegram-native strategy where every real Telegram group becomes an island-state in one persistent ocean world.
 
-Telegram-native multiplayer strategy where **every Telegram group becomes a persistent island-state** on an expandable ocean.
+## Stack
 
-Stack:
-
-- Next.js 16 / React 19
+- Next.js 16 / React 19 / TypeScript
 - Vercel
 - Supabase Postgres + Realtime
 - Telegram Bot API + Mini App
 - Telegram Stars foundation
 
-## What changed in v1.3
+## v1.4: live-only Telegram
 
-v1.3 is a large UI/rendering pass focused on making the Telegram Mini App feel like a mobile game rather than a SaaS dashboard. No database migration is required on top of v1.2.1.
+There is no browser demo mode, local substitute snapshot or localStorage game state.
 
-### Cartoon ocean and shoreline
+The Mini App requires valid Telegram `initData`. Server routes validate its signature with `TELEGRAM_BOT_TOKEN`.
 
-- Rebuilt the map background as a layered cartoon ocean instead of a flat blue field.
-- Two lightweight SVG wave layers drift at different speeds, with whitecaps, glints and depth patches.
-- Every island has shallow-water tint, a soft surf halo, animated broken foam and secondary wave lines around the coast.
-- Far zoom and reduced-motion modes automatically disable expensive decorative effects.
+- Open without a group `start_param` → the real Supabase **Freeport** state.
+- Open from a registered Telegram group → membership is checked with Bot API and the player is attached to that real state.
+- The first launch of a new group must be made by a Telegram administrator/creator.
+- Group title, avatar and member count are synchronized from Telegram.
+- Sensitive actions re-check Telegram membership.
 
-### Island renderer v3
+## Freeport
 
-- Four deterministic coastline silhouettes keep islands varied without raster assets.
-- Island physical size still scales with Telegram member count.
-- Houses and trees use deterministic safe anchors rather than arbitrary random coordinates.
-- All land decorations are additionally clipped to the grass silhouette, so a bad future anchor still cannot render a house in the sea.
-- Larger communities visibly gain a larger keep, more buildings, trees, a pier, flag and small boat.
-- Damage, integrity and ruined-state visuals remain part of the same SVG renderer.
+Freeport is a real neutral state at world coordinates `0, 0`.
 
-### Game-like mobile UI
+- No president and no player-owned treasury progression.
+- Cannot attack and cannot be attacked.
+- New solo players start there.
+- Open recruitment posts from real group-states are visible in Freeport.
+- A Freeport player can apply to a state.
+- State command can send an offer to a Freeport player.
+- Accepted recruitment creates a one-use Telegram group invite through `createChatInviteLink`.
+- Citizenship only changes after Telegram membership is actually verified.
 
-- Removed the neon/glass-dashboard visual language.
-- New navy, sand, gold, coral and mint palette with chunky outlines and tactile raised buttons.
-- Compact top HUD for chat identity, ELO, population and treasury.
-- Floating island labels are compact game badges with Telegram avatar, members, ELO and diplomacy state.
-- Enemy selection opens a combat-oriented bottom sheet with integrity, record, streak, protection, ELO stake and attack state.
-- Bottom navigation is now a solid game bar with Battle elevated as the primary action.
+## Procedural island world
 
-### Own island and supporting screens
+Island geometry is deterministic from the state ID.
 
-- The own-island screen uses the same animated sea/island renderer as the world map.
-- Infrastructure is presented as upgradeable game buildings with distinct visual categories and progression pips.
-- Ranking, diplomacy, profile/politics and battle screens share the same board-game/cartoon surface language instead of switching back to SaaS cards.
+- Coastline shape is procedural.
+- Physical island footprint grows with real Telegram member count.
+- Residential lots are generated on a collision-safe staggered grid.
+- Civic plaza and port corridor are hard no-build zones.
+- All land decorations are clipped to the generated land mask, so houses cannot render in water.
+- Near zoom draws individual houses with compound SVG paths. Mid/far zoom uses LOD to keep Telegram WebView responsive.
+- Roads, trees, HQ, watch structures, warehouse, lighthouse, park, market, pier and boat appear as the community grows.
 
-### Mobile performance
+Conceptually one Telegram member owns one deterministic house lot. Large-group LOD affects rendering only, not population/state size.
 
-- Viewport culling keeps only visible islands mounted.
-- Camera movement is batched through `requestAnimationFrame`.
-- Nearby-world requests are debounced and the map keeps already explored islands cached client-side.
-- Far zoom removes detail, shadows and secondary ocean effects.
-- Coarse-pointer devices use a lighter animation budget and `prefers-reduced-motion` is respected.
+## World-space ocean
 
-## What changed in v1.2
+The ocean is a lightweight Canvas renderer, not a fixed wallpaper.
 
-This is a correctness + performance + mobile game-UI release, not a cosmetic version bump.
+- Camera position is used in every wave sample.
+- Panning moves through the water field instead of dragging islands over a screen-fixed texture.
+- Three Gerstner-inspired wave components create rolling swells.
+- Smaller world-grid ripples and white caps add motion.
+- Broad depth tone changes with world coordinates.
+- Islands have SVG surf halos and animated broken shoreline foam.
+- DPR and FPS are capped adaptively for mobile devices.
+- Rendering pauses when the document is hidden and respects reduced-motion/far LOD.
 
-### Build / TypeScript fixes
+## Battle balance
 
-- Fixed strict Supabase nullability that caused Vercel `TS18047: state is possibly null` errors.
-- Added explicit guards around required `.single()` results instead of scattering unsafe non-null assertions.
-- Added route validation for battle classes/actions, island coordinates and repair amount.
-- Background state refreshes no longer leak transient network failures as unhandled promises.
+Migration `011` persists transparent modifiers on every island battle.
 
-### Island world
-
-- One Telegram chat = one island-state.
-- Island physical size scales nonlinearly with Telegram member count.
-- Telegram avatar, title, members, ELO, integrity and relation status appear on-map.
-- Infinite-feeling ocean with pan, pinch zoom, minimap and center-on-home.
-- Nearby island queries are viewport-based rather than downloading the whole world.
-- Island viewport query now has world-coordinate indexes and capped radius/result count.
-- Removed the old per-island global-rank `COUNT` from map queries, which scaled badly as the world grew.
-
-### Mobile game UI polish
-
-- Compact HUD instead of SaaS KPI cards.
-- Bottom navigation treats **Battle** as the primary action.
-- SVG islands have coast variation, beaches, trees, houses, fortress, pier, flag, damage and ruins.
-- Far zoom automatically drops expensive shadows, blur and decorative animations.
-- Selected enemy opens a combat bottom-sheet with ELO stake, integrity and attack state.
-- Own island screen is a command panel with upgrade/repair states, not a corporate dashboard.
-- Better small-phone breakpoints and `prefers-reduced-motion` support.
-
-### Island campaigns / ELO
-
-- Battles affect ELO.
-- Successful invasions damage island integrity rather than deleting an island in one match.
-- At 0 integrity the island becomes temporary ruins.
-- Ruined islands produce less, cannot attack and later recover to partial integrity with protection.
-- Wins, losses, streak, best streak, peak ELO and badges persist.
-
-### Battle correctness fixes
-
-- Rejoining a battle can no longer heal the player back to 100 HP or reset respawn/position.
-- Combat actions remain atomic in PostgreSQL.
-- Battle reward delivery is now idempotent: a Vercel retry can finish a missed XP/contribution grant without duplicating it.
-- High-frequency battle actions use a short Telegram membership-verification TTL instead of calling `getChatMember` on every tap.
-
-### Telegram Stars hardening
-
-- Product catalog is centralized in `lib/products.ts`.
-- Pre-checkout validates SKU, Stars price, currency, Telegram user and entitlement scope.
-- Successful-payment processing is retry-safe: duplicate Telegram updates do not duplicate payment rows, but can heal a partially-created entitlement.
-
-## Project structure
+Approximate state size:
 
 ```text
-app/
-  api/
-    game/
-    telegram/
-  game-theme.css
-  globals.css
-
-components/
-  game-app.tsx
-  game/
-    island-art.tsx
-    island-map.tsx
-    island-home.tsx
-    island-ranking.tsx
-    island-alliances.tsx
-    battle-screen.tsx
-    state-view.tsx
-
-lib/
-  battle.ts
-  demo.ts
-  diplomacy.ts
-  elo.ts
-  game.ts
-  invariants.ts
-  islands.ts
-  missions.ts
-  politics.ts
-  products.ts
-  request-auth.ts
-
-supabase/migrations/
-  001_init.sql
-  002_realtime_battles.sql
-  003_commanders_squads.sql
-  004_diplomacy_world_feed.sql
-  005_daily_ops_guardrails.sql
-  006_atomic_battle_actions.sql
-  007_seasons_politics_identity.sql
-  008_island_world_elo.sql
-  009_island_integrity_campaigns.sql
-  010_island_world_polish.sql
+member_count ^ 0.4 × HQ_level ^ 0.6
 ```
 
-## Supabase upgrade
+When a larger state attacks a smaller state:
 
-For a fresh database, run migrations `001` through `010` in order.
+- attacker efficiency can be reduced by up to 30%;
+- smaller defender efficiency can increase by up to 25%;
+- defender receives an HQ-based starting defense buffer;
+- repeated aggression in the last 7 days can reduce attack efficiency by up to another 15%.
 
-If your existing Supabase project already has v1.1 migrations through `009`, run only:
+The modifiers are stored in the battle row and shown in the battle UI.
+
+## Telegram text commands
+
+Mini App is a convenient interface; core state actions are also available in the group chat.
 
 ```text
-supabase/migrations/010_island_world_polish.sql
+!помощь
+!статус
+!ресурсы
+!активность
+!улучшить <штаб|казармы|шахта|нпз|ферма|лаборатория>
+!союз <ID_чата>
+!война <ID_чата>
 ```
 
-## Environment variables
+Role checks happen when a command is executed. Battle/diplomacy/upgrade commands verify real state membership and permissions.
+
+## UI changes
+
+- Removed neon / SaaS-style primary surfaces.
+- Larger readable mobile typography.
+- Equal bottom-navigation buttons; Battle is no longer a floating red CTA.
+- Warm sand/gold cartoon controls and muted teal HUD.
+- Larger island labels and enemy bottom sheet.
+- Freeport uses the same island/world visual system as all other states.
+- Ocean background is fully Canvas/world-space; old screen-fixed wave textures are disabled.
+
+## Supabase migrations
+
+Fresh database: run `001` through `012` in order.
+
+Existing project already on `010`: run, in order:
+
+```text
+supabase/migrations/011_freeport_live_recruitment.sql
+supabase/migrations/012_live_integrity_audit.sql
+```
+
+If `011` is already applied, run only `012_live_integrity_audit.sql`. Migration `012` enforces one active citizenship per player, deduplicates old memberships, adds the atomic citizenship RPC and re-locks battle RPC privileges to the service role.
+
+v1.4.1 intentionally has no database data fallbacks for missing migrations.
+
+## v1.4.1 audit hardening
+
+- Telegram webhook is fail-closed when the webhook secret is missing or wrong.
+- Successful Stars payments fail loudly and return HTTP 500 on database/entitlement failure so Telegram can retry an idempotent charge instead of losing paid access.
+- Telegram `auth_date` rejects expired and implausibly future init data.
+- State actions periodically re-verify real Telegram membership.
+- Citizenship moves are atomic through `gw_set_player_home_state`; one player cannot keep multiple active states.
+- Recruitment decisions are guarded against stale/concurrent pending requests.
+- Election actions cannot be pointed at another state's election through a forged request.
+- The old hex attack API and empty `tiles` payload were removed.
+- Recent-war UI is backed by real island battles instead of an always-empty placeholder array.
+- Required Supabase errors are no longer silently swallowed. Telegram notifications remain best-effort after a committed game action and are logged on failure.
+- Duplicate shoreline render pass was removed from procedural island art.
+
+## Environment
 
 ```bash
 NEXT_PUBLIC_APP_URL=https://your-project.vercel.app
@@ -175,12 +147,13 @@ TELEGRAM_BOT_TOKEN=...
 TELEGRAM_BOT_USERNAME=...
 TELEGRAM_MINI_APP_SHORT_NAME=...
 TELEGRAM_WEBHOOK_SECRET=...
-NEXT_PUBLIC_DEMO_MODE=false
 ```
 
-`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY` are also supported by the Supabase helpers where configured.
+No demo environment variable is supported.
 
-## Local / Vercel verification
+## Verify before deploy
+
+The project includes `scripts/clean-legacy.mjs`. `npm run typecheck`, `npm run build` and `npm run dev` automatically remove the two files deleted since v1.3.1 (`lib/demo.ts` and the obsolete hex attack route), so extracting v1.4.1 over an older working tree cannot accidentally compile them.
 
 ```bash
 npm install
@@ -188,28 +161,12 @@ npm run typecheck
 npm run build
 ```
 
-Then configure the Telegram webhook after the public Vercel URL is live:
+Then configure the Telegram webhook:
 
 ```bash
 npm run telegram:configure
 ```
 
-For browser-only UI testing without Telegram/Supabase:
+## Important Telegram permissions
 
-```bash
-NEXT_PUBLIC_DEMO_MODE=true
-npm run dev
-```
-
-## Notes
-
-- Production writes go through server routes and validate Telegram `initData`.
-- Sensitive actions also verify current Telegram-group membership.
-- The service-role key must never be exposed as `NEXT_PUBLIC_*`.
-- No generated images are required for the island renderer; the map uses React + SVG + CSS so it stays lightweight and editable.
-
-## v1.2.1 build fix
-
-- Fixed invalid `typescript@5.8.0` dependency by pinning TypeScript to `5.9.2`.
-- Pinned Vercel Node runtime to `22.x` instead of `>=22` to prevent automatic major-version jumps.
-
+To create single-use recruitment invite links, the bot needs permission to invite users in participating groups.

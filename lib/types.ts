@@ -1,5 +1,4 @@
 export type BuildingType = "hq" | "barracks" | "mine" | "refinery" | "farm" | "lab";
-export type Terrain = "plain" | "forest" | "mountain" | "city" | "oil" | "ruins";
 export type BattleClass = "assault" | "medic" | "engineer" | "scout";
 export type BattlePoint = "A" | "B" | "C";
 export type BattleTeam = "attacker" | "defender";
@@ -27,7 +26,8 @@ export interface StateView {
   motto: string;
   emblem: string;
   theme: string;
-  telegramChatId: number;
+  telegramChatId: number | null;
+  isFreeport: boolean;
   treasury: {
     credits: number;
     steel: number;
@@ -44,7 +44,6 @@ export interface StateView {
   };
   rating: number;
   memberCount: number;
-  territoryCount: number;
   seasonRank: number;
   worldX: number;
   worldY: number;
@@ -71,24 +70,11 @@ export interface BuildingView {
   y: number;
 }
 
-export interface TileView {
-  id: string;
-  q: number;
-  r: number;
-  terrain: Terrain;
-  resourceType?: string | null;
-  defense: number;
-  ownerStateId?: string | null;
-  ownerName?: string | null;
-  ownerColor?: string | null;
-  isCapital?: boolean;
-}
-
 export interface WarView {
   id: string;
   attackerName: string;
   defenderName?: string | null;
-  tileId: string;
+  tileId?: string | null;
   winnerStateId?: string | null;
   attackerPower: number;
   defenderPower: number;
@@ -145,6 +131,10 @@ export interface BattleView {
   endsAt: string;
   attackerScore: number;
   defenderScore: number;
+  attackerSizeModifier: number;
+  defenderSizeModifier: number;
+  defenderBuffer: number;
+  aggressionPenalty: number;
   pointOwners: Record<BattlePoint, BattleTeam | null>;
   winnerStateId?: string | null;
   myTeam?: BattleTeam | null;
@@ -211,6 +201,7 @@ export interface IslandView {
   avatarUrl?: string | null;
   relation?: DiplomacyStatus | null;
   isMine: boolean;
+  isFreeport: boolean;
 }
 
 export interface DailyMissionView {
@@ -263,12 +254,54 @@ export interface StateBadgeView {
   earnedAt: string;
 }
 
+export interface RecruitmentPostView {
+  stateId: string;
+  stateName: string;
+  stateColor: string;
+  memberCount: number;
+  rating: number;
+  headline: string;
+  message: string;
+  minLevel: number;
+}
+
+export interface RecruitmentRequestView {
+  id: string;
+  stateId: string;
+  stateName: string;
+  stateColor: string;
+  playerId: string;
+  playerName: string;
+  playerLevel: number;
+  playerXp: number;
+  kind: "application" | "offer";
+  status: "pending" | "accepted" | "rejected" | "withdrawn";
+  message: string;
+  inviteLink?: string | null;
+  updatedAt: string;
+}
+
+export interface FreeAgentView {
+  playerId: string;
+  displayName: string;
+  username?: string | null;
+  level: number;
+  xp: number;
+  contribution: number;
+}
+
+export interface RecruitmentHubView {
+  post: RecruitmentPostView | null;
+  listings: RecruitmentPostView[];
+  myRequests: RecruitmentRequestView[];
+  incoming: RecruitmentRequestView[];
+  freeAgents: FreeAgentView[];
+}
+
 export interface GameSnapshot {
-  mode: "demo" | "live";
   player: PlayerView;
   state: StateView;
   buildings: BuildingView[];
-  tiles: TileView[];
   wars: WarView[];
   diplomacy: DiplomacyRelationView[];
   worldFeed: WorldEventView[];
@@ -279,5 +312,6 @@ export interface GameSnapshot {
   election: ElectionView | null;
   badges: StateBadgeView[];
   activeBattle?: BattleView | null;
+  recruitment: RecruitmentHubView;
   startParam?: string | null;
 }

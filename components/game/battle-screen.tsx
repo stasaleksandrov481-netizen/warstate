@@ -27,9 +27,10 @@ const BattleClock = memo(function BattleClock({ endsAt, resolved }: { endsAt: st
   return <strong>{resolved ? "FIN" : formatBattleTime(seconds)}</strong>;
 });
 
-function BattleScreenInner({ battle, playerName, onJoin, onAction }: {
+function BattleScreenInner({ battle, playerName, freeport = false, onJoin, onAction }: {
   battle: BattleView | null;
   playerName: string;
+  freeport?: boolean;
   onJoin: (klass: BattleClass) => void;
   onAction: (action: string, payload?: Record<string, unknown>) => void;
 }) {
@@ -39,7 +40,7 @@ function BattleScreenInner({ battle, playerName, onJoin, onAction }: {
     const timer = window.setInterval(() => setNow(Date.now()), 500);
     return () => window.clearInterval(timer);
   }, [battle?.me?.id, battle?.status]);
-  if (!battle) return <div className="empty-battle game-scene"><div className="battle-emblem">⚔</div><h2>Сейчас тихо</h2><p>Выберите в океане вражеский остров и начните морскую операцию.</p></div>;
+  if (!battle) return <div className="empty-battle game-scene"><div className="battle-emblem">⚔</div><h2>{freeport ? "Учебная гавань" : "Сейчас тихо"}</h2><p>{freeport ? "Freeport не начинает войны. Здесь можно освоиться, прокачать профиль и найти государство для настоящих сражений." : "Выберите в океане вражеский остров и начните морскую операцию."}</p></div>;
   const myTeam = battle.me?.team || battle.myTeam;
   const teamPlayers = battle.players.filter((player) => player.team === myTeam);
   const enemyPlayers = battle.players.filter((player) => player.team !== myTeam);
@@ -65,6 +66,12 @@ function BattleScreenInner({ battle, playerName, onJoin, onAction }: {
     <div className="battle-screen game-scene">
       <div className="battle-head battle-head-v2"><div><small>{battle.status === "resolved" ? "БИТВА ЗАВЕРШЕНА" : "LIVE BATTLE"}</small><h2>{battle.attackerName} <i>VS</i> {battle.defenderName}</h2></div><BattleClock endsAt={battle.endsAt} resolved={battle.status === "resolved"} /></div>
       <div className="scoreboard scoreboard-v2"><span style={{width:`${Math.min(100,battle.attackerScore/3)}%`,background:battle.attackerColor}} /><span className="score-a">{battle.attackerScore}</span><b>:</b><span className="score-d">{battle.defenderScore}</span></div>
+      <div className="battle-balance-strip">
+        <span><small>АТАКА</small><b>×{battle.attackerSizeModifier.toFixed(2)}</b></span>
+        <span><small>ОБОРОНА</small><b>×{battle.defenderSizeModifier.toFixed(2)}</b></span>
+        <span><small>БУФЕР</small><b>+{battle.defenderBuffer}</b></span>
+        {battle.aggressionPenalty > 0 ? <span className="fatigue"><small>УСТАЛОСТЬ</small><b>−{Math.round(battle.aggressionPenalty * 100)}%</b></span> : null}
+      </div>
       {activeOrder && <div className={`order-banner order-${activeOrder.kind}`}><small>ПРИКАЗ · {activeOrder.issuedBy || "КОМАНДИР"}</small><b>{orderKindLabel(activeOrder.kind)} ТОЧКУ {activeOrder.point}</b><span>{me?.squadCode ? `ОТРЯД ${me.squadCode}` : "ВСЕМ ОТРЯДАМ"}</span></div>}
       {canCommand && battle.status === "active" && <details className="commander-panel commander-panel-v2"><summary><span><small>КОМАНДНЫЙ КАНАЛ</small><b>Отдать приказ</b></span><i>⌄</i></summary><div className="commander-orders">{POINTS.flatMap((point) => ORDER_KINDS.map(([kind,label]) => <button key={`${point}-${kind}`} onClick={() => onAction("order", { point, kind })}><span>{point}</span>{label}</button>))}</div></details>}
 

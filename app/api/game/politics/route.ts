@@ -12,6 +12,18 @@ export async function POST(request: Request) {
     const action = String(body.action || "");
     if (!stateId) throw new Error("stateId is required");
     const auth = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
+    if (auth.state.is_freeport) throw new Error("В Freeport нет президента и выборов.");
+
+    if (body.electionId) {
+      const supabase = getSupabaseAdmin();
+      const { data: election, error: electionError } = await supabase
+        .from("state_elections")
+        .select("state_id")
+        .eq("id", String(body.electionId))
+        .maybeSingle();
+      if (electionError) throw electionError;
+      if (!election || election.state_id !== stateId) throw new Error("Эти выборы относятся к другому государству.");
+    }
 
     if (action === "open") {
       if (auth.member.role !== "president") throw new Error("Открыть выборы может только президент.");

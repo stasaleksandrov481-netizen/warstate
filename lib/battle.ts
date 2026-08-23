@@ -30,7 +30,8 @@ function eventText(row: any): string {
 
 async function addEvent(battleId: string, playerId: string | null, eventType: string, payload: Record<string, unknown> = {}) {
   const supabase = getSupabaseAdmin();
-  await supabase.from("battle_events").insert({ battle_id: battleId, player_id: playerId, event_type: eventType, payload });
+  const { error } = await supabase.from("battle_events").insert({ battle_id: battleId, player_id: playerId, event_type: eventType, payload });
+  if (error) throw error;
 }
 
 async function resolveBattleRow(battle: any, attackerScore: number, defenderScore: number) {
@@ -63,7 +64,7 @@ async function resolveBattleRow(battle: any, attackerScore: number, defenderScor
       p_reward_xp: rewardXp,
     });
   }));
-  const rewardError = rewardResults.find((item) => item.error)?.error;
+  const rewardError = rewardResults.find((item: any) => item.error)?.error;
   if (rewardError) throw rewardError;
 
   if (!result?.applied) return resolved;
@@ -74,7 +75,8 @@ async function resolveBattleRow(battle: any, attackerScore: number, defenderScor
       ? (islandBattle ? `Остров атакующих победил ${attackerScore}:${defenderScore}` : `Атакующие победили ${attackerScore}:${defenderScore}`)
       : (islandBattle ? `Защитники острова отбили атаку ${defenderScore}:${attackerScore}` : `Защита удержала сектор ${defenderScore}:${attackerScore}`),
   });
-  const { data: namedStates } = await supabase.from("states").select("id,name").in("id", [battle.attacker_state_id, battle.defender_state_id].filter(Boolean));
+  const { data: namedStates, error: namedStatesError } = await supabase.from("states").select("id,name").in("id", [battle.attacker_state_id, battle.defender_state_id].filter(Boolean));
+  if (namedStatesError) throw namedStatesError;
   const attackerName = namedStates?.find((state: any) => state.id === battle.attacker_state_id)?.name || "Атакующие";
   const defenderName = namedStates?.find((state: any) => state.id === battle.defender_state_id)?.name || "Гарнизон";
   const destroyed = Boolean(result?.islandDestroyed);
@@ -111,7 +113,7 @@ async function resolveBattleRow(battle: any, attackerScore: number, defenderScor
       defenderRatingDelta: result?.defenderRatingDelta || 0,
       lootCredits: result?.lootCredits || 0,
     },
-  }).catch(() => null);
+  });
   return resolved;
 }
 
@@ -132,28 +134,39 @@ export async function tickBattle(battleId: string) {
 
   if (elapsedSeconds > 0) {
     const owners = [battleRow.point_a_owner, battleRow.point_b_owner, battleRow.point_c_owner];
-    attackerScore += owners.filter((owner) => owner === "attacker").length * elapsedSeconds;
-    defenderScore += owners.filter((owner) => owner === "defender").length * elapsedSeconds;
-    const { data: ticked } = await supabase.from("battles").update({
+    const attackerPoints = owners.filter((owner) => owner === "attacker").length;
+    const defenderPoints = owners.filter((owner) => owner === "defender").length;
+    const attackerModifier = Math.max(0.55, Number(battleRow.attacker_size_modifier || 1));
+    const defenderModifier = Math.max(0.75, Number(battleRow.defender_size_modifier || 1));
+    attackerScore += Math.max(0, Math.round(attackerPoints * elapsedSeconds * attackerModifier));
+    defenderScore += Math.max(0, Math.round(defenderPoints * elapsedSeconds * defenderModifier));
+    const { data: ticked, error: tickError } = await supabase.from("battles").update({
       attacker_score: attackerScore,
       defender_score: defenderScore,
       last_tick_at: new Date(cappedNow).toISOString(),
     }).eq("id", battleId).eq("last_tick_at", battleRow.last_tick_at).select("*").maybeSingle();
+    if (tickError) throw tickError;
     if (!ticked) {
-      const { data: concurrent } = await supabase.from("battles").select("attacker_score,defender_score,last_tick_at").eq("id", battleId).single();
+      const { data: concurrent, error: concurrentError } = await supabase.from("battles").select("attacker_score,defender_score,last_tick_at").eq("id", battleId).single();
+      if (concurrentError) throw concurrentError;
       attackerScore = concurrent?.attacker_score ?? attackerScore;
       defenderScore = concurrent?.defender_score ?? defenderScore;
     }
   }
 
-  const { data: dead } = await supabase
+  const { data: dead, error: deadError } = await supabase
     .from("battle_players")
     .select("id,player_id,team,players!battle_players_player_id_fkey(display_name)")
     .eq("battle_id", battleId)
     .eq("hp", 0)
     .lte("respawn_at", nowIso());
+  if (deadError) throw deadError;
   for (const row of dead || []) {
-    await supabase.from("battle_players").update({ hp: 100, respawn_at: null, point: row.team === "defender" ? "C" : "A", updated_at: nowIso() }).eq("id", row.id);
+    const { error: respawnError } = await supabase
+      .from("battle_players")
+      .update({ hp: 100, respawn_at: null, point: row.team === "defender" ? "C" : "A", updated_at: nowIso() })
+      .eq("id", row.id);
+    if (respawnError) throw respawnError;
     const player: any = row.players;
     await addEvent(battleId, row.player_id, "respawn", { name: player?.display_name || "Игрок" });
   }
@@ -162,46 +175,9 @@ export async function tickBattle(battleId: string) {
     return resolveBattleRow(battleRow, attackerScore, defenderScore);
   }
 
-  const { data: refreshed } = await supabase.from("battles").select("*").eq("id", battleId).single();
+  const { data: refreshed, error: refreshedError } = await supabase.from("battles").select("*").eq("id", battleId).single();
+  if (refreshedError) throw refreshedError;
   return refreshed || battleRow;
-}
-
-export async function createBattle(attackerStateId: string, tileId: string) {
-  const supabase = getSupabaseAdmin();
-  const [{ data: target, error: targetError }, { data: ownTiles, error: ownError }] = await Promise.all([
-    supabase.from("tiles").select("*").eq("id", tileId).single(),
-    supabase.from("tiles").select("id,q,r").eq("owner_state_id", attackerStateId),
-  ]);
-  if (targetError) throw targetError;
-  if (ownError) throw ownError;
-  const targetTile = requireData(target, "Сектор не найден.");
-  if (targetTile.owner_state_id === attackerStateId) throw new Error("Эта территория уже ваша.");
-
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
-  const adjacent = (ownTiles || []).some((own: any) => dirs.some(([dq, dr]) => own.q + dq === targetTile.q && own.r + dr === targetTile.r));
-  if (!adjacent) throw new Error("Атаковать можно только соседний сектор.");
-
-  const { data: battleId, error: startError } = await supabase.rpc("gw_start_battle", {
-    p_attacker_state_id: attackerStateId,
-    p_expected_defender_state_id: targetTile.owner_state_id || null,
-    p_tile_id: tileId,
-    p_duration_seconds: BATTLE_SECONDS,
-  });
-  if (startError) throw startError;
-  if (!battleId) throw new Error("Не удалось создать битву.");
-
-  const { data: namedStates } = await supabase.from("states").select("id,name").in("id", [attackerStateId, targetTile.owner_state_id].filter(Boolean));
-  const attackerName = namedStates?.find((row: any) => row.id === attackerStateId)?.name || "Государство";
-  const defenderName = namedStates?.find((row: any) => row.id === targetTile.owner_state_id)?.name || "Нейтральный сектор";
-  await recordWorldEvent({
-    eventType: "battle_started",
-    title: "Началась битва",
-    body: `${attackerName} атакует ${defenderName}. Операция продлится 3 минуты.`,
-    actorStateId: attackerStateId,
-    targetStateId: targetTile.owner_state_id || null,
-    payload: { battleId, tileId },
-  }).catch(() => null);
-  return getBattleView(String(battleId), null);
 }
 
 export async function joinBattle(battleId: string, playerId: string, stateId: string, klass: BattleClass = "assault") {
@@ -211,12 +187,17 @@ export async function joinBattle(battleId: string, playerId: string, stateId: st
   const team: BattleTeam | null = stateId === battle.attacker_state_id ? "attacker" : stateId === battle.defender_state_id ? "defender" : null;
   if (!team) throw new Error("Ваше государство не участвует в этой битве.");
 
-  const [{ data: player }, { count: teamCount }, { data: existingPlayer, error: existingError }] = await Promise.all([
+  const [playerRes, teamCountRes, existingRes] = await Promise.all([
     supabase.from("players").select("display_name").eq("id", playerId).single(),
     supabase.from("battle_players").select("id", { count: "exact", head: true }).eq("battle_id", battleId).eq("team", team),
     supabase.from("battle_players").select("id,squad_code,team").eq("battle_id", battleId).eq("player_id", playerId).maybeSingle(),
   ]);
-  if (existingError) throw existingError;
+  if (playerRes.error) throw playerRes.error;
+  if (teamCountRes.error) throw teamCountRes.error;
+  if (existingRes.error) throw existingRes.error;
+  const player = playerRes.data;
+  const teamCount = teamCountRes.count;
+  const existingPlayer = existingRes.data;
   const squads = ["ALPHA", "BRAVO", "CHARLIE"] as const;
   const squadCode = existingPlayer?.squad_code || squads[(teamCount || 0) % squads.length];
 
@@ -240,7 +221,7 @@ export async function joinBattle(battleId: string, playerId: string, stateId: st
     if (insertError) throw insertError;
     await addEvent(battleId, playerId, "join", { name: player?.display_name || "Игрок", team, class: klass });
   }
-  await recordMissionProgress(playerId, stateId, "join_battle").catch(() => null);
+  await recordMissionProgress(playerId, stateId, "join_battle");
   return getBattleView(battleId, playerId);
 }
 
@@ -270,7 +251,8 @@ export async function battleAction(battleId: string, playerId: string, action: s
       expires_at: expiresAt,
     }, { onConflict: "battle_id,state_id" });
     if (error) throw error;
-    const { data: issuer } = await supabase.from("players").select("display_name").eq("id", playerId).single();
+    const { data: issuer, error: issuerError } = await supabase.from("players").select("display_name").eq("id", playerId).single();
+    if (issuerError) throw issuerError;
     await addEvent(battleId, playerId, "order", { name: issuer?.display_name || "Командир", point, kind, team });
     return getBattleView(battleId, playerId);
   }
@@ -319,7 +301,8 @@ export async function getBattleView(battleId: string, playerId: string | null): 
   let myRole: string | null = null;
   if (playerId) {
     const stateIds = [battle.attacker_state_id, battle.defender_state_id].filter(Boolean);
-    const { data: membership } = await supabase.from("state_members").select("role").eq("player_id", playerId).in("state_id", stateIds).limit(1).maybeSingle();
+    const { data: membership, error: membershipError } = await supabase.from("state_members").select("role").eq("player_id", playerId).in("state_id", stateIds).limit(1).maybeSingle();
+    if (membershipError) throw membershipError;
     myRole = membership?.role || null;
   }
   const orders: BattleOrderView[] = (ordersRes.data || []).map((row: any) => ({
@@ -352,6 +335,10 @@ export async function getBattleView(battleId: string, playerId: string | null): 
     endsAt: battle.ends_at,
     attackerScore: battle.attacker_score,
     defenderScore: battle.defender_score,
+    attackerSizeModifier: Number(battle.attacker_size_modifier || 1),
+    defenderSizeModifier: Number(battle.defender_size_modifier || 1),
+    defenderBuffer: Number(battle.defender_buffer || 0),
+    aggressionPenalty: Number(battle.aggression_penalty || 0),
     pointOwners: {
       A: battle.point_a_owner,
       B: battle.point_b_owner,

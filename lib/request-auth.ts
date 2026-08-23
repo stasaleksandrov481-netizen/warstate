@@ -7,11 +7,15 @@ export function sessionFromRequest(request: Request) {
   const initData = request.headers.get("x-telegram-init-data") || "";
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
-  if (!initData) throw new Error("Откройте игру из Telegram-группы.");
+  if (!initData) throw new Error("Откройте игру внутри Telegram. В браузере live-версия не запускается.");
   return validateTelegramInitData(initData, token);
 }
 
-export async function authorizeStateAction(request: Request, stateId: string, options: { verifyTelegramMembership?: boolean } = {}) {
+export async function authorizeStateAction(
+  request: Request,
+  stateId: string,
+  options: { verifyTelegramMembership?: boolean; membershipMaxAgeMs?: number } = {},
+) {
   const session = sessionFromRequest(request);
   const supabase = getSupabaseAdmin();
   const { data: player, error: playerError } = await supabase.from("players").select("*").eq("telegram_id", session.user.id).single();
@@ -19,16 +23,27 @@ export async function authorizeStateAction(request: Request, stateId: string, op
   const playerRow = requireData(player, "Player not found. Open the game from the group first.");
   const [{ data: member, error: memberError }, { data: state, error: stateError }] = await Promise.all([
     supabase.from("state_members").select("*").eq("state_id", stateId).eq("player_id", playerRow.id).single(),
-    supabase.from("states").select("telegram_chat_id").eq("id", stateId).single(),
+    supabase.from("states").select("telegram_chat_id,is_freeport").eq("id", stateId).single(),
   ]);
   if (memberError) throw new Error("You are not a member of this state.");
   if (stateError) throw new Error("State not found.");
   const memberRow = requireData(member, "You are not a member of this state.");
   const stateRow = requireData(state, "State not found.");
-  if (options.verifyTelegramMembership) {
-    const telegramMember = await getChatMember(Number(stateRow.telegram_chat_id), session.user.id);
-    if (["left", "kicked"].includes(telegramMember.status)) throw new Error("Вы больше не состоите в Telegram-группе этого государства.");
-    await supabase.from("state_members").update({ membership_verified_at: new Date().toISOString() }).eq("id", memberRow.id);
+  if (options.verifyTelegramMembership && !stateRow.is_freeport) {
+    if (!stateRow.telegram_chat_id) throw new Error("У государства отсутствует Telegram-привязка.");
+    const maxAgeMs = Math.max(15_000, options.membershipMaxAgeMs ?? 5 * 60_000);
+    const verifiedAt = memberRow.membership_verified_at ? new Date(memberRow.membership_verified_at).getTime() : 0;
+    if (!verifiedAt || !Number.isFinite(verifiedAt) || Date.now() - verifiedAt > maxAgeMs) {
+      const telegramMember = await getChatMember(Number(stateRow.telegram_chat_id), session.user.id);
+      if (["left", "kicked"].includes(telegramMember.status)) throw new Error("Вы больше не состоите в Telegram-группе этого государства.");
+      const nextVerifiedAt = new Date().toISOString();
+      const { error: verifyError } = await supabase
+        .from("state_members")
+        .update({ membership_verified_at: nextVerifiedAt })
+        .eq("id", memberRow.id);
+      if (verifyError) throw verifyError;
+      memberRow.membership_verified_at = nextVerifiedAt;
+    }
   }
   return { session, player: playerRow, member: memberRow, state: stateRow };
 }
@@ -52,18 +67,19 @@ export async function authorizeBattleAction(request: Request, battleId: string) 
   if (memberError) throw new Error("Your state is not participating in this battle.");
   const memberRow = requireData(member, "Your state is not participating in this battle.");
 
-  const { data: state, error: stateError } = await supabase.from("states").select("telegram_chat_id").eq("id", memberRow.state_id).single();
+  const { data: state, error: stateError } = await supabase.from("states").select("telegram_chat_id,is_freeport").eq("id", memberRow.state_id).single();
   if (stateError) throw new Error("State not found.");
   const stateRow = requireData(state, "State not found.");
 
   // Battle actions are high-frequency. Re-check Telegram membership at most once per minute
   // instead of making a Bot API roundtrip for every shot/move/realtime refresh.
   const verifiedAt = memberRow.membership_verified_at ? new Date(memberRow.membership_verified_at).getTime() : 0;
-  if (!verifiedAt || Date.now() - verifiedAt > 60_000) {
+  if (!stateRow.is_freeport && (!verifiedAt || Date.now() - verifiedAt > 60_000)) {
     const telegramMember = await getChatMember(Number(stateRow.telegram_chat_id), session.user.id);
     if (["left", "kicked"].includes(telegramMember.status)) throw new Error("Вы больше не состоите в Telegram-группе этого государства.");
     const nextVerifiedAt = new Date().toISOString();
-    await supabase.from("state_members").update({ membership_verified_at: nextVerifiedAt }).eq("id", memberRow.id);
+    const { error: verifyError } = await supabase.from("state_members").update({ membership_verified_at: nextVerifiedAt }).eq("id", memberRow.id);
+    if (verifyError) throw verifyError;
     memberRow.membership_verified_at = nextVerifiedAt;
   }
 

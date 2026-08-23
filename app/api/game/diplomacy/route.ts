@@ -24,23 +24,30 @@ export async function POST(request: Request) {
     const targetStateId = String(body.targetStateId || "");
     const action = String(body.action || "") as DiplomacyAction;
     if (!stateId || !targetStateId || !ACTIONS.includes(action)) throw new Error("Некорректная дипломатическая команда.");
-    const { member } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
+    const { member, state } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
+    if (state.is_freeport) throw new Error("Freeport сохраняет нейтралитет и не участвует в дипломатии.");
     if (!["president", "minister"].includes(member.role)) throw new Error("Дипломатией управляет президент или министр.");
+
+    const supabase = getSupabaseAdmin();
+    const { data: targetState, error: targetError } = await supabase.from("states").select("is_freeport").eq("id", targetStateId).single();
+    if (targetError || !targetState) throw new Error("Государство не найдено.");
+    if (targetState.is_freeport) throw new Error("Freeport — нейтральная территория и не участвует в дипломатии.");
 
     const diplomacy = await performDiplomacyAction(stateId, targetStateId, action);
 
-    const supabase = getSupabaseAdmin();
-    const { data: states } = await supabase.from("states").select("id,name,telegram_chat_id").in("id", [stateId, targetStateId]);
+    const { data: states, error: statesError } = await supabase.from("states").select("id,name,telegram_chat_id,is_freeport").in("id", [stateId, targetStateId]);
+    if (statesError) throw statesError;
     const actor = states?.find((state: any) => state.id === stateId);
     const target = states?.find((state: any) => state.id === targetStateId);
     const copy = COPY[action];
     if (actor && target) {
       for (const state of [actor, target]) {
+        if (state.is_freeport || !state.telegram_chat_id) continue;
         await telegramApi("sendMessage", {
           chat_id: Number(state.telegram_chat_id),
           text: `${copy.title}\n\n${actor.name} ${copy.line} ${target.name}.\n\nОткройте мировой экран, чтобы увидеть текущий статус отношений.`,
           reply_markup: { inline_keyboard: [[{ text: "🌍 Открыть мир", url: miniAppLink(Number(state.telegram_chat_id)) }]] },
-        }).catch(() => null);
+        }).catch((error) => console.error("diplomacy Telegram notification failed", error));
       }
     }
 

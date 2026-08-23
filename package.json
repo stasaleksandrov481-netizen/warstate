@@ -1,12 +1,16 @@
 {
   "name": "group-wars",
-  "version": "1.3.1",
+  "version": "1.4.1",
   "private": true,
   "scripts": {
+    "clean:legacy": "node scripts/clean-legacy.mjs",
+    "predev": "npm run clean:legacy",
     "dev": "next dev",
+    "prebuild": "npm run clean:legacy",
     "build": "next build",
     "start": "next start",
     "telegram:configure": "node scripts/configure-telegram.mjs",
+    "pretypecheck": "npm run clean:legacy",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -16,9 +20,9 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "@types/node": "22.15.0",
-    "@types/react": "19.2.0",
-    "@types/react-dom": "19.2.0",
+    "@types/node": "22.15.9",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
     "typescript": "5.9.2"
   },
   "engines": {

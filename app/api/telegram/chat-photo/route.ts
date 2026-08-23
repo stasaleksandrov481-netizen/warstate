@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     const file = await getTelegramFile(state.chat_avatar_file_id);
     if (!file.file_path) return new Response(null, { status: 404 });
 
-    const upstream = await fetch(telegramFileUrl(file.file_path), { cache: "no-store" });
+    const upstream = await fetch(telegramFileUrl(file.file_path), { cache: "no-store", signal: AbortSignal.timeout(8_000) });
     if (!upstream.ok) return new Response(null, { status: 502 });
     const contentType = upstream.headers.get("content-type") || "image/jpeg";
     return new Response(upstream.body, {
@@ -29,7 +29,8 @@ export async function GET(request: Request) {
         "cache-control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400",
       },
     });
-  } catch {
-    return new Response(null, { status: 404 });
+  } catch (error) {
+    console.error("Telegram chat photo proxy failed", error);
+    return new Response(null, { status: 502 });
   }
 }

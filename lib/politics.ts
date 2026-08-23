@@ -32,10 +32,7 @@ export async function getStateBadges(stateId: string, limit = 12): Promise<State
     .eq("state_id", stateId)
     .order("earned_at", { ascending: false })
     .limit(limit);
-  if (error) {
-    if (error.code === "42P01") return [];
-    throw error;
-  }
+  if (error) throw error;
   return (data || []).map((badge: any) => ({
     id: badge.id,
     key: badge.badge_key,
@@ -65,17 +62,14 @@ export async function ensureMilestoneBadges(stateId: string, seasonId: string | 
       description: badge.description,
       icon: badge.icon,
     }, { onConflict: "state_id,badge_key,season_id", ignoreDuplicates: true });
-    if (error && error.code !== "42P01") throw error;
+    if (error) throw error;
   }
 }
 
 export async function getElection(stateId: string, playerId: string): Promise<ElectionView | null> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase.rpc("gw_get_election", { p_state_id: stateId, p_player_id: playerId });
-  if (error) {
-    if (error.code === "42883" || error.code === "42P01") return null;
-    throw error;
-  }
+  if (error) throw error;
   return data ? data as ElectionView : null;
 }
 
@@ -93,7 +87,10 @@ export async function openElection(stateId: string, playerId: string) {
     throw error;
   }
   const election = requireData(data, "Не удалось открыть выборы.");
-  await supabase.from("election_candidates").insert({ election_id: election.id, player_id: playerId, statement: "Продолжить курс государства." });
+  const { error: candidateError } = await supabase
+    .from("election_candidates")
+    .insert({ election_id: election.id, player_id: playerId, statement: "Продолжить курс государства." });
+  if (candidateError) throw candidateError;
   await recordWorldEvent({ eventType: "election_opened", title: "Начались выборы", body: "В государстве открыто голосование за президента.", actorStateId: stateId });
   return election.id;
 }
@@ -130,8 +127,10 @@ export async function finalizeElection(electionId: string) {
   const { data, error } = await supabase.rpc("gw_finalize_election", { p_election_id: electionId });
   if (error) throw error;
   if (data?.applied && data?.winnerPlayerId) {
-    const { data: election } = await supabase.from("state_elections").select("state_id").eq("id", electionId).single();
-    const { data: winner } = await supabase.from("players").select("display_name").eq("id", data.winnerPlayerId).single();
+    const { data: election, error: electionError } = await supabase.from("state_elections").select("state_id").eq("id", electionId).single();
+    if (electionError) throw electionError;
+    const { data: winner, error: winnerError } = await supabase.from("players").select("display_name").eq("id", data.winnerPlayerId).single();
+    if (winnerError) throw winnerError;
     if (election) await recordWorldEvent({ eventType: "election_resolved", title: "Новый президент", body: `${winner?.display_name || "Кандидат"} победил на выборах.`, actorStateId: election.state_id });
   }
   return data;

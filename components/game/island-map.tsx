@@ -7,7 +7,7 @@ import type { GameSnapshot, IslandView } from "@/lib/types";
 import { IslandArt } from "@/components/game/island-art";
 
 function islandSize(members: number) {
-  return Math.max(112, Math.min(252, 86 + Math.sqrt(Math.max(1, members)) * 5.4));
+  return Math.max(124, Math.min(286, 92 + Math.sqrt(Math.max(1, members)) * 5.8));
 }
 
 function timeLeft(iso?: string | null, now = Date.now()) {
@@ -95,6 +95,42 @@ const IslandNode = memo(function IslandNode({
   );
 });
 
+const OceanSurface = memo(function OceanSurface() {
+  return (
+    <div className="ocean-surface" aria-hidden="true">
+      <svg className="ocean-pattern ocean-pattern-a" viewBox="0 0 520 760" preserveAspectRatio="none">
+        <defs>
+          <pattern id="cartoon-wave-a" width="96" height="72" patternUnits="userSpaceOnUse">
+            <path d="M-12 30 C7 18 25 18 44 30 S81 42 108 27" fill="none" stroke="rgba(222,255,247,.30)" strokeWidth="2.2" strokeLinecap="round" />
+            <path d="M9 49 C24 41 39 41 54 49 S82 56 99 47" fill="none" stroke="rgba(120,220,221,.22)" strokeWidth="1.4" strokeLinecap="round" />
+            <path d="M66 10 q10 -6 20 0 t20 0" fill="none" stroke="rgba(243,255,245,.18)" strokeWidth="1.25" strokeLinecap="round" />
+          </pattern>
+          <pattern id="cartoon-wave-b" width="140" height="110" patternUnits="userSpaceOnUse">
+            <path d="M15 23 q19 -13 38 0 t38 0" fill="none" stroke="rgba(255,255,242,.17)" strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M56 77 q15 -9 30 0 t30 0" fill="none" stroke="rgba(153,235,231,.15)" strokeWidth="1.3" strokeLinecap="round" />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#cartoon-wave-a)" />
+        <rect width="100%" height="100%" fill="url(#cartoon-wave-b)" opacity=".82" />
+      </svg>
+      <svg className="ocean-pattern ocean-pattern-b" viewBox="0 0 520 760" preserveAspectRatio="none">
+        <defs>
+          <pattern id="cartoon-whitecaps" width="178" height="132" patternUnits="userSpaceOnUse">
+            <path d="M18 47 C28 40 37 40 47 47" fill="none" stroke="rgba(244,255,247,.28)" strokeWidth="2.2" strokeLinecap="round" />
+            <path d="M108 92 C121 84 133 84 146 92" fill="none" stroke="rgba(218,255,249,.23)" strokeWidth="1.8" strokeLinecap="round" />
+            <path d="M126 26 C132 22 139 22 145 26" fill="none" stroke="rgba(255,255,244,.20)" strokeWidth="1.4" strokeLinecap="round" />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#cartoon-whitecaps)" />
+      </svg>
+      <i className="water-glint glint-a" />
+      <i className="water-glint glint-b" />
+      <i className="water-glint glint-c" />
+      <i className="water-glint glint-d" />
+    </div>
+  );
+});
+
 function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onOpenBattle, onOpenIsland }: Props) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const pointersRef = useRef(new Map<number, PointerPoint>());
@@ -104,7 +140,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
   const cameraRafRef = useRef<number | null>(null);
   const pendingCameraRef = useRef<Camera | null>(null);
   const movedRef = useRef(false);
-  const cameraRef = useRef<Camera>({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: 0.82 });
+  const cameraRef = useRef<Camera>({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: 0.64 });
   const [camera, setCamera] = useState<Camera>(cameraRef.current);
   const [viewport, setViewport] = useState({ width: 390, height: 620 });
   const [dragging, setDragging] = useState(false);
@@ -141,7 +177,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
   }, [onExplore]);
 
   const updateCamera = useCallback((next: Camera, explore = false) => {
-    const normalized = { ...next, zoom: Math.max(0.38, Math.min(1.48, next.zoom)) };
+    const normalized = { ...next, zoom: Math.max(0.30, Math.min(1.60, next.zoom)) };
     cameraRef.current = normalized;
     pendingCameraRef.current = normalized;
     if (!cameraRafRef.current) {
@@ -156,7 +192,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
 
   const zoomAt = useCallback((nextZoom: number, screenX = viewport.width / 2, screenY = viewport.height / 2, explore = true) => {
     const old = cameraRef.current;
-    const zoom = Math.max(0.38, Math.min(1.48, nextZoom));
+    const zoom = Math.max(0.30, Math.min(1.60, nextZoom));
     const worldX = old.x + (screenX - viewport.width / 2) / old.zoom;
     const worldY = old.y + (screenY - viewport.height / 2) / old.zoom;
     updateCamera({
@@ -167,7 +203,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
   }, [updateCamera, viewport.height, viewport.width]);
 
   const centerMine = useCallback(() => {
-    updateCamera({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: Math.max(0.78, cameraRef.current.zoom) }, true);
+    updateCamera({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: Math.max(0.92, cameraRef.current.zoom) }, true);
   }, [snapshot.state.worldX, snapshot.state.worldY, updateCamera]);
 
   const localPoint = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -217,7 +253,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
       const midY = (a.y + b.y) / 2;
       const distance = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
       const pinch = pinchRef.current;
-      const zoom = Math.max(0.38, Math.min(1.48, pinch.zoom * (distance / pinch.distance)));
+      const zoom = Math.max(0.30, Math.min(1.60, pinch.zoom * (distance / pinch.distance)));
       updateCamera({ x: pinch.worldX - (midX - viewport.width / 2) / zoom, y: pinch.worldY - (midY - viewport.height / 2) / zoom, zoom });
       return;
     }
@@ -265,7 +301,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
   }, [sortedIslands, viewport.width, viewport.height, camera.x, camera.y, camera.zoom]);
 
   const ordered = visibleIslands;
-  const detail = camera.zoom < 0.57 ? "far" : camera.zoom < 0.85 ? "mid" : "near";
+  const detail = camera.zoom < 0.46 ? "far" : camera.zoom < 0.82 ? "mid" : "near";
   const selectedReason = selected ? attackReason(snapshot, selected, now) : null;
   const selectedElo = selected ? eloDeltaPreview(snapshot.state.rating, selected.rating) : null;
   const selectedLeague = selected ? eloLeague(selected.rating) : null;
@@ -300,10 +336,9 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
         onWheel={wheel}
         onClick={() => { if (!movedRef.current) onSelect(null); }}
       >
-        <div className="ocean-light ocean-light-one" />
-        <div className="ocean-light ocean-light-two" />
-        <div className="ocean-current current-one" />
-        <div className="ocean-current current-two" />
+        <OceanSurface />
+        <div className="ocean-depth-patch ocean-depth-one" />
+        <div className="ocean-depth-patch ocean-depth-two" />
 
         <div className="game-world-layer" style={{ transform }}>
           {ordered.map((island) => (
@@ -319,11 +354,11 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
         </div>
 
         <div className="game-map-tools game-map-tools-left">
-          <button type="button" onClick={(event) => { event.stopPropagation(); centerMine(); }} aria-label="Мой остров">⌖</button>
+          <button className="map-tool-home" type="button" onClick={(event) => { event.stopPropagation(); centerMine(); }} aria-label="Мой остров"><span>⌂</span></button>
         </div>
         <div className="game-map-tools game-map-tools-right">
-          <button type="button" onClick={(event) => { event.stopPropagation(); zoomAt(camera.zoom + 0.14); }} aria-label="Приблизить">+</button>
-          <button type="button" onClick={(event) => { event.stopPropagation(); zoomAt(camera.zoom - 0.14); }} aria-label="Отдалить">−</button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); zoomAt(camera.zoom + 0.14); }} aria-label="Приблизить"><span>＋</span></button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); zoomAt(camera.zoom - 0.14); }} aria-label="Отдалить"><span>−</span></button>
         </div>
 
         <div className="game-minimap" onClick={(event) => event.stopPropagation()}>
@@ -339,9 +374,14 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
           <button className="sheet-close" type="button" onClick={() => onSelect(null)}>×</button>
           <div className="sheet-island-id">
             <span className="sheet-avatar" style={{ background: selected.color }}>
-              {selected.avatarUrl ? <Image src={selected.avatarUrl} alt="" width={48} height={48} unoptimized /> : selected.emblem}
+              {selected.avatarUrl ? <Image src={selected.avatarUrl} alt="" width={52} height={52} unoptimized /> : selected.emblem}
             </span>
-            <div><small>{selectedLeague?.icon} {selectedLeague?.label}{selected.rank > 0 ? ` · #${selected.rank}` : ""}</small><h3>{selected.name}</h3><p>{selected.memberCount} участников · ELO {selected.rating}</p></div>
+            <div className="sheet-title-copy">
+              <small>{selectedLeague?.icon} {selectedLeague?.label}{selected.rank > 0 ? ` · место #${selected.rank}` : ""}</small>
+              <h3>{selected.name}</h3>
+              <p><b>{selected.memberCount.toLocaleString("ru-RU")}</b> участников <i>•</i> <b>{selected.rating}</b> ELO</p>
+            </div>
+            <span className={`sheet-relation-orb ${selected.relation || "neutral"}`} aria-hidden="true" />
           </div>
           <div className="sheet-integrity-track" aria-label={`Прочность ${selected.integrity}%`}><i style={{ width: `${selected.integrity}%` }} /></div>
           <div className="sheet-game-stats">

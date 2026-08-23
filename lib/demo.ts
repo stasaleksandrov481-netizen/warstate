@@ -11,11 +11,11 @@ const BUILDINGS: Array<{ type: BuildingType; label: string; description: string;
 
 const DEMO_ISLANDS: IslandView[] = [
   { id:"demo-state",name:"MEMEX COMMUNITY",color:"#5e73ff",emblem:"◈",worldX:0,worldY:0,memberCount:248,rating:1840,rank:2,wins:18,losses:7,integrity:86,winStreak:3,lastBattleAt:new Date(Date.now()-90*60_000).toISOString(),isMine:true,avatarUrl:null },
-  { id:"alpha-state",name:"ALPHA SQUAD",color:"#8b45ff",emblem:"A",worldX:720,worldY:-520,memberCount:512,rating:2314,rank:1,wins:31,losses:9,integrity:100,winStreak:5,lastBattleAt:new Date(Date.now()-45*60_000).toISOString(),isMine:false,avatarUrl:null },
-  { id:"enemy-state",name:"VOID LEGION",color:"#ef495d",emblem:"V",worldX:930,worldY:420,memberCount:238,rating:1775,rank:3,wins:14,losses:12,integrity:63,winStreak:0,lastBattleAt:new Date(Date.now()-20*60_000).toISOString(),isMine:false,avatarUrl:null,relation:"war" },
-  { id:"north-state",name:"NORTH UNION",color:"#43c0ff",emblem:"N",worldX:-760,worldY:420,memberCount:312,rating:1690,rank:4,wins:12,losses:8,integrity:100,winStreak:2,lastBattleAt:new Date(Date.now()-3*60*60_000).toISOString(),isMine:false,avatarUrl:null,relation:"allied" },
-  { id:"neon-state",name:"NEON DISTRICT",color:"#53e6a6",emblem:"N",worldX:-980,worldY:-620,memberCount:154,rating:1512,rank:5,wins:8,losses:11,integrity:74,winStreak:1,lastBattleAt:new Date(Date.now()-7*60*60_000).toISOString(),isMine:false,avatarUrl:null },
-  { id:"ruins-state",name:"DARK LEGENDS",color:"#7d8796",emblem:"D",worldX:180,worldY:980,memberCount:86,rating:1320,rank:6,wins:4,losses:18,integrity:0,winStreak:0,lastBattleAt:new Date(Date.now()-35*60_000).toISOString(),isMine:false,avatarUrl:null,destroyedUntil:new Date(Date.now()+75*60_000).toISOString() },
+  { id:"alpha-state",name:"ALPHA SQUAD",color:"#8b45ff",emblem:"A",worldX:340,worldY:-260,memberCount:512,rating:2314,rank:1,wins:31,losses:9,integrity:100,winStreak:5,lastBattleAt:new Date(Date.now()-45*60_000).toISOString(),isMine:false,avatarUrl:null },
+  { id:"enemy-state",name:"VOID LEGION",color:"#ef495d",emblem:"V",worldX:370,worldY:290,memberCount:238,rating:1775,rank:3,wins:14,losses:12,integrity:63,winStreak:0,lastBattleAt:new Date(Date.now()-20*60_000).toISOString(),isMine:false,avatarUrl:null,relation:"war" },
+  { id:"north-state",name:"NORTH UNION",color:"#43c0ff",emblem:"N",worldX:-350,worldY:260,memberCount:312,rating:1690,rank:4,wins:12,losses:8,integrity:100,winStreak:2,lastBattleAt:new Date(Date.now()-3*60*60_000).toISOString(),isMine:false,avatarUrl:null,relation:"allied" },
+  { id:"neon-state",name:"NEON DISTRICT",color:"#53e6a6",emblem:"N",worldX:-380,worldY:-280,memberCount:154,rating:1512,rank:5,wins:8,losses:11,integrity:74,winStreak:1,lastBattleAt:new Date(Date.now()-7*60*60_000).toISOString(),isMine:false,avatarUrl:null },
+  { id:"ruins-state",name:"DARK LEGENDS",color:"#7d8796",emblem:"D",worldX:80,worldY:560,memberCount:86,rating:1320,rank:6,wins:4,losses:18,integrity:0,winStreak:0,lastBattleAt:new Date(Date.now()-35*60_000).toISOString(),isMine:false,avatarUrl:null,destroyedUntil:new Date(Date.now()+75*60_000).toISOString() },
 ];
 
 export function createDemoSnapshot(): GameSnapshot {

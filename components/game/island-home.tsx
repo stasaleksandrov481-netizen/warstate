@@ -46,13 +46,15 @@ function IslandHomeInner({
     <div className="island-home-screen">
       <div className={`my-island-hero game-home-hero ${destroyed ? "ruined" : ""}`} style={{ ["--state-color" as any]: state.color }}>
         <div className="my-island-water" />
-        <div className="home-island-art"><IslandArt id={state.id} members={state.memberCount} color={state.color} integrity={state.islandIntegrity} ruined={destroyed} /></div>
+        <div className="home-wave-band home-wave-band-a" />
+        <div className="home-wave-band home-wave-band-b" />
+        <div className="home-island-art"><IslandArt id={state.id} members={state.memberCount} color={state.color} integrity={state.islandIntegrity} ruined={destroyed} selected detail="near" /></div>
         <div className="my-island-identity">
           <span>{state.emblem}</span>
-          <div><h2>{state.name}</h2><p>{state.motto}</p></div>
+          <div><small>МОЯ СТОЛИЦА</small><h2>{state.name}</h2><p>{state.motto}</p></div>
         </div>
         <div className="island-integrity-float">
-          <span>ПРОЧНОСТЬ</span>
+          <span>ОБОРОНА ОСТРОВА</span>
           <b>{state.islandIntegrity}%</b>
           <i><em style={{ width: `${state.islandIntegrity}%` }} /></i>
         </div>
@@ -90,9 +92,9 @@ function IslandHomeInner({
             const steel = building.upgradeCost.steel || 0;
             const canUpgrade = canManage && !destroyed && building.level < 12 && state.treasury.credits >= credits && state.treasury.steel >= steel;
             return (
-              <article className="infra-card" key={building.type}>
+              <article className={`infra-card infra-${building.type}`} key={building.type}>
                 <div className="infra-icon">{meta.icon}</div>
-                <div className="infra-copy"><b>{meta.label}</b><small>{meta.desc}</small><span>ур. {building.level}</span></div>
+                <div className="infra-copy"><b>{meta.label}</b><small>{meta.desc}</small><span className="infra-level">ур. {building.level}<i>{Array.from({ length: Math.min(5, Math.max(1, Math.ceil(building.level / 2))) }, (_, i) => <em key={i} />)}</i></span></div>
                 <button type="button" disabled={!canUpgrade} onClick={() => onUpgrade(building.type)} title={!canManage ? "Улучшения доступны президенту и министру" : undefined}>
                   {building.level >= 12 ? "MAX" : "↑"} <small>{building.level >= 12 ? "уровень" : `${credits.toLocaleString("ru-RU")} ₡`}</small>
                 </button>

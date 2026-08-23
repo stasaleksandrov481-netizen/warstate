@@ -1,4 +1,4 @@
-# GROUP WARS v1.2.1 — Island World Polish
+# GROUP WARS v1.3 — Cartoon Island UI Overhaul
 
 Telegram-native multiplayer strategy where **every Telegram group becomes a persistent island-state** on an expandable ocean.
 
@@ -9,6 +9,49 @@ Stack:
 - Supabase Postgres + Realtime
 - Telegram Bot API + Mini App
 - Telegram Stars foundation
+
+## What changed in v1.3
+
+v1.3 is a large UI/rendering pass focused on making the Telegram Mini App feel like a mobile game rather than a SaaS dashboard. No database migration is required on top of v1.2.1.
+
+### Cartoon ocean and shoreline
+
+- Rebuilt the map background as a layered cartoon ocean instead of a flat blue field.
+- Two lightweight SVG wave layers drift at different speeds, with whitecaps, glints and depth patches.
+- Every island has shallow-water tint, a soft surf halo, animated broken foam and secondary wave lines around the coast.
+- Far zoom and reduced-motion modes automatically disable expensive decorative effects.
+
+### Island renderer v3
+
+- Four deterministic coastline silhouettes keep islands varied without raster assets.
+- Island physical size still scales with Telegram member count.
+- Houses and trees use deterministic safe anchors rather than arbitrary random coordinates.
+- All land decorations are additionally clipped to the grass silhouette, so a bad future anchor still cannot render a house in the sea.
+- Larger communities visibly gain a larger keep, more buildings, trees, a pier, flag and small boat.
+- Damage, integrity and ruined-state visuals remain part of the same SVG renderer.
+
+### Game-like mobile UI
+
+- Removed the neon/glass-dashboard visual language.
+- New navy, sand, gold, coral and mint palette with chunky outlines and tactile raised buttons.
+- Compact top HUD for chat identity, ELO, population and treasury.
+- Floating island labels are compact game badges with Telegram avatar, members, ELO and diplomacy state.
+- Enemy selection opens a combat-oriented bottom sheet with integrity, record, streak, protection, ELO stake and attack state.
+- Bottom navigation is now a solid game bar with Battle elevated as the primary action.
+
+### Own island and supporting screens
+
+- The own-island screen uses the same animated sea/island renderer as the world map.
+- Infrastructure is presented as upgradeable game buildings with distinct visual categories and progression pips.
+- Ranking, diplomacy, profile/politics and battle screens share the same board-game/cartoon surface language instead of switching back to SaaS cards.
+
+### Mobile performance
+
+- Viewport culling keeps only visible islands mounted.
+- Camera movement is batched through `requestAnimationFrame`.
+- Nearby-world requests are debounced and the map keeps already explored islands cached client-side.
+- Far zoom removes detail, shadows and secondary ocean effects.
+- Coarse-pointer devices use a lighter animation budget and `prefers-reduced-motion` is respected.
 
 ## What changed in v1.2
 

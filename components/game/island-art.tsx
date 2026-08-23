@@ -12,6 +12,8 @@ type Props = {
   detail?: "far" | "mid" | "near";
 };
 
+type Anchor = { x: number; y: number; scale?: number };
+
 function hash(input: string) {
   let value = 2166136261;
   for (let i = 0; i < input.length; i += 1) {
@@ -21,143 +23,231 @@ function hash(input: string) {
   return Math.abs(value >>> 0);
 }
 
+/*
+ * Coast and land are paired. Decoration never uses arbitrary coordinates:
+ * every tree/house comes from SAFE_* anchors that sit well inside all four
+ * land silhouettes. This prevents buildings from drifting into the sea.
+ */
 const COASTS = [
-  "M25 91 C29 61 53 42 82 42 C101 25 137 24 156 42 C188 39 213 58 216 85 C219 110 195 124 169 124 C148 141 112 143 91 130 C61 134 34 120 25 91 Z",
-  "M23 88 C30 58 54 53 70 37 C91 22 121 29 137 40 C164 29 198 42 212 66 C225 91 207 117 181 124 C161 139 130 135 112 130 C88 142 54 133 38 116 C25 107 18 98 23 88 Z",
-  "M28 82 C36 52 65 35 90 40 C109 24 143 29 157 46 C183 39 207 55 214 79 C224 103 203 126 176 126 C152 139 121 132 102 125 C80 137 49 128 35 110 C23 101 21 92 28 82 Z",
-  "M30 89 C28 64 48 45 74 44 C93 26 128 27 145 40 C169 31 200 44 210 68 C222 94 205 114 183 123 C160 138 128 136 106 126 C78 139 52 128 40 113 C30 105 25 98 30 89 Z",
+  "M22 96 C25 72 44 56 68 51 C81 34 111 29 132 38 C151 28 183 37 195 56 C218 61 229 79 225 99 C221 120 199 132 176 132 C155 146 122 148 99 136 C72 142 45 132 32 116 C24 109 20 103 22 96 Z",
+  "M20 91 C26 68 47 59 65 45 C87 27 112 34 132 42 C157 31 190 42 205 62 C220 82 213 108 191 123 C174 137 149 138 128 132 C102 146 72 137 54 124 C35 119 19 106 20 91 Z",
+  "M28 88 C34 62 57 43 82 43 C100 28 130 31 148 44 C174 36 204 48 217 71 C230 96 213 120 187 129 C164 142 133 137 111 132 C86 143 56 134 41 118 C28 109 23 99 28 88 Z",
+  "M27 94 C24 70 45 48 71 48 C91 29 123 31 143 43 C169 34 198 46 212 66 C226 88 217 112 194 125 C171 142 140 140 115 131 C89 143 59 136 42 119 C31 112 25 103 27 94 Z",
 ];
 
 const LAND = [
-  "M39 87 C43 64 64 51 85 51 C104 38 132 37 149 51 C175 48 198 64 200 83 C202 102 184 113 162 113 C143 126 116 126 97 116 C72 121 50 112 39 96 Z",
-  "M37 85 C45 62 65 60 79 48 C98 36 119 41 136 49 C157 39 186 53 196 69 C206 88 191 106 169 112 C151 124 127 121 110 116 C89 126 63 117 50 104 C40 98 34 92 37 85 Z",
-  "M42 79 C49 59 70 48 91 50 C109 39 132 42 146 54 C167 49 188 61 194 79 C201 96 184 111 164 111 C145 122 122 117 105 113 C87 121 65 114 54 102 C44 95 38 88 42 79 Z",
-  "M44 84 C44 65 61 52 80 52 C98 39 125 40 141 51 C161 44 184 55 192 72 C201 91 188 105 169 112 C151 123 127 120 108 113 C85 124 64 115 55 103 C47 98 41 91 44 84 Z",
+  "M38 91 C42 70 57 61 77 58 C91 44 114 42 132 49 C150 40 175 47 185 61 C203 66 211 80 207 95 C203 110 187 118 169 118 C151 130 125 131 105 121 C82 127 60 118 49 106 C42 101 37 96 38 91 Z",
+  "M37 88 C42 69 60 64 74 53 C91 41 111 46 129 52 C149 43 176 53 188 67 C199 82 193 101 176 112 C161 123 142 123 124 118 C103 129 79 122 64 111 C49 108 36 99 37 88 Z",
+  "M44 84 C50 63 68 52 88 53 C103 42 127 45 142 54 C163 48 185 58 195 74 C205 92 192 108 173 114 C155 125 132 121 115 117 C94 126 71 119 59 107 C49 101 40 94 44 84 Z",
+  "M43 89 C41 70 58 56 78 56 C94 43 118 44 136 53 C156 46 179 56 190 70 C201 86 195 104 177 113 C159 125 136 123 117 116 C96 126 73 121 60 109 C50 104 43 98 43 89 Z",
 ];
+
+const SAFE_HOUSES: Anchor[] = [
+  { x: 82, y: 88, scale: .88 },
+  { x: 99, y: 102, scale: .82 },
+  { x: 145, y: 96, scale: .88 },
+  { x: 163, y: 83, scale: .76 },
+  { x: 150, y: 110, scale: .72 },
+  { x: 72, y: 104, scale: .72 },
+  { x: 104, y: 70, scale: .68 },
+  { x: 148, y: 69, scale: .68 },
+];
+
+const SAFE_TREES: Anchor[] = [
+  { x: 67, y: 73 }, { x: 77, y: 64 }, { x: 88, y: 112 }, { x: 96, y: 58 },
+  { x: 109, y: 113 }, { x: 139, y: 58 }, { x: 158, y: 66 }, { x: 177, y: 75 },
+  { x: 173, y: 100 }, { x: 136, y: 116 }, { x: 60, y: 93 }, { x: 188, y: 91 },
+  { x: 122, y: 54 }, { x: 118, y: 116 },
+];
+
+function jitter(seed: number, index: number, spread: number) {
+  return (((seed >>> (index % 13)) + index * 17) % (spread * 2 + 1)) - spread;
+}
 
 function IslandArtInner({ id, members, color, integrity, ruined = false, selected = false, detail = "near" }: Props) {
   const seed = useMemo(() => hash(id), [id]);
   const variant = seed % COASTS.length;
   const tier = members >= 1500 ? 5 : members >= 700 ? 4 : members >= 300 ? 3 : members >= 120 ? 2 : 1;
-  const density = detail === "far" ? 0.42 : detail === "mid" ? 0.72 : 1;
-  const treeCount = Math.max(2, Math.round(Math.min(12, 3 + tier * 2) * density));
-  const houseCount = Math.max(detail === "far" ? 0 : 1, Math.round(Math.min(9, 1 + tier * 2) * density));
-  const cliffOpacity = Math.max(0.15, Math.min(0.72, (100 - integrity) / 100));
+  const houseCount = detail === "far" ? 0 : Math.min(SAFE_HOUSES.length, tier + (detail === "near" ? 2 : 0));
+  const treeCount = detail === "far" ? Math.min(4, 2 + tier) : Math.min(SAFE_TREES.length, 5 + tier * 2);
+  const damage = Math.max(0, Math.min(1, (100 - integrity) / 100));
 
-  const trees = useMemo(() => Array.from({ length: treeCount }, (_, index) => {
-    const x = 63 + ((seed >> (index % 12)) + index * 31) % 108;
-    const y = 62 + ((seed >> ((index + 4) % 12)) + index * 17) % 43;
-    const scale = 0.72 + (((seed + index * 19) % 36) / 100);
-    return { x, y, scale };
-  }), [seed, treeCount]);
+  const houses = useMemo(() => {
+    const offset = seed % SAFE_HOUSES.length;
+    return Array.from({ length: houseCount }, (_, i) => {
+      const base = SAFE_HOUSES[(i + offset) % SAFE_HOUSES.length];
+      return {
+        x: base.x + jitter(seed, i + 3, 2),
+        y: base.y + jitter(seed, i + 8, 2),
+        scale: (base.scale || 1) * (.94 + ((seed + i * 29) % 12) / 100),
+      };
+    });
+  }, [houseCount, seed]);
 
-  const houses = useMemo(() => Array.from({ length: houseCount }, (_, index) => {
-    const x = 78 + ((seed >> ((index + 2) % 10)) + index * 37) % 84;
-    const y = 72 + ((seed >> ((index + 5) % 10)) + index * 11) % 31;
-    const scale = 0.72 + (((seed + index * 23) % 24) / 100);
-    return { x, y, scale };
-  }), [seed, houseCount]);
+  const trees = useMemo(() => {
+    const offset = (seed >>> 5) % SAFE_TREES.length;
+    return Array.from({ length: treeCount }, (_, i) => {
+      const base = SAFE_TREES[(i + offset) % SAFE_TREES.length];
+      return {
+        x: base.x + jitter(seed, i + 11, 2),
+        y: base.y + jitter(seed, i + 19, 2),
+        scale: .76 + ((seed + i * 31) % 28) / 100,
+      };
+    });
+  }, [seed, treeCount]);
 
   return (
-    <svg className={`island-art ${ruined ? "ruined" : ""} ${selected ? "selected" : ""}`} viewBox="0 0 240 160" role="img" aria-hidden="true">
+    <svg className={`island-art ${ruined ? "ruined" : ""} ${selected ? "selected" : ""}`} viewBox="0 0 240 170" role="img" aria-hidden="true">
       <defs>
-        <linearGradient id={`seaGlow-${seed}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#8ef5ff" stopOpacity=".85" />
-          <stop offset="1" stopColor="#1c99d4" stopOpacity=".05" />
+        <linearGradient id={`beach-${seed}`} x1="0" y1="0" x2=".7" y2="1">
+          <stop offset="0" stopColor="#ffe4a3" />
+          <stop offset=".55" stopColor="#e5bc6d" />
+          <stop offset="1" stopColor="#a8753f" />
         </linearGradient>
-        <linearGradient id={`beach-${seed}`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#f2dda1" />
-          <stop offset="1" stopColor="#b98f50" />
+        <linearGradient id={`land-${seed}`} x1=".12" y1="0" x2=".8" y2="1">
+          <stop offset="0" stopColor={ruined ? "#77705e" : "#8acb55"} />
+          <stop offset=".47" stopColor={ruined ? "#545343" : "#4f9f3f"} />
+          <stop offset="1" stopColor={ruined ? "#34372e" : "#256f37"} />
         </linearGradient>
-        <linearGradient id={`land-${seed}`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor={ruined ? "#4a4a43" : "#5eb451"} />
-          <stop offset=".55" stopColor={ruined ? "#33352f" : "#2f833d"} />
-          <stop offset="1" stopColor={ruined ? "#20241f" : "#17612f"} />
+        <linearGradient id={`landShade-${seed}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#10351f" stopOpacity="0" />
+          <stop offset="1" stopColor="#153824" stopOpacity=".72" />
         </linearGradient>
         <linearGradient id={`roof-${seed}`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#f4f7ff" />
-          <stop offset=".2" stopColor={color} />
-          <stop offset="1" stopColor="#27334a" />
+          <stop offset="0" stopColor="#fff3cf" />
+          <stop offset=".24" stopColor={color} />
+          <stop offset="1" stopColor="#493e55" />
         </linearGradient>
-        <filter id={`shadow-${seed}`} x="-20%" y="-20%" width="140%" height="160%">
-          <feDropShadow dx="0" dy="8" stdDeviation="7" floodColor="#00131f" floodOpacity=".72" />
+        <filter id={`softShadow-${seed}`} x="-30%" y="-30%" width="160%" height="190%">
+          <feDropShadow dx="0" dy="7" stdDeviation="5" floodColor="#062e3e" floodOpacity=".42" />
         </filter>
-        <filter id={`select-${seed}`} x="-30%" y="-30%" width="160%" height="180%">
-          <feDropShadow dx="0" dy="0" stdDeviation="5" floodColor="#55c8ff" floodOpacity={selected ? ".95" : ".18"} />
+        <filter id={`foamGlow-${seed}`} x="-30%" y="-30%" width="160%" height="170%">
+          <feGaussianBlur stdDeviation="1.3" result="b" />
+          <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
         </filter>
+        <clipPath id={`landClip-${seed}`}>
+          <path d={LAND[variant]} />
+        </clipPath>
       </defs>
 
-      <ellipse cx="121" cy="120" rx="84" ry="22" fill="#001827" opacity=".55" />
+      {/* Contact shadow in the water. */}
+      <ellipse cx="121" cy="129" rx="83" ry="19" fill="#06445a" opacity=".28" />
+
+      {/* Shallow water + surf. The dashed white edge is the animated foam line. */}
+      <path className="island-shallow" d={COASTS[variant]} fill="none" stroke="#66d5db" strokeWidth="15" strokeLinejoin="round" opacity={ruined ? .24 : .42} />
+      <path className="island-foam-soft" d={COASTS[variant]} fill="none" stroke="#bff8f0" strokeWidth="8" strokeLinejoin="round" opacity={ruined ? .28 : .62} filter={`url(#foamGlow-${seed})`} />
+      <path className="island-foam" d={COASTS[variant]} fill="none" stroke="#f2fff5" strokeWidth="3.6" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="11 5 4 6" opacity={ruined ? .35 : .94} />
+
       {detail !== "far" && (
-        <g className="island-wave-rings" opacity={ruined ? .25 : .58}>
-          <path d="M34 119 C66 143 160 146 206 112" fill="none" stroke="#b7f3ff" strokeWidth="1.3" strokeLinecap="round" />
-          <path d="M49 130 C90 149 159 145 194 126" fill="none" stroke="#4bc9f2" strokeWidth="1" strokeLinecap="round" opacity=".7" />
+        <g className="island-surf-lines" fill="none" strokeLinecap="round">
+          <path d="M32 129 C62 145 91 148 118 145" stroke="#e7fff7" strokeWidth="2" opacity=".72" />
+          <path d="M139 146 C169 145 197 136 214 121" stroke="#d7fff6" strokeWidth="1.8" opacity=".62" />
+          <path d="M47 140 C69 151 91 153 107 151" stroke="#8fe4e5" strokeWidth="1.3" opacity=".55" />
+          <path d="M172 151 C192 146 207 138 220 127" stroke="#8fe4e5" strokeWidth="1.3" opacity=".5" />
         </g>
       )}
-      <path d={COASTS[variant]} fill={`url(#seaGlow-${seed})`} opacity=".78" transform="translate(0 4)" filter={`url(#select-${seed})`} />
-      <path d={COASTS[variant]} fill={`url(#beach-${seed})`} filter={`url(#shadow-${seed})`} />
+
+      {/* Beach and grass use the same paired silhouette. */}
+      <path d={COASTS[variant]} fill={`url(#beach-${seed})`} filter={detail === "far" ? undefined : `url(#softShadow-${seed})`} />
       <path d={LAND[variant]} fill={`url(#land-${seed})`} />
+      <path d={LAND[variant]} fill={`url(#landShade-${seed})`} opacity=".48" transform="translate(0 5) scale(1 .96)" transformOrigin="120px 90px" />
 
-      <path d="M45 91 C73 111 112 119 155 110 C178 105 191 91 199 78 C195 103 182 117 161 124 C137 139 105 134 89 126 C67 132 48 119 39 103 Z" fill="#123b2b" opacity=".55" />
-      <path d="M52 101 C79 117 111 123 148 116 C172 111 188 99 196 88" fill="none" stroke="#7b6547" strokeWidth="5" strokeLinecap="round" opacity=".72" />
-      {detail === "near" && <g opacity={ruined ? .28 : .76}>
-        <path d="M79 94 C95 88 105 78 120 74 C139 77 153 87 170 95" fill="none" stroke="#d8c48c" strokeWidth="2.2" strokeLinecap="round" strokeDasharray="2 3" />
-        <path d="M119 74 C118 89 110 102 100 112" fill="none" stroke="#d8c48c" strokeWidth="1.8" strokeLinecap="round" strokeDasharray="2 3" />
-      </g>}
+      {/* Every land decoration is clipped by the grass silhouette as a final
+          guardrail: even a future bad anchor cannot render a house in water. */}
+      <g clipPath={`url(#landClip-${seed})`}>
+      {/* Interior paths. */}
+      {detail === "near" && !ruined && (
+        <g fill="none" stroke="#ead59c" strokeLinecap="round" opacity=".76">
+          <path d="M80 94 C96 89 105 78 120 73 C138 78 151 86 165 94" strokeWidth="2.1" strokeDasharray="2 3" />
+          <path d="M120 74 C121 89 113 102 102 112" strokeWidth="1.7" strokeDasharray="2 3" />
+        </g>
+      )}
 
+      {/* Trees stay inside predefined safe anchors. */}
       <g opacity={ruined ? .3 : .98}>
         {trees.map((tree, index) => (
           <g key={index} transform={`translate(${tree.x} ${tree.y}) scale(${tree.scale})`}>
-            <rect x="-1.5" y="6" width="3" height="8" rx="1" fill="#5d4933" />
-            <circle cx="0" cy="1" r="7" fill={index % 3 === 0 ? "#247337" : "#1c5f31"} />
-            <circle cx="-4" cy="3" r="4" fill="#2f8b3f" />
-            <circle cx="4" cy="3" r="4" fill="#3a9648" />
+            <ellipse cx="1" cy="12" rx="6" ry="2.5" fill="#184a2b" opacity=".32" />
+            <rect x="-1.5" y="5" width="3" height="9" rx="1" fill="#74502f" />
+            <circle cx="0" cy="1" r="7" fill={index % 3 === 0 ? "#347b35" : "#27692f"} />
+            <circle cx="-4" cy="3" r="4" fill="#4b963f" />
+            <circle cx="4" cy="3" r="4" fill="#5ca84a" />
           </g>
         ))}
       </g>
 
-      <g opacity={ruined ? .52 : 1}>
+      {/* Houses also use safe anchors, no free random positioning. */}
+      <g opacity={ruined ? .46 : 1}>
         {houses.map((house, index) => (
           <g key={index} transform={`translate(${house.x} ${house.y}) scale(${house.scale})`}>
-            <rect x="-6" y="-1" width="12" height="9" rx="1" fill="#d2c5a2" />
-            <polygon points="-8,-1 0,-7 8,-1" fill={index % 2 === 0 ? color : "#ab6c41"} />
-            <rect x="-2" y="3" width="3" height="5" fill="#4f3d31" />
+            <ellipse cx="0" cy="8" rx="8" ry="2.4" fill="#16412b" opacity=".28" />
+            <rect x="-6" y="-1" width="12" height="9" rx="1.4" fill="#f0d9a7" stroke="#7f6a4b" strokeWidth=".7" />
+            <polygon points="-8,-1 0,-7 8,-1" fill={index % 2 === 0 ? color : "#c96d45"} stroke="#59414a" strokeWidth=".7" />
+            <rect x="-1.7" y="3" width="3.4" height="5" rx=".6" fill="#5c4434" />
+            <rect x="-5" y="2" width="2.5" height="2.4" rx=".5" fill="#9ee6ff" opacity=".9" />
           </g>
         ))}
       </g>
-
-      <g transform="translate(121 69)">
-        <ellipse cx="0" cy="20" rx={18 + tier * 3} ry="7" fill="#09221a" opacity=".48" />
-        <rect x={-11 - tier} y={-2 - tier} width={22 + tier * 2} height={24 + tier * 2} rx="2" fill={ruined ? "#4b4c4b" : "#d8d6c5"} />
-        <rect x={-7 - tier} y={2 - tier} width={14 + tier * 2} height={20 + tier} fill={ruined ? "#2d2e2e" : "#7d8791"} />
-        <polygon points={`${-16 - tier},${-2-tier} 0,${-17-tier*2} ${16+tier},${-2-tier}`} fill={`url(#roof-${seed})`} />
-        <rect x="-2" y="10" width="5" height="10" fill="#27313a" />
-        {tier >= 3 && <><rect x="-20" y="3" width="8" height="20" fill="#aeb5b5" /><polygon points="-22,3 -16,-8 -10,3" fill={color} /><rect x="12" y="3" width="8" height="20" fill="#aeb5b5" /><polygon points="10,3 16,-8 22,3" fill={color} /></>}
-        {tier >= 4 && <><rect x="-3" y="-27" width="6" height="15" fill="#adb3b2" /><polygon points="-6,-27 0,-37 6,-27" fill={color} /></>}
-        {tier >= 5 && <><rect x="-31" y="10" width="15" height="13" rx="2" fill="#7f888d" /><rect x="16" y="10" width="15" height="13" rx="2" fill="#7f888d" /><path d="M-31 9h15M16 9h15" stroke={color} strokeWidth="2" /></>}
       </g>
 
-      {tier >= 2 && <g transform="translate(66 101)"><rect x="0" y="0" width="26" height="4" rx="2" fill="#9d7544" /><rect x="2" y="4" width="3" height="10" fill="#5f482f" /><rect x="20" y="4" width="3" height="10" fill="#5f482f" /></g>}
-      {tier >= 3 && <g transform="translate(171 86)"><rect x="0" y="0" width="2" height="22" fill="#d8e5ef" /><path d="M2 2 L17 7 L2 13 Z" fill={color} /></g>}
-      {tier >= 4 && detail !== "far" && <g transform="translate(184 103)"><rect x="-3" y="-15" width="7" height="15" fill="#eef2e6" /><rect x="-5" y="-18" width="11" height="4" rx="2" fill={color} /><circle cx=".5" cy="-16" r="1.8" fill="#fff7b8" /><path d="M7 -16 L25 -21" stroke="#fff7b8" strokeWidth="2" opacity=".32" /></g>}
+      {/* Central keep always sits in the widest safe interior area. */}
+      <g transform="translate(121 73)" opacity={ruined ? .72 : 1}>
+        <ellipse cx="0" cy="21" rx={18 + tier * 3} ry="7" fill="#123a28" opacity=".35" />
+        <rect x={-11 - tier} y={-2 - tier} width={22 + tier * 2} height={24 + tier * 2} rx="2.5" fill={ruined ? "#706d64" : "#f0dfbd"} stroke="#6a645b" strokeWidth="1" />
+        <rect x={-7 - tier} y={2 - tier} width={14 + tier * 2} height={20 + tier} rx="1.5" fill={ruined ? "#444741" : "#8d9a92"} />
+        <polygon points={`${-16 - tier},${-2 - tier} 0,${-17 - tier * 2} ${16 + tier},${-2 - tier}`} fill={`url(#roof-${seed})`} stroke="#493f4a" strokeWidth="1" />
+        <rect x="-2.5" y="10" width="5" height="10" rx="1" fill="#4d3d34" />
+        <rect x="-7" y="5" width="4" height="4" rx=".7" fill="#b9efff" />
+        <rect x="3" y="5" width="4" height="4" rx=".7" fill="#b9efff" />
+        {tier >= 3 && <>
+          <rect x="-20" y="3" width="8" height="20" rx="1.5" fill="#d7cda9" stroke="#6a645b" strokeWidth=".8" />
+          <polygon points="-22,3 -16,-8 -10,3" fill={color} />
+          <rect x="12" y="3" width="8" height="20" rx="1.5" fill="#d7cda9" stroke="#6a645b" strokeWidth=".8" />
+          <polygon points="10,3 16,-8 22,3" fill={color} />
+        </>}
+        {tier >= 4 && <>
+          <rect x="-3" y="-27" width="6" height="15" rx="1" fill="#e0d5b5" />
+          <polygon points="-6,-27 0,-37 6,-27" fill={color} />
+        </>}
+      </g>
+
+      {/* Pier and flag are anchored on land-facing shoreline, not free-floating. */}
+      {tier >= 2 && detail !== "far" && <g transform="translate(65 111)">
+        <rect x="0" y="0" width="27" height="4" rx="2" fill="#a97743" stroke="#6d4930" strokeWidth=".7" />
+        <rect x="3" y="4" width="3" height="10" fill="#6a4831" /><rect x="21" y="4" width="3" height="10" fill="#6a4831" />
+        <path d="M-10 14 Q2 9 14 14" fill="none" stroke="#f2fff6" strokeWidth="1.2" opacity=".7" />
+      </g>}
+      {tier >= 3 && <g transform="translate(171 84)">
+        <rect x="0" y="0" width="2" height="26" rx="1" fill="#f6e8c4" />
+        <path d="M2 3 L18 8 L2 15 Z" fill={color} stroke="#463f4a" strokeWidth=".7" />
+      </g>}
+
+      {/* A tiny boat at higher tiers gives the island life without expensive sprites. */}
+      {tier >= 4 && detail === "near" && !ruined && <g className="island-boat" transform="translate(191 132) rotate(-8)">
+        <path d="M-10 0 Q0 7 12 0 L8 6 Q0 10 -8 6 Z" fill="#8e5b35" stroke="#5d3c2a" strokeWidth=".8" />
+        <rect x="0" y="-10" width="1.4" height="11" fill="#5c4532" />
+        <path d="M1 -9 L8 -4 L1 -2 Z" fill="#fff1bd" />
+        <path d="M-15 8 Q-3 4 9 8" fill="none" stroke="#e8fff8" strokeWidth="1.5" opacity=".8" />
+      </g>}
 
       {integrity < 100 && !ruined && (
-        <g opacity={cliffOpacity + .2}>
-          <path d="M78 97 l12 -7 l8 9 l-10 10 Z" fill="#392f2a" />
-          <path d="M154 86 l8 -4 l9 8 l-8 11 Z" fill="#392f2a" />
+        <g opacity={Math.max(.2, damage)}>
+          <path d="M79 98 l11 -7 l8 9 l-10 9 Z" fill="#46332b" />
+          <path d="M153 88 l8 -4 l9 8 l-8 10 Z" fill="#46332b" />
+          {damage > .45 && <path d="M109 110 l8 -5 l7 6 l-5 7 Z" fill="#332622" />}
         </g>
       )}
 
       {ruined && (
         <g>
-          <ellipse cx="121" cy="82" rx="29" ry="14" fill="#251b1a" opacity=".9" />
-          <ellipse cx="121" cy="82" rx="19" ry="9" fill="#100d0d" opacity=".9" />
-          <path d="M98 73 l13 7 l-8 13" stroke="#9b4d35" strokeWidth="3" fill="none" opacity=".8" />
-          <path d="M137 70 l-9 11 l12 8" stroke="#9b4d35" strokeWidth="3" fill="none" opacity=".8" />
+          <ellipse cx="121" cy="86" rx="31" ry="15" fill="#34231f" opacity=".9" />
+          <ellipse cx="121" cy="86" rx="19" ry="9" fill="#161111" opacity=".9" />
+          <path d="M99 77 l13 7 l-8 13" stroke="#a14e35" strokeWidth="3" fill="none" opacity=".8" />
+          <path d="M139 74 l-10 11 l13 8" stroke="#a14e35" strokeWidth="3" fill="none" opacity=".8" />
           <g className="island-svg-smoke">
-            <circle cx="111" cy="52" r="7" fill="#686869" opacity=".55" />
-            <circle cx="119" cy="43" r="10" fill="#4f5153" opacity=".5" />
-            <circle cx="132" cy="34" r="12" fill="#404245" opacity=".42" />
+            <circle cx="111" cy="54" r="7" fill="#77736d" opacity=".52" />
+            <circle cx="120" cy="44" r="10" fill="#5a5956" opacity=".48" />
+            <circle cx="132" cy="34" r="12" fill="#444544" opacity=".4" />
           </g>
         </g>
       )}

@@ -1,6 +1,6 @@
 {
   "name": "group-wars",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -19,9 +19,9 @@
     "@types/node": "22.15.0",
     "@types/react": "19.2.0",
     "@types/react-dom": "19.2.0",
-    "typescript": "5.8.0"
+    "typescript": "5.9.2"
   },
   "engines": {
-    "node": ">=22"
+    "node": "22.x"
   }
 }

@@ -1,4 +1,4 @@
-# GROUP WARS v1.2 — Island World Polish
+# GROUP WARS v1.2.1 — Island World Polish
 
 Telegram-native multiplayer strategy where **every Telegram group becomes a persistent island-state** on an expandable ocean.
 
@@ -162,3 +162,9 @@ npm run dev
 - Sensitive actions also verify current Telegram-group membership.
 - The service-role key must never be exposed as `NEXT_PUBLIC_*`.
 - No generated images are required for the island renderer; the map uses React + SVG + CSS so it stays lightweight and editable.
+
+## v1.2.1 build fix
+
+- Fixed invalid `typescript@5.8.0` dependency by pinning TypeScript to `5.9.2`.
+- Pinned Vercel Node runtime to `22.x` instead of `>=22` to prevent automatic major-version jumps.
+

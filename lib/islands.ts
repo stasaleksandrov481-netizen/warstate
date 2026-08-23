@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { enforceRateLimit, withActionLock } from "@/lib/redis";
 import { getChat, getChatMemberCount } from "@/lib/telegram-bot";
-import type { DiplomacyRelationView, IslandView } from "@/lib/types";
+import type { DiplomacyRelationView, IslandView, WarType } from "@/lib/types";
 import { requireData, safeInteger, safeNumber } from "@/lib/invariants";
 
 const META_TTL_MS = 30 * 60 * 1000;
@@ -9,7 +10,7 @@ export async function syncStateChatMeta(stateId: string, chatId: number, force =
   const supabase = getSupabaseAdmin();
   const { data: current, error } = await supabase
     .from("states")
-    .select("chat_meta_synced_at,name,telegram_member_count,chat_avatar_file_id")
+    .select("*")
     .eq("id", stateId)
     .single();
   if (error) throw error;
@@ -80,27 +81,47 @@ export async function getIslandWorld(
     relation: relationByState.get(row.id) || null,
     isMine: row.id === stateId,
     isFreeport: Boolean(row.is_freeport),
+    isBeginnerIsland: Boolean(row.is_beginner_island),
+    level: Math.max(1, safeInteger(row.game_level, 1)),
+    maxLevel: Math.max(1, safeInteger(row.max_level, 50)),
+    influence: safeInteger(row.influence),
+    reputation: safeInteger(row.reputation),
+    armyPower: Math.max(0, safeInteger(row.army_power)),
+    defensePower: Math.max(0, safeInteger(row.defense_power)),
+    activePlayers: Math.max(0, safeInteger(row.active_player_count)),
+    stateSize: Math.max(0.0001, safeNumber(row.state_size, 1)),
   }));
 }
 
-export async function createIslandBattle(attackerStateId: string, defenderStateId: string) {
-  const supabase = getSupabaseAdmin();
-  const { data: states, error: statesError } = await supabase
-    .from("states")
-    .select("id,is_freeport")
-    .in("id", [attackerStateId, defenderStateId]);
-  if (statesError) throw statesError;
-  if ((states || []).some((state: any) => state.is_freeport)) {
-    throw new Error("Freeport — нейтральная территория. Здесь запрещены войны.");
-  }
-  const { data: battleId, error } = await supabase.rpc("gw_start_island_battle", {
-    p_attacker_state_id: attackerStateId,
-    p_defender_state_id: defenderStateId,
-    p_duration_seconds: 180,
+export async function createIslandBattle(attackerStateId: string, defenderStateId: string, battleType: WarType = "raid") {
+  await enforceRateLimit(`attack:${attackerStateId}`, 5, 60);
+  const lockKey = `battle-start:${[attackerStateId, defenderStateId].sort().join(":")}`;
+  return withActionLock(lockKey, 12, async () => {
+    const supabase = getSupabaseAdmin();
+    const { data: states, error: statesError } = await supabase
+      .from("states")
+      .select("id,is_freeport,is_beginner_island")
+      .in("id", [attackerStateId, defenderStateId]);
+    if (statesError) throw statesError;
+    if ((states || []).some((state: any) => state.is_freeport)) {
+      throw new Error("Freeport — нейтральная территория. Здесь запрещены войны.");
+    }
+    const attacker = (states || []).find((state: any) => state.id === attackerStateId);
+    const defender = (states || []).find((state: any) => state.id === defenderStateId);
+    if (attacker?.is_beginner_island) throw new Error("Атаки с Острова новичков запрещены.");
+    if (defender?.is_beginner_island) throw new Error("Остров новичков находится под защитой.");
+    const durations: Record<WarType, number> = { raid: 900, siege: 1800, territory: 1200 };
+    const { data: battleId, error } = await supabase.rpc("gw_start_island_battle", {
+      p_attacker_state_id: attackerStateId,
+      p_defender_state_id: defenderStateId,
+      p_duration_seconds: durations[battleType],
+    });
+    if (error) throw error;
+    if (!battleId) throw new Error("Не удалось начать атаку на остров.");
+    const { error: typeError } = await supabase.from("battles").update({ battle_type: battleType }).eq("id", battleId);
+    if (typeError) throw typeError;
+    return String(battleId);
   });
-  if (error) throw error;
-  if (!battleId) throw new Error("Не удалось начать атаку на остров.");
-  return String(battleId);
 }
 
 

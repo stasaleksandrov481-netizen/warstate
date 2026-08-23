@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     if (!stateId) throw new Error("stateId is required");
     const auth = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
     if (auth.state.is_freeport) throw new Error("Freeport — нейтральная территория и не меняет оформление игроками.");
-    if (!["president","minister"].includes(auth.member.role)) throw new Error("Оформление меняют президент или министр.");
+    if (!["president","minister","deputy","curator"].includes(auth.member.role)) throw new Error("Оформление меняют президент, заместитель или куратор.");
 
     const patch: Record<string, string> = {};
     if (body.motto !== undefined) patch.motto = String(body.motto).trim().slice(0, 80) || "Сила в единстве";

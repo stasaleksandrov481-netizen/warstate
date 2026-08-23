@@ -15,8 +15,8 @@ export async function POST(request: Request) {
 
     const { player, member, session, state } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
     if (state.is_freeport) throw new Error("Freeport не нуждается в ремонте игроков.");
-    if (!["president", "minister"].includes(member.role)) {
-      throw new Error("Ремонт из казны запускает президент или министр.");
+    if (!["president", "minister", "deputy", "curator"].includes(member.role)) {
+      throw new Error("Ремонт из казны запускает президент, заместитель или куратор.");
     }
 
     const repair = await repairIsland(stateId, amount);

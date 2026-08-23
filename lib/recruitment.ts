@@ -7,7 +7,7 @@ import type {
   RecruitmentRequestView,
 } from "@/lib/types";
 
-const LEADERS = new Set(["president", "minister"]);
+const LEADERS = new Set(["president", "minister", "deputy", "curator"]);
 
 function clampText(value: unknown, max: number) {
   return String(value || "").trim().slice(0, max);

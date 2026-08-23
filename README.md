@@ -1,6 +1,25 @@
-# GROUP WARS v1.4.2 — Performance + Procedural World Polish
+# GROUP WARS v1.5.0 — Full State Wars
 
 Telegram-native strategy where every real Telegram group becomes an island-state in one persistent ocean world.
+
+
+## v1.5.0: полный State Wars
+
+Версия 1.5.0 реализует полный игровой слой из ТЗ поверх существующего realtime-океана и боёв A/B/C. Чат и Mini App используют одну серверную логику и одинаковые проверки прав.
+
+- Типы войны: `raid` (15 мин), `territory` (20 мин), `siege` (30 мин).
+- Размер государства считается по активным игрокам и развитию: `active_players^0.4 × level^0.6`.
+- Большой атакующий получает до −30%, маленький защитник до +25%, агрессор до −15% за частые войны.
+- Defensive Buffer зависит от заставы и репутации, с hard cap 20%.
+- Союзная помощь реально входит в бой и ограничена 35% базовой силы стороны.
+- Близкий результат с разницей меньше 5% становится настоящей ничьей.
+- Захват бюджета и влияния ограничен, после поражения включается защитный период.
+- Добавлены ежедневные активности с выбором, риском, последствиями и журналом вклада.
+- Добавлены казначейство, академия, застава и торговая палата в стратегический слой.
+- Остров новичков является обычным Telegram-государством с `BEGINNER_ISLAND_CHAT_ID`: максимум 5 уровень, куратор вместо президента, атаки запрещены, экономика/стоимости снижены на 40%, поддержка только обороны.
+- Уход с Острова новичков даёт −10% к вкладу на 72 часа и cooldown смены государства 24 часа; возврат ограничен правилами ТЗ.
+- Redis обязателен для rate limit и коротких action-lock через Upstash REST. PostgreSQL остаётся источником истины.
+- Vercel Cron завершает истёкшие бои каждую минуту и отправляет итоги в Telegram-чаты.
 
 ## Stack
 
@@ -66,38 +85,42 @@ The ocean is a lightweight Canvas renderer, not a fixed wallpaper. v1.4.2 rewrit
 
 ## Battle balance
 
-Migration `011` persists transparent modifiers on every island battle.
-
-Approximate state size:
+Migration `013_full_state_wars_spec.sql` хранит все модификаторы непосредственно в Battle, чтобы результат можно было объяснить и воспроизвести.
 
 ```text
-member_count ^ 0.4 × HQ_level ^ 0.6
+state_size = active_players ^ 0.4 × game_level ^ 0.6
+attack_penalty = min(30%, 8% × max(0, log2(attacker_size / defender_size)))
+underdog_bonus = min(25%, 7% × max(0, log2(attacker_size / defender_size)))
 ```
 
-When a larger state attacks a smaller state:
-
-- attacker efficiency can be reduced by up to 30%;
-- smaller defender efficiency can increase by up to 25%;
-- defender receives an HQ-based starting defense buffer;
-- repeated aggression in the last 7 days can reduce attack efficiency by up to another 15%.
-
-The modifiers are stored in the battle row and shown in the battle UI.
+К расчёту также применяются Defensive Buffer, усталость агрессора, зафиксированные в записи боя случайные коэффициенты 0.85–1.15 и союзная поддержка с cap 35%. Победа с разницей менее 5% не назначается: это ничья, обе стороны платят восстановление, лута нет.
 
 ## Telegram text commands
 
-Mini App is a convenient interface; core state actions are also available in the group chat.
+Mini App является удобной панелью, а не отдельным набором возможностей. Основные действия полностью доступны из группового чата.
 
 ```text
 !помощь
+!профиль
 !статус
 !ресурсы
+!вклад
+!государства
 !активность
-!улучшить <штаб|казармы|шахта|нпз|ферма|лаборатория>
+!активность <ключ> <вариант>
+!бой
+!оборона
+!улучшить <казначейство|казармы|шахта|нпз|ферма|академия|застава|торговая_палата>
 !союз <ID_чата>
-!война <ID_чата>
+!союз принять <ID_чата>
+!союз отклонить <ID_чата>
+!союз выйти <ID_чата>
+!война <ID_чата> <raid|siege|territory>
+!поддержать <ID_боя> <attack|defense>
+!сдаться [ID_боя]
 ```
 
-Role checks happen when a command is executed. Battle/diplomacy/upgrade commands verify real state membership and permissions.
+Права проверяются именно в момент выполнения действия. Военные и дипломатические действия доступны президенту/заместителю; куратор действует только на Острове новичков и не может начинать атаку. Telegram callback-кнопки защиты, запроса союзной помощи и капитуляции проходят те же серверные проверки.
 
 ## UI changes
 
@@ -115,18 +138,15 @@ Role checks happen when a command is executed. Battle/diplomacy/upgrade commands
 
 ## Supabase migrations
 
-Fresh database: run `001` through `012` in order.
+Fresh database: run `001` through `013` in order.
 
-Existing project already on `010`: run, in order:
+Existing project already on `012`: run only:
 
 ```text
-supabase/migrations/011_freeport_live_recruitment.sql
-supabase/migrations/012_live_integrity_audit.sql
+supabase/migrations/013_full_state_wars_spec.sql
 ```
 
-If `011` is already applied, run only `012_live_integrity_audit.sql`. Migration `012` enforces one active citizenship per player, deduplicates old memberships, adds the atomic citizenship RPC and re-locks battle RPC privileges to the service role.
-
-v1.4.2 intentionally has no database data fallbacks for missing migrations.
+Migration `013` adds the strategic state fields, contribution ledger, daily activities, alliance/support models, Beginner Island citizenship rules, extra infrastructure, battle metadata, true draws, limited loot and post-battle recovery.
 
 ## v1.4.1 audit hardening (retained in v1.4.2)
 
@@ -160,19 +180,27 @@ The performance work is deliberately architectural rather than a CSS-only tweak.
 - Procedural roads, rocks, shrubs and field rows add detail using a handful of SVG paths.
 - Expensive SVG drop-shadow/blur filters and per-island foam animations are disabled on the world map; visual depth comes from layered shapes and shadows instead.
 
-No new Supabase migration is required for v1.4.2. Keep migrations `001`–`012` from v1.4.1.
+The v1.4.2 performance work is retained. v1.5.0 additionally requires migration `013`. Migration `013` adds the full state-war layer: balanced raid/siege/territory battles, strategic state stats, alliance support, contribution tracking, daily choice activities, Beginner Island rules, protected state transitions, capped loot, post-defeat shields and database-backed timed building upgrades. Building upgrades reserve resources atomically, take 2–45 minutes depending on target level and then enter a 5-minute cooldown.
 
 ## Environment
 
 ```bash
 NEXT_PUBLIC_APP_URL=https://your-project.vercel.app
 NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
+# Legacy alias is also supported:
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SECRET_KEY=...
+# Legacy alias is also supported:
 SUPABASE_SERVICE_ROLE_KEY=...
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_BOT_USERNAME=...
 TELEGRAM_MINI_APP_SHORT_NAME=...
 TELEGRAM_WEBHOOK_SECRET=...
+BEGINNER_ISLAND_CHAT_ID=-1001234567890
+UPSTASH_REDIS_REST_URL=...
+UPSTASH_REDIS_REST_TOKEN=...
+CRON_SECRET=...
 ```
 
 No demo environment variable is supported.
@@ -187,7 +215,7 @@ npm run typecheck
 npm run build
 ```
 
-Then configure the Telegram webhook:
+Then apply migration `013`, configure Upstash Redis + `CRON_SECRET`, deploy so Vercel registers `/api/cron/battles`, and configure the Telegram webhook:
 
 ```bash
 npm run telegram:configure

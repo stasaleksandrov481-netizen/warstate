@@ -16,7 +16,7 @@ const THEMES = [
 ] as const;
 
 function roleLabel(role: string) {
-  return ({ president: "Президент", minister: "Министр", general: "Генерал", citizen: "Гражданин" } as Record<string, string>)[role] || role;
+  return ({ president: "Президент", minister: "Заместитель", deputy: "Заместитель", curator: "Куратор", general: "Генерал", citizen: "Гражданин", member: "Участник" } as Record<string, string>)[role] || role;
 }
 function Stat({ label, value }: { label: string; value: string }) {
   return <div className="stat"><small>{label}</small><strong>{value}</strong></div>;
@@ -43,7 +43,7 @@ function PlayerProgress({ snapshot }: { snapshot: GameSnapshot }) {
 
 function IdentityEditor({ snapshot, onCustomize }: Pick<Props, "snapshot" | "onCustomize">) {
   const [motto, setMotto] = useState(snapshot.state.motto);
-  const canEdit = ["president","minister"].includes(snapshot.player.role);
+  const canEdit = ["president","minister","deputy","curator"].includes(snapshot.player.role);
   if (!canEdit) return null;
   return <div className="panel identity-editor">
     <div className="panel-head"><div><small>АЙДЕНТИКА</small><h3>Лицо государства</h3></div><span>видно всему миру</span></div>

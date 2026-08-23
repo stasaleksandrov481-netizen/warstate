@@ -6,11 +6,12 @@ import type { DiplomacyAction } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-const ACTIONS: DiplomacyAction[] = ["propose_alliance", "accept_alliance", "declare_war", "offer_truce", "accept_truce", "break_alliance"];
+const ACTIONS: DiplomacyAction[] = ["propose_alliance", "accept_alliance", "reject_alliance", "declare_war", "offer_truce", "accept_truce", "break_alliance"];
 
 const COPY: Record<DiplomacyAction, { title: string; line: string }> = {
   propose_alliance: { title: "🤝 ПРЕДЛОЖЕНИЕ СОЮЗА", line: "предлагает заключить союз" },
   accept_alliance: { title: "🤝 СОЮЗ ЗАКЛЮЧЁН", line: "принял предложение союза" },
+  reject_alliance: { title: "✋ СОЮЗ ОТКЛОНЁН", line: "отклонил предложение союза" },
   declare_war: { title: "⚔️ ОБЪЯВЛЕНА ВОЙНА", line: "объявил войну" },
   offer_truce: { title: "🕊 ПРЕДЛОЖЕНО ПЕРЕМИРИЕ", line: "предлагает прекратить огонь" },
   accept_truce: { title: "🕊 ПЕРЕМИРИЕ", line: "принял перемирие" },
@@ -26,7 +27,9 @@ export async function POST(request: Request) {
     if (!stateId || !targetStateId || !ACTIONS.includes(action)) throw new Error("Некорректная дипломатическая команда.");
     const { member, state } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
     if (state.is_freeport) throw new Error("Freeport сохраняет нейтралитет и не участвует в дипломатии.");
-    if (!["president", "minister"].includes(member.role)) throw new Error("Дипломатией управляет президент или министр.");
+    if (!["president", "minister", "deputy", "curator"].includes(member.role)) throw new Error("Дипломатией управляет президент, заместитель или куратор Острова новичков.");
+    if (state.is_beginner_island && action === "declare_war") throw new Error("Остров новичков не может объявлять войну.");
+    if (member.role === "curator" && !state.is_beginner_island) throw new Error("Роль куратора действует только на Острове новичков.");
 
     const supabase = getSupabaseAdmin();
     const { data: targetState, error: targetError } = await supabase.from("states").select("is_freeport").eq("id", targetStateId).single();

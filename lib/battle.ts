@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { recordWorldEvent } from "@/lib/diplomacy";
 import { recordMissionProgress } from "@/lib/missions";
+import { miniAppLink, telegramApi } from "@/lib/telegram-bot";
 import type { BattleClass, BattleEventView, BattleOrderKind, BattleOrderView, BattlePlayerView, BattlePoint, BattleTeam, BattleView } from "@/lib/types";
 import { requireData } from "@/lib/invariants";
 
@@ -34,10 +35,26 @@ async function addEvent(battleId: string, playerId: string | null, eventType: st
   if (error) throw error;
 }
 
+
+async function notifyBattleFinished(chatId: number | null | undefined, text: string) {
+  if (!chatId || !Number.isSafeInteger(Number(chatId))) return;
+  try {
+    await telegramApi("sendMessage", {
+      chat_id: Number(chatId),
+      text,
+      reply_markup: { inline_keyboard: [[{ text: "⚔️ Открыть итоги", url: miniAppLink(Number(chatId)) }]] },
+    });
+  } catch (error) {
+    console.error("battle result telegram notification failed", error);
+  }
+}
+
 async function resolveBattleRow(battle: any, attackerScore: number, defenderScore: number) {
   if (battle.status === "resolved") return battle;
   const supabase = getSupabaseAdmin();
-  const attackerWon = attackerScore > defenderScore;
+  const scoreTotal = Math.max(1, attackerScore + defenderScore);
+  const isDraw = Math.abs(attackerScore - defenderScore) / scoreTotal < 0.05;
+  const attackerWon = !isDraw && attackerScore > defenderScore;
 
   const { data: result, error } = await supabase.rpc("gw_finalize_battle", {
     p_battle_id: battle.id,
@@ -45,6 +62,11 @@ async function resolveBattleRow(battle: any, attackerScore: number, defenderScor
     p_defender_score: defenderScore,
   });
   if (error) throw error;
+
+  const { data: strategyResult, error: strategyError } = await supabase.rpc("gw_apply_battle_strategy_rewards", {
+    p_battle_id: battle.id,
+  });
+  if (strategyError && strategyError.code !== "PGRST202") throw strategyError;
 
   const resolved = result?.battle || battle;
 
@@ -71,11 +93,13 @@ async function resolveBattleRow(battle: any, attackerScore: number, defenderScor
 
   const islandBattle = (resolved as any).battle_kind === "island" || battle.battle_kind === "island";
   await addEvent(battle.id, null, "finish", {
-    text: attackerWon
-      ? (islandBattle ? `Остров атакующих победил ${attackerScore}:${defenderScore}` : `Атакующие победили ${attackerScore}:${defenderScore}`)
-      : (islandBattle ? `Защитники острова отбили атаку ${defenderScore}:${attackerScore}` : `Защита удержала сектор ${defenderScore}:${attackerScore}`),
+    text: isDraw
+      ? `Ничья ${attackerScore}:${defenderScore}. Обе стороны переходят к восстановлению.`
+      : attackerWon
+        ? (islandBattle ? `Остров атакующих победил ${attackerScore}:${defenderScore}` : `Атакующие победили ${attackerScore}:${defenderScore}`)
+        : (islandBattle ? `Защитники острова отбили атаку ${defenderScore}:${attackerScore}` : `Защита удержала сектор ${defenderScore}:${attackerScore}`),
   });
-  const { data: namedStates, error: namedStatesError } = await supabase.from("states").select("id,name").in("id", [battle.attacker_state_id, battle.defender_state_id].filter(Boolean));
+  const { data: namedStates, error: namedStatesError } = await supabase.from("states").select("id,name,telegram_chat_id,is_beginner_island").in("id", [battle.attacker_state_id, battle.defender_state_id].filter(Boolean));
   if (namedStatesError) throw namedStatesError;
   const attackerName = namedStates?.find((state: any) => state.id === battle.attacker_state_id)?.name || "Атакующие";
   const defenderName = namedStates?.find((state: any) => state.id === battle.defender_state_id)?.name || "Гарнизон";
@@ -83,13 +107,13 @@ async function resolveBattleRow(battle: any, attackerScore: number, defenderScor
   const integrityDamage = Number(result?.integrityDamage || 0);
   const defenderIntegrity = Number(result?.defenderIntegrity ?? 100);
   await recordWorldEvent({
-    eventType: islandBattle
+    eventType: isDraw ? "battle_draw" : islandBattle
       ? (attackerWon ? (destroyed ? "island_destroyed" : "island_damaged") : "island_defended")
       : "battle_resolved",
-    title: islandBattle
+    title: isDraw ? "Бой завершился ничьей" : islandBattle
       ? (attackerWon ? (destroyed ? "Остров разрушен" : "Остров повреждён") : "Остров выстоял")
       : (attackerWon ? "Территория захвачена" : "Наступление отбито"),
-    body: islandBattle
+    body: isDraw ? `${attackerName} и ${defenderName} завершили бой ${attackerScore}:${defenderScore}. Обе стороны несут расходы на восстановление.` : islandBattle
       ? (attackerWon
           ? (destroyed
               ? `${attackerName} добил оборону ${defenderName} ${attackerScore}:${defenderScore}. Остров превращён в руины.`
@@ -98,8 +122,8 @@ async function resolveBattleRow(battle: any, attackerScore: number, defenderScor
       : (attackerWon
           ? `${attackerName} победил ${defenderName} со счётом ${attackerScore}:${defenderScore} и занял сектор.`
           : `${defenderName} удержал сектор против ${attackerName}. Счёт ${defenderScore}:${attackerScore}.`),
-    actorStateId: attackerWon ? battle.attacker_state_id : battle.defender_state_id,
-    targetStateId: attackerWon ? battle.defender_state_id : battle.attacker_state_id,
+    actorStateId: isDraw ? null : attackerWon ? battle.attacker_state_id : battle.defender_state_id,
+    targetStateId: isDraw ? null : attackerWon ? battle.defender_state_id : battle.attacker_state_id,
     payload: {
       battleId: battle.id,
       tileId: battle.tile_id,
@@ -111,10 +135,61 @@ async function resolveBattleRow(battle: any, attackerScore: number, defenderScor
       destroyed,
       attackerRatingDelta: result?.attackerRatingDelta || 0,
       defenderRatingDelta: result?.defenderRatingDelta || 0,
-      lootCredits: result?.lootCredits || 0,
+      lootCredits: Number(result?.lootCredits || 0) + Number(strategyResult?.stolenBudget || 0),
+      stolenInfluence: Number(strategyResult?.stolenInfluence || 0),
     },
   });
+
+  const attackerState = namedStates?.find((state: any) => state.id === battle.attacker_state_id);
+  const defenderState = namedStates?.find((state: any) => state.id === battle.defender_state_id);
+  const battleType = String((resolved as any).battle_type || battle.battle_type || "raid");
+  const typeName = battleType === "siege" ? "ОСАДА" : battleType === "territory" ? "СПОР ЗА ТЕРРИТОРИЮ" : "РЕЙД";
+  const outcome = isDraw
+    ? `🤝 НИЧЬЯ · ${attackerScore}:${defenderScore}`
+    : attackerWon
+      ? `🏆 Победа: ${attackerName} · ${attackerScore}:${defenderScore}`
+      : `🛡️ Победа: ${defenderName} · ${defenderScore}:${attackerScore}`;
+  const lootBudget = Number(result?.lootCredits || 0) + Number(strategyResult?.stolenBudget || 0);
+  const stolenInfluence = Number(strategyResult?.stolenInfluence || 0);
+  const modifiers =
+    `Размер: атака ×${Number(battle.attacker_size_modifier || 1).toFixed(2)} · оборона ×${Number(battle.defender_size_modifier || 1).toFixed(2)}\n` +
+    `Underdog +${Math.round(Number(battle.underdog_bonus || 0) * 100)}% · буфер +${Math.round(Number(battle.defense_buffer_pct || 0) * 100)}% · усталость −${Math.round(Number(battle.aggression_penalty || 0) * 100)}%\n` +
+    `Случайность: атака ×${Number(battle.attacker_random_modifier || 1).toFixed(2)} · оборона ×${Number(battle.defender_random_modifier || 1).toFixed(2)}`;
+  const attackerLossPct = Math.round(Number(strategyResult?.attackerLossPct ?? battle.attacker_loss_pct ?? 0) * 100);
+  const defenderLossPct = Math.round(Number(strategyResult?.defenderLossPct ?? battle.defender_loss_pct ?? 0) * 100);
+  const rewards = isDraw
+    ? "Обе стороны понесли расходы на восстановление. Захвата ресурсов нет."
+    : `Захвачено: 💰 ${lootBudget.toLocaleString("ru-RU")} · влияние ${stolenInfluence.toLocaleString("ru-RU")}.`;
+  const resultText = `⚔️ ${typeName} ЗАВЕРШЁН\n\n${attackerName} ${attackerScore}:${defenderScore} ${defenderName}\n${outcome}\n\n${modifiers}\nПотери: атакующие ${attackerLossPct}% · защитники ${defenderLossPct}%\n\n${rewards}`;
+
+  await Promise.all([
+    notifyBattleFinished(Number(attackerState?.telegram_chat_id || 0), resultText),
+    notifyBattleFinished(Number(defenderState?.telegram_chat_id || 0), resultText),
+  ]);
+
+  const { data: trainingSupports, error: trainingSupportsError } = await supabase
+    .from("battle_supports")
+    .select("state_id,states!battle_supports_state_id_fkey(telegram_chat_id,name,is_beginner_island)")
+    .eq("battle_id", battle.id);
+  if (!trainingSupportsError) {
+    const beginnerChats = new Map<number, string>();
+    for (const support of trainingSupports || []) {
+      const state: any = Array.isArray((support as any).states) ? (support as any).states[0] : (support as any).states;
+      if (state?.is_beginner_island && Number.isSafeInteger(Number(state.telegram_chat_id))) beginnerChats.set(Number(state.telegram_chat_id), String(state.name || "Остров новичков"));
+    }
+    await Promise.all([...beginnerChats.entries()].map(([chatId, stateName]) =>
+      notifyBattleFinished(chatId, `🗺️ Тренировочный бой завершён. ${stateName} потренировался в обороне. Получены опыт, репутация и вклад. Ресурсы из боя Остров новичков не получает.`)
+    ));
+  }
+
   return resolved;
+}
+
+export async function resolveBattleByScore(battleId: string, attackerScore: number, defenderScore: number) {
+  const supabase = getSupabaseAdmin();
+  const { data: battle, error } = await supabase.from("battles").select("*").eq("id", battleId).single();
+  if (error) throw error;
+  return resolveBattleRow(requireData(battle, "Битва не найдена."), Math.max(0, Math.round(attackerScore)), Math.max(0, Math.round(defenderScore)));
 }
 
 export async function tickBattle(battleId: string) {
@@ -136,8 +211,23 @@ export async function tickBattle(battleId: string) {
     const owners = [battleRow.point_a_owner, battleRow.point_b_owner, battleRow.point_c_owner];
     const attackerPoints = owners.filter((owner) => owner === "attacker").length;
     const defenderPoints = owners.filter((owner) => owner === "defender").length;
-    const attackerModifier = Math.max(0.55, Number(battleRow.attacker_size_modifier || 1));
-    const defenderModifier = Math.max(0.75, Number(battleRow.defender_size_modifier || 1));
+    const { data: supportRows, error: supportError } = await supabase.from("battle_supports").select("side,power_given").eq("battle_id", battleId);
+    if (supportError && supportError.code !== "42P01") throw supportError;
+    const attackerSupport = (supportRows || []).filter((row: any) => row.side === "attacker").reduce((sum: number, row: any) => sum + Number(row.power_given || 0), 0);
+    const defenderSupport = (supportRows || []).filter((row: any) => row.side === "defender").reduce((sum: number, row: any) => sum + Number(row.power_given || 0), 0);
+    const attackerRawPower = Math.max(1, Number(battleRow.attacker_raw_power || 1));
+    const defenderRawPower = Math.max(1, Number(battleRow.defender_raw_power || 1));
+    const attackerSupportModifier = 1 + Math.min(0.35, attackerSupport / attackerRawPower);
+    const defenderSupportModifier = 1 + Math.min(0.35, defenderSupport / defenderRawPower);
+    // Strategic power matters in realtime combat, but is deliberately bounded so
+    // point control and player actions stay decisive instead of turning the fight
+    // into a spreadsheet comparison before it even starts.
+    const attackerPowerModifier = Math.max(0.80, Math.min(1.20, Math.sqrt(attackerRawPower / defenderRawPower)));
+    const defenderPowerModifier = Math.max(0.80, Math.min(1.20, Math.sqrt(defenderRawPower / attackerRawPower)));
+    const defenseBufferModifier = 1 + Math.max(0, Math.min(0.20, Number(battleRow.defense_buffer_pct || 0)));
+    const attackerFatigueModifier = 1 - Math.max(0, Math.min(0.15, Number(battleRow.aggression_penalty || 0)));
+    const attackerModifier = Math.max(0.70, Number(battleRow.attacker_size_modifier || 1)) * attackerFatigueModifier * Math.max(0.85, Number(battleRow.attacker_random_modifier || 1)) * attackerSupportModifier * attackerPowerModifier;
+    const defenderModifier = Math.max(0.75, Number(battleRow.defender_size_modifier || 1)) * Math.max(0.85, Number(battleRow.defender_random_modifier || 1)) * defenderSupportModifier * defenderPowerModifier * defenseBufferModifier;
     attackerScore += Math.max(0, Math.round(attackerPoints * elapsedSeconds * attackerModifier));
     defenderScore += Math.max(0, Math.round(defenderPoints * elapsedSeconds * defenderModifier));
     const { data: ticked, error: tickError } = await supabase.from("battles").update({
@@ -171,7 +261,7 @@ export async function tickBattle(battleId: string) {
     await addEvent(battleId, row.player_id, "respawn", { name: player?.display_name || "Игрок" });
   }
 
-  if (now >= end || attackerScore >= SCORE_TO_WIN || defenderScore >= SCORE_TO_WIN) {
+  if (now >= end || (battleRow.battle_kind !== "island" && (attackerScore >= SCORE_TO_WIN || defenderScore >= SCORE_TO_WIN))) {
     return resolveBattleRow(battleRow, attackerScore, defenderScore);
   }
 
@@ -233,7 +323,7 @@ export async function battleAction(battleId: string, playerId: string, action: s
     const stateId = String(payload.stateId || "");
     const point = payload.point as BattlePoint;
     const kind = payload.kind as BattleOrderKind;
-    if (!["president", "minister", "general"].includes(role)) throw new Error("Отдавать приказы может президент, министр или генерал.");
+    if (!["president", "minister", "deputy"].includes(role)) throw new Error("Отдавать приказы может президент или заместитель.");
     if (!POINTS.includes(point)) throw new Error("Неизвестная точка приказа.");
     if (!["attack", "defend", "rally"].includes(kind)) throw new Error("Неизвестный тип приказа.");
     const battle = await tickBattle(battleId);
@@ -339,12 +429,26 @@ export async function getBattleView(battleId: string, playerId: string | null): 
     defenderSizeModifier: Number(battle.defender_size_modifier || 1),
     defenderBuffer: Number(battle.defender_buffer || 0),
     aggressionPenalty: Number(battle.aggression_penalty || 0),
+    battleType: battle.battle_type || "raid",
+    attackerStateSize: Number(battle.attacker_state_size || 1),
+    defenderStateSize: Number(battle.defender_state_size || 1),
+    attackerRawPower: Number(battle.attacker_raw_power || 0),
+    defenderRawPower: Number(battle.defender_raw_power || 0),
+    attackerFinalPower: Number(battle.attacker_final_power || 0),
+    defenderFinalPower: Number(battle.defender_final_power || 0),
+    underdogBonus: Number(battle.underdog_bonus || 0),
+    defenseBufferPct: Number(battle.defense_buffer_pct || 0),
+    attackerRandomModifier: Number(battle.attacker_random_modifier || 1),
+    defenderRandomModifier: Number(battle.defender_random_modifier || 1),
+    stolenBudget: Number(battle.stolen_budget || 0),
+    stolenInfluence: Number(battle.stolen_influence || 0),
     pointOwners: {
       A: battle.point_a_owner,
       B: battle.point_b_owner,
       C: battle.point_c_owner,
     },
     winnerStateId: battle.winner_state_id,
+    isDraw: Boolean(battle.is_draw),
     myTeam: me?.team || null,
     myRole,
     me,

@@ -6,12 +6,14 @@ import type { BuildingType, GameSnapshot, RecruitmentRequestView } from "@/lib/t
 import { IslandArt } from "@/components/game/island-art";
 
 const INFRA: Record<BuildingType, { icon: string; label: string; desc: string }> = {
-  hq: { icon: "⚑", label: "Штаб острова", desc: "Управление, защита и командование" },
+  hq: { icon: "⚑", label: "Казначейство и штаб", desc: "Бюджет, управление и уровень государства" },
   barracks: { icon: "⚔", label: "Гарнизон", desc: "Подготовка бойцов к морским атакам" },
   mine: { icon: "▰", label: "Карьер", desc: "Добыча стали для инфраструктуры" },
   refinery: { icon: "◈", label: "Топливный порт", desc: "Топливо для флота" },
   farm: { icon: "◆", label: "Фермы", desc: "Продовольствие государства" },
-  lab: { icon: "⌁", label: "Радарный центр", desc: "Технологии и разведка" },
+  lab: { icon: "⌁", label: "Академия", desc: "Технологии, исследования и развитие" },
+  outpost: { icon: "▣", label: "Застава", desc: "Оборона острова и защитный буфер" },
+  trade_chamber: { icon: "◇", label: "Торговая палата", desc: "Доход, торговля и дипломатия" },
 };
 
 type RecruitmentAction = (action: string, payload?: Record<string, unknown>) => void;
@@ -104,8 +106,8 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment }: Islan
   }, []);
   const destroyed = Boolean(state.destroyedUntil && new Date(state.destroyedUntil).getTime() > now);
   const league = eloLeague(state.rating);
-  const canManage = ["president", "minister"].includes(snapshot.player.role);
-  const canRecruit = ["president", "minister", "general"].includes(snapshot.player.role);
+  const canManage = ["president", "minister", "deputy", "curator"].includes(snapshot.player.role);
+  const canRecruit = ["president", "minister", "deputy", "curator"].includes(snapshot.player.role);
   const missingIntegrity = Math.max(0, 100 - state.islandIntegrity);
   const repairAmount = Math.min(25, missingIntegrity);
   const repairCredits = repairAmount * 24;
@@ -139,8 +141,17 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment }: Islan
             const meta = INFRA[building.type];
             const credits = building.upgradeCost.credits || 0;
             const steel = building.upgradeCost.steel || 0;
-            const canUpgrade = canManage && !destroyed && building.level < 12 && state.treasury.credits >= credits && state.treasury.steel >= steel;
-            return <article className={`infra-card infra-${building.type}`} key={building.type}><div className="infra-icon">{meta.icon}</div><div className="infra-copy"><b>{meta.label}</b><small>{meta.desc}</small><span className="infra-level">ур. {building.level}<i>{Array.from({ length: Math.min(5, Math.max(1, Math.ceil(building.level / 2))) }, (_, i) => <em key={i} />)}</i></span></div><button type="button" disabled={!canUpgrade} onClick={() => onUpgrade(building.type)}>{building.level >= 12 ? "MAX" : "↑"}<small>{building.level >= 12 ? "уровень" : `${credits.toLocaleString("ru-RU")} ₡`}</small></button></article>;
+            const maxLevel = state.isBeginnerIsland ? 5 : 12;
+            const aggressiveLocked = state.isBeginnerIsland && building.type === "barracks";
+            const upgradeUntil = building.upgradeFinishesAt ? new Date(building.upgradeFinishesAt).getTime() : 0;
+            const cooldownUntil = building.upgradeCooldownUntil ? new Date(building.upgradeCooldownUntil).getTime() : 0;
+            const upgrading = Boolean(building.upgradeTargetLevel && upgradeUntil > now);
+            const cooling = !upgrading && cooldownUntil > now;
+            const remainingMinutes = upgrading ? Math.max(1, Math.ceil((upgradeUntil - now) / 60_000)) : cooling ? Math.max(1, Math.ceil((cooldownUntil - now) / 60_000)) : 0;
+            const canUpgrade = canManage && !destroyed && !aggressiveLocked && !upgrading && !cooling && building.level < maxLevel && state.treasury.credits >= credits && state.treasury.steel >= steel;
+            const buttonTitle = aggressiveLocked ? "LOCK" : building.level >= maxLevel ? "MAX" : upgrading ? "⏳" : cooling ? "◷" : "↑";
+            const buttonHint = aggressiveLocked ? "учебный остров" : building.level >= maxLevel ? "уровень" : upgrading ? `до ур. ${building.upgradeTargetLevel} · ${remainingMinutes} мин` : cooling ? `остывание · ${remainingMinutes} мин` : `${credits.toLocaleString("ru-RU")} ₡`;
+            return <article className={`infra-card infra-${building.type} ${upgrading ? "infra-upgrading" : ""}`} key={building.type}><div className="infra-icon">{meta.icon}</div><div className="infra-copy"><b>{meta.label}</b><small>{meta.desc}</small><span className="infra-level">ур. {building.level}{upgrading ? ` → ${building.upgradeTargetLevel}` : ""}<i>{Array.from({ length: Math.min(5, Math.max(1, Math.ceil(building.level / 2))) }, (_, i) => <em key={i} />)}</i></span></div><button type="button" disabled={!canUpgrade} onClick={() => onUpgrade(building.type)}>{buttonTitle}<small>{buttonHint}</small></button></article>;
           })}
         </div>
       </section>

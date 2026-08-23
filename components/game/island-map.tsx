@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { eloDeltaPreview, eloLeague } from "@/lib/elo";
-import type { GameSnapshot, IslandView } from "@/lib/types";
+import type { GameSnapshot, IslandView, WarType } from "@/lib/types";
 import { IslandArt } from "@/components/game/island-art";
 import { OceanCanvas } from "@/components/game/ocean-canvas";
 
@@ -27,8 +27,10 @@ function timeLeft(iso?: string | null, now = Date.now()) {
 function attackReason(snapshot: GameSnapshot, island: IslandView, now: number) {
   if (island.isMine) return "Это ваш остров";
   if (snapshot.state.isFreeport) return "Свободные игроки Freeport не участвуют в войнах";
+  if (snapshot.state.isBeginnerIsland) return "С Острова новичков нельзя начинать войны";
   if (island.isFreeport) return "Freeport — нейтральная территория";
-  if (!["president", "minister", "general"].includes(snapshot.player.role)) return "Атаку запускает командование";
+  if (island.isBeginnerIsland) return "Остров новичков находится под защитой";
+  if (!["president", "minister", "deputy"].includes(snapshot.player.role)) return "Атаку запускает президент или заместитель";
   if (snapshot.activeBattle) return "Ваш флот уже участвует в битве";
   if (snapshot.state.destroyedUntil && new Date(snapshot.state.destroyedUntil).getTime() > now) return "Ваш остров восстанавливается";
   if (island.destroyedUntil && new Date(island.destroyedUntil).getTime() > now) return "Остров уже в руинах";
@@ -54,7 +56,7 @@ type Props = {
   snapshot: GameSnapshot;
   selected: IslandView | null;
   onSelect: (island: IslandView | null) => void;
-  onAttack: (island: IslandView) => void;
+  onAttack: (island: IslandView, battleType: WarType) => void;
   onExplore?: (x: number, y: number, radius: number) => void;
   onOpenBattle?: () => void;
   onOpenIsland?: () => void;
@@ -80,7 +82,7 @@ const IslandNode = memo(function IslandNode({
   const selected = selectedId === island.id;
   const league = eloLeague(island.rating);
   const showLabel = detail !== "far" || island.isMine || selected || (island.rank > 0 && island.rank <= 5);
-  const relationLabel = island.isFreeport ? "НЕЙТРАЛЬНО" : island.relation === "war" ? "ВРАГ" : island.relation === "allied" ? "СОЮЗ" : island.relation === "truce" ? "МИР" : null;
+  const relationLabel = island.isBeginnerIsland ? "НОВИЧКИ" : island.isFreeport ? "НЕЙТРАЛЬНО" : island.relation === "war" ? "ВРАГ" : island.relation === "allied" ? "СОЮЗ" : island.relation === "truce" ? "МИР" : null;
   return (
     <button
       type="button"
@@ -97,13 +99,13 @@ const IslandNode = memo(function IslandNode({
           </span>
           <span className="game-island-copy">
             <span className="game-island-kicker">
-              <em>{island.isMine ? "МОЙ ОСТРОВ" : island.isFreeport ? "FREEPORT" : league.label.toUpperCase()}</em>
+              <em>{island.isMine ? "МОЙ ОСТРОВ" : island.isBeginnerIsland ? "ОСТРОВ НОВИЧКОВ" : island.isFreeport ? "FREEPORT" : league.label.toUpperCase()}</em>
               {island.rank > 0 && <b>#{island.rank}</b>}
             </span>
             <strong>{island.name}</strong>
             <small><span>👥 {COMPACT_NUMBER.format(island.memberCount)}</span><span>{league.icon} {island.rating} ELO</span></small>
           </span>
-          {relationLabel && <em className={`relation-tag tag-${island.relation}`}>{relationLabel}</em>}
+          {relationLabel && <em className={`relation-tag ${island.isBeginnerIsland ? "tag-beginner" : `tag-${island.relation}`}`}>{relationLabel}</em>}
           <i className={`game-status ${island.isFreeport ? "freeport" : ruined ? "ruins" : island.relation === "war" ? "enemy" : island.relation === "allied" ? "ally" : "neutral"}`} />
         </span>
       )}
@@ -133,6 +135,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
   const [viewport, setViewport] = useState({ width: 390, height: 620 });
   const [dragging, setDragging] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [warType, setWarType] = useState<WarType>("raid");
 
   useEffect(() => {
     const node = viewportRef.current;
@@ -406,7 +409,13 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
             <span><b>{selected.wins}<em> / {selected.losses}</em></b><small>победы / поражения</small></span>
             <span><b>{selected.winStreak}</b><small>серия побед</small></span>
           </div>
+          <div className="sheet-game-stats">
+            <span><b>{selected.level}<em> / {selected.maxLevel}</em></b><small>уровень</small></span>
+            <span><b>{selected.armyPower}<em> / {selected.defensePower}</em></b><small>армия / оборона</small></span>
+            <span><b>{selected.stateSize.toFixed(2)}</b><small>размер · {selected.activePlayers} акт.</small></span>
+          </div>
           <div className="sheet-status-row">
+            {selected.isBeginnerIsland && <span className="sheet-status beginner">🧭 ОСТРОВ НОВИЧКОВ · ПОД ЗАЩИТОЙ</span>}
             {selected.isFreeport && <span className="sheet-status freeport">⚓ НЕЙТРАЛЬНЫЙ FREEPORT</span>}
             {selected.relation === "war" && <span className="sheet-status enemy">⚔ ВОЙНА</span>}
             {selected.relation === "allied" && <span className="sheet-status ally">◆ СОЮЗ</span>}
@@ -422,10 +431,15 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
               <span>⌂ МОЙ ОСТРОВ</span><small>Инфраструктура, ремонт и развитие</small>
             </button>
           ) : (
-            <button className="sheet-attack" type="button" disabled={Boolean(selectedReason)} onClick={() => onAttack(selected)}>
-              <span>⚔ АТАКОВАТЬ</span>
-              <small>{selectedReason || `120 топлива · 80 еды · ELO +${selectedElo?.win || 0} / −${selectedElo?.lose || 0}`}</small>
-            </button>
+            <div className="sheet-war-box">
+              <div className="sheet-war-types" aria-label="Тип операции">
+                {(["raid", "siege", "territory"] as WarType[]).map((type) => <button key={type} type="button" className={warType === type ? "active" : ""} onClick={() => setWarType(type)} disabled={Boolean(selectedReason)}>{type === "raid" ? "Рейд" : type === "siege" ? "Осада" : "Территория"}</button>)}
+              </div>
+              <button className="sheet-attack" type="button" disabled={Boolean(selectedReason)} onClick={() => onAttack(selected, warType)}>
+                <span>⚔ АТАКОВАТЬ · {warType === "raid" ? "РЕЙД" : warType === "siege" ? "ОСАДА" : "ТЕРРИТОРИЯ"}</span>
+                <small>{selectedReason || `120 топлива · 80 еды · ${warType === "raid" ? "15 мин" : warType === "territory" ? "20 мин" : "30 мин"} · ELO +${selectedElo?.win || 0} / −${selectedElo?.lose || 0}`}</small>
+              </button>
+            </div>
           )}
         </section>
       )}

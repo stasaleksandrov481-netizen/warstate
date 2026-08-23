@@ -9,14 +9,17 @@ import type { BuildingType, BuildingView, GameSnapshot, WarView } from "@/lib/ty
 import type { TelegramUser } from "@/lib/telegram";
 import { requireData } from "@/lib/invariants";
 import { getRecruitmentHub } from "@/lib/recruitment";
+import { getStrategyView } from "@/lib/strategy";
 
 const BUILDING_META: Record<BuildingType, { label: string; description: string; x: number; y: number }> = {
-  hq: { label: "Штаб", description: "Рейтинг, оборона острова и лимиты государства", x: 50, y: 36 },
+  hq: { label: "Казначейство и штаб", description: "Бюджет, управление, оборона и уровень государства", x: 50, y: 36 },
   barracks: { label: "Казармы", description: "Повышают силу атакующей армии", x: 31, y: 53 },
   mine: { label: "Шахта", description: "Производит сталь", x: 69, y: 56 },
   refinery: { label: "НПЗ", description: "Производит топливо", x: 76, y: 30 },
   farm: { label: "Ферма", description: "Производит продовольствие", x: 22, y: 27 },
-  lab: { label: "Лаборатория", description: "Производит технологии", x: 52, y: 67 },
+  lab: { label: "Академия", description: "Производит технологии и усиливает стратегические ветки", x: 52, y: 67 },
+  outpost: { label: "Застава", description: "Усиливает оборону и Defensive Buffer", x: 15, y: 47 },
+  trade_chamber: { label: "Торговая палата", description: "Усиливает бюджет, торговлю и дипломатическое влияние", x: 84, y: 47 },
 };
 
 const BASE_COSTS: Record<BuildingType, Partial<Record<"credits" | "steel" | "fuel" | "food" | "tech", number>>> = {
@@ -26,6 +29,8 @@ const BASE_COSTS: Record<BuildingType, Partial<Record<"credits" | "steel" | "fue
   refinery: { credits: 1100, steel: 220 },
   farm: { credits: 700, steel: 100 },
   lab: { credits: 1500, steel: 300, tech: 20 },
+  outpost: { credits: 1350, steel: 460, food: 120, tech: 12 },
+  trade_chamber: { credits: 1450, steel: 180, food: 160, tech: 24 },
 };
 
 function scaleCost(type: BuildingType, level: number) {
@@ -38,7 +43,7 @@ function scaleCost(type: BuildingType, level: number) {
 export function production(buildings: Array<{ building_type: BuildingType; level: number }>) {
   const levels = Object.fromEntries(buildings.map((b) => [b.building_type, b.level])) as Partial<Record<BuildingType, number>>;
   return {
-    credits: 320 + (levels.hq || 1) * 95,
+    credits: 320 + (levels.hq || 1) * 95 + (levels.trade_chamber || 0) * 55,
     steel: 80 + (levels.mine || 1) * 115,
     fuel: 35 + (levels.refinery || 1) * 72,
     food: 100 + (levels.farm || 1) * 130,
@@ -60,13 +65,18 @@ async function ensureStateBuildings(stateId: string) {
 
 export async function tickState(stateId: string) {
   const supabase = getSupabaseAdmin();
-  const { data: buildings, error: buildingsError } = await supabase
-    .from("buildings")
-    .select("building_type, level")
-    .eq("state_id", stateId);
+  const { error: finishUpgradeError } = await supabase.rpc("gw_finish_building_upgrades", { p_state_id: stateId });
+  if (finishUpgradeError) throw finishUpgradeError;
+  const [{ data: buildings, error: buildingsError }, { data: state, error: stateError }] = await Promise.all([
+    supabase.from("buildings").select("building_type, level").eq("state_id", stateId),
+    supabase.from("states").select("is_beginner_island").eq("id", stateId).single(),
+  ]);
   if (buildingsError) throw buildingsError;
+  if (stateError) throw stateError;
 
-  const rates = production((buildings || []) as Array<{ building_type: BuildingType; level: number }>);
+  const rawRates = production((buildings || []) as Array<{ building_type: BuildingType; level: number }>);
+  const incomeFactor = state?.is_beginner_island ? 0.60 : 1;
+  const rates = Object.fromEntries(Object.entries(rawRates).map(([key, value]) => [key, Math.round(value * incomeFactor)])) as typeof rawRates;
   const { data, error } = await supabase.rpc("gw_tick_state", {
     p_state_id: stateId,
     p_credits_rate: rates.credits,
@@ -100,13 +110,29 @@ async function upsertPlayer(user: TelegramUser) {
   return requireData(data, "Не удалось создать профиль игрока.");
 }
 
+function isConfiguredBeginnerChat(chatId: number) {
+  const configured = String(process.env.BEGINNER_ISLAND_CHAT_ID || "").trim();
+  return configured.length > 0 && Number(configured) === chatId;
+}
+
 async function ensureStateForChat(chatId: number, playerId: string, telegramUserId: number) {
   const supabase = getSupabaseAdmin();
   const { data: existing, error: selectError } = await supabase.from("states").select("*").eq("telegram_chat_id", chatId).maybeSingle();
   if (selectError) throw selectError;
   if (existing) {
-    await ensureStateBuildings(existing.id);
-    return existing;
+    let current = existing;
+    if (isConfiguredBeginnerChat(chatId) && !existing.is_beginner_island) {
+      const { data: protectedState, error: protectError } = await supabase
+        .from("states")
+        .update({ is_beginner_island: true, max_level: 5, owner_player_id: null })
+        .eq("id", existing.id)
+        .select("*")
+        .single();
+      if (protectError) throw protectError;
+      current = requireData(protectedState, "Не удалось включить Остров новичков.");
+    }
+    await ensureStateBuildings(current.id);
+    return current;
   }
 
   const member = await getChatMember(chatId, telegramUserId);
@@ -121,7 +147,9 @@ async function ensureStateForChat(chatId: number, playerId: string, telegramUser
     .insert({
       telegram_chat_id: chatId,
       name: chat.title || `State ${Math.abs(chatId)}`,
-      owner_player_id: playerId,
+      owner_player_id: isConfiguredBeginnerChat(chatId) ? null : playerId,
+      is_beginner_island: isConfiguredBeginnerChat(chatId),
+      max_level: isConfiguredBeginnerChat(chatId) ? 5 : 50,
       color,
       telegram_member_count: Math.max(1, memberCount || 1),
       chat_avatar_file_id: chat.photo?.big_file_id || chat.photo?.small_file_id || null,
@@ -191,7 +219,7 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null): 
     // Migration 011 releases legacy ghost owners. The first real Telegram admin
     // who opens an ownerless state becomes its president using a conditional
     // update, so concurrent admin launches cannot create two owners.
-    if (!state.owner_player_id && (membership.status === "administrator" || membership.status === "creator")) {
+    if (!state.is_beginner_island && !state.owner_player_id && (membership.status === "administrator" || membership.status === "creator")) {
       const { data: claimed, error: claimError } = await supabase
         .from("states")
         .update({ owner_player_id: player.id })
@@ -209,8 +237,8 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null): 
     }
 
     const home = await existingHomeState(player.id);
-    if (home && !home.is_freeport && home.id !== state.id) {
-      throw new Error(`Вы уже состоите в государстве «${home.name}». Переход между государствами появится отдельной механикой.`);
+    if (home && !home.is_freeport && home.id !== state.id && !home.is_beginner_island && !state.is_beginner_island) {
+      throw new Error(`Вы уже состоите в государстве «${home.name}». Прямой переход между обычными государствами запрещён: сначала используйте предусмотренный игровой маршрут через Остров новичков.`);
     }
 
     const { data: existingMember, error: existingMemberError } = await supabase
@@ -220,13 +248,15 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null): 
       .eq("player_id", player.id)
       .maybeSingle();
     if (existingMemberError) throw existingMemberError;
-    role = state.owner_player_id === player.id
-      ? "president"
-      : membership.status === "administrator" || membership.status === "creator"
-        ? (existingMember?.role === "general" ? "general" : "minister")
-        : existingMember?.role === "general"
-          ? "general"
-          : "citizen";
+    role = state.is_beginner_island
+      ? (existingMember?.role === "curator" ? "curator" : "citizen")
+      : state.owner_player_id === player.id
+        ? "president"
+        : membership.status === "administrator" || membership.status === "creator"
+          ? (existingMember?.role === "general" ? "general" : existingMember?.role === "deputy" ? "deputy" : "minister")
+          : existingMember?.role === "general" || existingMember?.role === "deputy"
+            ? existingMember.role
+            : "citizen";
     membershipVerifiedAt = new Date().toISOString();
 
   } else {
@@ -261,11 +291,23 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null): 
   });
   if (memberError) {
     if (String(memberError.message || "").includes("gw_set_player_home_state") || memberError.code === "PGRST202") {
-      throw new Error("Не установлена миграция 012_live_integrity_audit.sql.");
+      throw new Error("Не установлены актуальные миграции 012_live_integrity_audit.sql и 013_full_state_wars_spec.sql.");
     }
     throw memberError;
   }
   if (!membershipId) throw new Error("Не удалось сохранить гражданство игрока.");
+  if (state.is_beginner_island) {
+    const { error: curatorError } = await supabase.rpc("gw_refresh_beginner_curator", { p_state_id: state.id });
+    if (curatorError && curatorError.code !== "PGRST202") throw curatorError;
+    const { data: refreshedMember, error: refreshedMemberError } = await supabase
+      .from("state_members")
+      .select("role")
+      .eq("state_id", state.id)
+      .eq("player_id", player.id)
+      .single();
+    if (refreshedMemberError) throw refreshedMemberError;
+    role = refreshedMember?.role || "citizen";
+  }
   if (!state.is_freeport) state = await tickState(state.id);
   await recordMissionProgress(player.id, state.id, "check_in");
   return getGameSnapshot(player.id, state.id, user.id, role);
@@ -310,10 +352,14 @@ export async function getGameSnapshot(
   role: string,
 ): Promise<GameSnapshot> {
   const supabase = getSupabaseAdmin();
+  const { error: finishUpgradeError } = await supabase.rpc("gw_finish_building_upgrades", { p_state_id: stateId });
+  if (finishUpgradeError) throw finishUpgradeError;
+  const { error: strategyRefreshError } = await supabase.rpc("gw_refresh_state_strategy", { p_state_id: stateId });
+  if (strategyRefreshError && strategyRefreshError.code !== "PGRST202") throw strategyRefreshError;
   const [playerRes, stateRes, buildingsRes, membersRes, myMemberRes] = await Promise.all([
     supabase.from("players").select("id,display_name,username,level,xp,energy").eq("id", playerId).single(),
-    supabase.from("states").select("id,name,color,motto,emblem,theme,telegram_chat_id,credits,steel,fuel,food,tech,rating,rating_peak,telegram_member_count,world_x,world_y,island_wins,island_losses,destroyed_until,chat_avatar_file_id,shield_until,next_attack_at,island_integrity,win_streak,best_win_streak,last_battle_at,is_freeport").eq("id", stateId).single(),
-    supabase.from("buildings").select("building_type,level").eq("state_id", stateId).order("building_type"),
+    supabase.from("states").select("id,name,color,motto,emblem,theme,telegram_chat_id,credits,steel,fuel,food,tech,rating,rating_peak,telegram_member_count,world_x,world_y,island_wins,island_losses,destroyed_until,chat_avatar_file_id,shield_until,next_attack_at,island_integrity,win_streak,best_win_streak,last_battle_at,is_freeport,is_beginner_island,game_level,max_level,influence,reputation,army_power,defense_power,active_player_count,state_size").eq("id", stateId).single(),
+    supabase.from("buildings").select("building_type,level,upgrade_target_level,upgrade_started_at,upgrade_finishes_at,upgrade_cooldown_until").eq("state_id", stateId).order("building_type"),
     supabase.from("state_members").select("id", { count: "exact", head: true }).eq("state_id", stateId),
     supabase.from("state_members").select("contribution").eq("state_id", stateId).eq("player_id", playerId).single(),
   ]);
@@ -326,8 +372,10 @@ export async function getGameSnapshot(
   if (!player) throw new Error("Игрок не найден.");
   if (!state) throw new Error("Государство не найдено.");
 
-  const buildingsRaw = (buildingsRes.data || []) as Array<{ building_type: BuildingType; level: number }>;
-  const rates = state.is_freeport ? { credits: 0, steel: 0, fuel: 0, food: 0, tech: 0 } : production(buildingsRaw);
+  const buildingsRaw = (buildingsRes.data || []) as Array<{ building_type: BuildingType; level: number; upgrade_target_level?: number | null; upgrade_started_at?: string | null; upgrade_finishes_at?: string | null; upgrade_cooldown_until?: string | null }>;
+  const baseRates = production(buildingsRaw);
+  const beginnerIncomeFactor = state.is_beginner_island ? 0.60 : 1;
+  const rates = state.is_freeport ? { credits: 0, steel: 0, fuel: 0, food: 0, tech: 0 } : Object.fromEntries(Object.entries(baseRates).map(([key, value]) => [key, Math.round(value * beginnerIncomeFactor)])) as typeof baseRates;
   // Island World no longer ships the legacy 127-hex map in every snapshot.
   const wins = state.island_wins || 0;
   const rankPromise = state.is_freeport
@@ -335,7 +383,7 @@ export async function getGameSnapshot(
     : supabase.from("states").select("id", { count: "exact", head: true }).eq("is_freeport", false).gt("rating", state.rating);
   const electionPromise = state.is_freeport ? null : getElection(stateId, playerId);
 
-  const [rankRes, diplomacy, worldFeed, leaderboard, dailyMissions, activeBattle, season, election, recruitment, recentWars] = await Promise.all([
+  const [rankRes, diplomacy, worldFeed, leaderboard, dailyMissions, activeBattle, season, election, recruitment, recentWars, strategy] = await Promise.all([
     rankPromise,
     getDiplomacyForState(stateId),
     getWorldFeed(24),
@@ -346,6 +394,7 @@ export async function getGameSnapshot(
     electionPromise,
     getRecruitmentHub(playerId, stateId, Boolean(state.is_freeport), role),
     state.is_freeport ? Promise.resolve([] as WarView[]) : getRecentIslandWars(stateId),
+    getStrategyView(playerId, stateId, role, Boolean(state.is_beginner_island)),
   ]);
   const islands = await getIslandWorld(stateId, diplomacy, { x: Number(state.world_x || 0), y: Number(state.world_y || 0) });
   if (rankRes?.error) throw rankRes.error;
@@ -357,7 +406,11 @@ export async function getGameSnapshot(
   const buildings: BuildingView[] = buildingsRaw.map((b) => ({
     type: b.building_type,
     level: b.level,
-    upgradeCost: scaleCost(b.building_type, b.level + 1),
+    upgradeTargetLevel: b.upgrade_target_level || null,
+    upgradeStartedAt: b.upgrade_started_at || null,
+    upgradeFinishesAt: b.upgrade_finishes_at || null,
+    upgradeCooldownUntil: b.upgrade_cooldown_until || null,
+    upgradeCost: Object.fromEntries(Object.entries(scaleCost(b.building_type, b.level + 1)).map(([key, value]) => [key, state.is_beginner_island ? Math.max(1, Math.round((value || 0) * 0.60)) : value])),
     ...BUILDING_META[b.building_type],
   }));
 
@@ -382,6 +435,15 @@ export async function getGameSnapshot(
       theme: state.theme || "violet",
       telegramChatId: state.is_freeport ? null : Number(state.telegram_chat_id),
       isFreeport: Boolean(state.is_freeport),
+      isBeginnerIsland: Boolean(state.is_beginner_island),
+      level: Number(state.game_level || 1),
+      maxLevel: Number(state.max_level || 50),
+      influence: Number(state.influence || 0),
+      reputation: Number(state.reputation || 0),
+      armyPower: Number(state.army_power || 100),
+      defensePower: Number(state.defense_power || 100),
+      activePlayers: Math.max(1, Number(state.active_player_count || 1)),
+      stateSize: Math.max(0.0001, Number(state.state_size || 1)),
       treasury: {
         credits: state.credits,
         steel: state.steel,
@@ -419,24 +481,29 @@ export async function getGameSnapshot(
     badges,
     activeBattle,
     recruitment,
+    strategy,
   };
 }
 
 export async function upgradeBuilding(stateId: string, buildingType: BuildingType) {
   const supabase = getSupabaseAdmin();
   await tickState(stateId);
-  const { data: building, error } = await supabase
-    .from("buildings")
-    .select("level")
-    .eq("state_id", stateId)
-    .eq("building_type", buildingType)
-    .single();
+  const [{ data: building, error }, { data: state, error: stateError }] = await Promise.all([
+    supabase.from("buildings").select("level,upgrade_target_level,upgrade_finishes_at,upgrade_cooldown_until").eq("state_id", stateId).eq("building_type", buildingType).single(),
+    supabase.from("states").select("is_beginner_island,max_level").eq("id", stateId).single(),
+  ]);
   if (error) throw error;
+  if (stateError) throw stateError;
   const buildingRow = requireData(building, "Здание не найдено.");
-  if (buildingRow.level >= 12) throw new Error("Максимальный уровень здания достигнут.");
+  const maxBuildingLevel = state?.is_beginner_island ? Math.min(5, Number(state.max_level || 5)) : 12;
+  if (buildingRow.upgrade_target_level && buildingRow.upgrade_finishes_at && new Date(buildingRow.upgrade_finishes_at).getTime() > Date.now()) throw new Error("Это здание уже улучшается.");
+  if (buildingRow.upgrade_cooldown_until && new Date(buildingRow.upgrade_cooldown_until).getTime() > Date.now()) throw new Error("Здание ещё остывает после предыдущего улучшения.");
+  if (buildingRow.level >= maxBuildingLevel) throw new Error(state?.is_beginner_island ? "На Острове новичков постройки ограничены 5 уровнем." : "Максимальный уровень здания достигнут.");
+  if (state?.is_beginner_island && buildingType === "barracks") throw new Error("На Острове новичков агрессивные улучшения казарм запрещены.");
 
-  const cost = scaleCost(buildingType, buildingRow.level + 1);
-  const { error: rpcError } = await supabase.rpc("gw_upgrade_building", {
+  const rawCost = scaleCost(buildingType, buildingRow.level + 1);
+  const cost = Object.fromEntries(Object.entries(rawCost).map(([key, value]) => [key, state?.is_beginner_island ? Math.max(1, Math.round((value || 0) * 0.60)) : value]));
+  const { data: targetLevel, error: rpcError } = await supabase.rpc("gw_upgrade_building", {
     p_state_id: stateId,
     p_building_type: buildingType,
     p_credits: cost.credits || 0,
@@ -446,6 +513,10 @@ export async function upgradeBuilding(stateId: string, buildingType: BuildingTyp
     p_tech: cost.tech || 0,
   });
   if (rpcError) throw rpcError;
-  return { ok: true };
+  const { data: upgraded, error: upgradedError } = await supabase.from("buildings")
+    .select("upgrade_target_level,upgrade_finishes_at,upgrade_cooldown_until")
+    .eq("state_id", stateId).eq("building_type", buildingType).single();
+  if (upgradedError) throw upgradedError;
+  return { ok: true, targetLevel: Number(targetLevel || upgraded?.upgrade_target_level || buildingRow.level + 1), finishesAt: upgraded?.upgrade_finishes_at || null };
 }
 

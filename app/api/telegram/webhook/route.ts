@@ -1,7 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { miniAppLink, telegramApi } from "@/lib/telegram-bot";
 import { getProduct } from "@/lib/products";
-import { handleGroupTextCommand } from "@/lib/chat-commands";
+import { handleGroupCallback, handleGroupTextCommand } from "@/lib/chat-commands";
 
 export const runtime = "nodejs";
 
@@ -146,6 +146,10 @@ export async function POST(request: Request) {
         console.error("Telegram successful_payment processing failed", error);
         return Response.json({ ok: false }, { status: 500 });
       }
+    }
+
+    if (update.callback_query) {
+      if (await handleGroupCallback(update.callback_query)) return Response.json({ ok: true });
     }
 
     const membership = update.my_chat_member;

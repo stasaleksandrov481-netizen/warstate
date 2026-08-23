@@ -45,7 +45,7 @@ function BattleScreenInner({ battle, playerName, freeport = false, onJoin, onAct
   const teamPlayers = battle.players.filter((player) => player.team === myTeam);
   const enemyPlayers = battle.players.filter((player) => player.team !== myTeam);
   const activeOrder = battle.orders.find((order) => order.team === myTeam) || null;
-  const canCommand = ["president", "minister", "general"].includes(battle.myRole || "");
+  const canCommand = ["president", "minister", "deputy"].includes(battle.myRole || "");
 
   if (!battle.me && battle.status === "active") return (
     <div className="battle-screen join-screen game-scene">

@@ -23,7 +23,7 @@ export async function authorizeStateAction(
   const playerRow = requireData(player, "Player not found. Open the game from the group first.");
   const [{ data: member, error: memberError }, { data: state, error: stateError }] = await Promise.all([
     supabase.from("state_members").select("*").eq("state_id", stateId).eq("player_id", playerRow.id).single(),
-    supabase.from("states").select("telegram_chat_id,is_freeport").eq("id", stateId).single(),
+    supabase.from("states").select("telegram_chat_id,is_freeport,is_beginner_island,game_level,max_level").eq("id", stateId).single(),
   ]);
   if (memberError) throw new Error("You are not a member of this state.");
   if (stateError) throw new Error("State not found.");
@@ -67,7 +67,7 @@ export async function authorizeBattleAction(request: Request, battleId: string) 
   if (memberError) throw new Error("Your state is not participating in this battle.");
   const memberRow = requireData(member, "Your state is not participating in this battle.");
 
-  const { data: state, error: stateError } = await supabase.from("states").select("telegram_chat_id,is_freeport").eq("id", memberRow.state_id).single();
+  const { data: state, error: stateError } = await supabase.from("states").select("telegram_chat_id,is_freeport,is_beginner_island,game_level,max_level").eq("id", memberRow.state_id).single();
   if (stateError) throw new Error("State not found.");
   const stateRow = requireData(state, "State not found.");
 

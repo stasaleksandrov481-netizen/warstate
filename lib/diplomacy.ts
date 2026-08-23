@@ -55,6 +55,27 @@ export async function getDiplomacyForState(stateId: string): Promise<DiplomacyRe
   });
 }
 
+
+export async function getAlliedStateChats(stateId: string) {
+  const supabase = getSupabaseAdmin();
+  const { data: relations, error } = await supabase
+    .from("diplomacy_relations")
+    .select("state_a_id,state_b_id")
+    .eq("status", "allied")
+    .or(`state_a_id.eq.${stateId},state_b_id.eq.${stateId}`);
+  if (error) throw error;
+  const allyIds = [...new Set((relations || []).map((row: any) => String(row.state_a_id) === stateId ? String(row.state_b_id) : String(row.state_a_id)))];
+  if (!allyIds.length) return [] as Array<{ id: string; name: string; telegramChatId: number }>;
+  const { data: states, error: statesError } = await supabase
+    .from("states")
+    .select("id,name,telegram_chat_id,is_freeport")
+    .in("id", allyIds);
+  if (statesError) throw statesError;
+  return (states || [])
+    .filter((state: any) => !state.is_freeport && state.telegram_chat_id)
+    .map((state: any) => ({ id: String(state.id), name: String(state.name), telegramChatId: Number(state.telegram_chat_id) }));
+}
+
 export async function getWorldFeed(limit = 24): Promise<WorldEventView[]> {
   const supabase = getSupabaseAdmin();
   const { data: events, error } = await supabase
@@ -162,6 +183,12 @@ export async function performDiplomacyAction(actorStateId: string, targetStateId
     if (relation?.status !== "alliance_pending" || relation.requested_by_state_id === actorStateId) throw new Error("Нет входящего предложения союза.");
     await upsertRelation(actorStateId, targetStateId, "allied", null);
     await recordWorldEvent({ eventType: "alliance", title: "Новый альянс", body: `${actor.name} и ${target.name} заключили союз.`, actorStateId, targetStateId });
+  } else if (action === "reject_alliance") {
+    if (relation?.status !== "alliance_pending" || relation.requested_by_state_id === actorStateId) throw new Error("Нет входящего предложения союза.");
+    const [stateA, stateB] = canonicalPair(actorStateId, targetStateId);
+    const { error } = await supabase.from("diplomacy_relations").delete().eq("state_a_id", stateA).eq("state_b_id", stateB);
+    if (error) throw error;
+    await recordWorldEvent({ eventType: "alliance_rejected", title: "Союз отклонён", body: `${actor.name} отклонил предложение союза от ${target.name}.`, actorStateId, targetStateId });
   } else if (action === "declare_war") {
     if (relation?.status === "truce" && relation.truce_until && new Date(relation.truce_until).getTime() > Date.now()) throw new Error("Перемирие ещё действует.");
     const betrayal = relation?.status === "allied";

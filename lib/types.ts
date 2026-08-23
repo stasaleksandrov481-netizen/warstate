@@ -1,11 +1,55 @@
-export type BuildingType = "hq" | "barracks" | "mine" | "refinery" | "farm" | "lab";
+export type BuildingType = "hq" | "barracks" | "mine" | "refinery" | "farm" | "lab" | "outpost" | "trade_chamber";
 export type BattleClass = "assault" | "medic" | "engineer" | "scout";
 export type BattlePoint = "A" | "B" | "C";
 export type BattleTeam = "attacker" | "defender";
 export type BattleOrderKind = "attack" | "defend" | "rally";
 export type DiplomacyStatus = "alliance_pending" | "allied" | "truce_pending" | "truce" | "war";
-export type DiplomacyAction = "propose_alliance" | "accept_alliance" | "declare_war" | "offer_truce" | "accept_truce" | "break_alliance";
+export type DiplomacyAction = "propose_alliance" | "accept_alliance" | "reject_alliance" | "declare_war" | "offer_truce" | "accept_truce" | "break_alliance";
 export type MissionKey = "check_in" | "join_battle" | "battle_action" | "capture_point";
+export type WarType = "raid" | "siege" | "territory";
+
+export interface ActivityOptionView {
+  key: string;
+  label: string;
+  risk: number;
+  rewards: { credits: number; influence: number; tech: number; reputation: number; contribution: number };
+}
+
+export interface ActivityView {
+  key: string;
+  title: string;
+  description: string;
+  completed: boolean;
+  beginnerAllowed: boolean;
+  options: ActivityOptionView[];
+}
+
+export interface ContributionEventView {
+  id: number;
+  source: string;
+  amount: number;
+  createdAt: string;
+}
+
+export interface SupportableBattleView {
+  id: string;
+  side: "attacker" | "defender";
+  allyStateId: string;
+  allyName: string;
+  enemyName: string;
+  battleType: WarType;
+  endsAt: string;
+}
+
+export interface StrategyView {
+  activities: ActivityView[];
+  completedToday: number;
+  contributionEvents: ContributionEventView[];
+  supportableBattles: SupportableBattleView[];
+  canManage: boolean;
+  canCommand: boolean;
+  rules: { maxDailyActivities: number; maxAttackSizePenalty: number; maxUnderdogBonus: number; maxAggressionPenalty: number; maxAllianceSupport: number; raidLootBudgetPct: number; raidLootInfluencePct: number };
+}
 
 export interface PlayerView {
   id: string;
@@ -28,6 +72,15 @@ export interface StateView {
   theme: string;
   telegramChatId: number | null;
   isFreeport: boolean;
+  isBeginnerIsland: boolean;
+  level: number;
+  maxLevel: number;
+  influence: number;
+  reputation: number;
+  armyPower: number;
+  defensePower: number;
+  activePlayers: number;
+  stateSize: number;
   treasury: {
     credits: number;
     steel: number;
@@ -63,6 +116,10 @@ export interface StateView {
 export interface BuildingView {
   type: BuildingType;
   level: number;
+  upgradeTargetLevel?: number | null;
+  upgradeStartedAt?: string | null;
+  upgradeFinishesAt?: string | null;
+  upgradeCooldownUntil?: string | null;
   upgradeCost: Partial<Record<keyof StateView["treasury"], number>>;
   label: string;
   description: string;
@@ -135,8 +192,22 @@ export interface BattleView {
   defenderSizeModifier: number;
   defenderBuffer: number;
   aggressionPenalty: number;
+  battleType: WarType;
+  attackerStateSize: number;
+  defenderStateSize: number;
+  attackerRawPower: number;
+  defenderRawPower: number;
+  attackerFinalPower: number;
+  defenderFinalPower: number;
+  underdogBonus: number;
+  defenseBufferPct: number;
+  attackerRandomModifier: number;
+  defenderRandomModifier: number;
+  stolenBudget: number;
+  stolenInfluence: number;
   pointOwners: Record<BattlePoint, BattleTeam | null>;
   winnerStateId?: string | null;
+  isDraw: boolean;
   myTeam?: BattleTeam | null;
   myRole?: string | null;
   me?: BattlePlayerView | null;
@@ -202,6 +273,15 @@ export interface IslandView {
   relation?: DiplomacyStatus | null;
   isMine: boolean;
   isFreeport: boolean;
+  isBeginnerIsland: boolean;
+  level: number;
+  maxLevel: number;
+  influence: number;
+  reputation: number;
+  armyPower: number;
+  defensePower: number;
+  activePlayers: number;
+  stateSize: number;
 }
 
 export interface DailyMissionView {
@@ -313,5 +393,6 @@ export interface GameSnapshot {
   badges: StateBadgeView[];
   activeBattle?: BattleView | null;
   recruitment: RecruitmentHubView;
+  strategy: StrategyView;
   startParam?: string | null;
 }

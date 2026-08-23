@@ -13,6 +13,7 @@ import type {
   GameSnapshot,
   IslandView,
   StateView,
+  WarType,
 } from "@/lib/types";
 import { IslandMap } from "@/components/game/island-map";
 const IslandHome = dynamic(() => import("@/components/game/island-home").then((m) => m.IslandHome), { ssr: false, loading: () => <SceneLoading label="Поднимаем остров…" /> });
@@ -21,8 +22,9 @@ const IslandAlliances = dynamic(() => import("@/components/game/island-alliances
 
 const BattleScreen = dynamic(() => import("@/components/game/battle-screen").then((m) => m.BattleScreen), { ssr: false, loading: () => <SceneLoading label="Поднимаем фронт…" /> });
 const StateViewPanel = dynamic(() => import("@/components/game/state-view").then((m) => m.StateViewPanel), { ssr: false, loading: () => <SceneLoading label="Открываем профиль…" /> });
+const StrategyPanel = dynamic(() => import("@/components/game/strategy-panel").then((m) => m.StrategyPanel), { ssr: false, loading: () => <SceneLoading label="Открываем штаб…" /> });
 
-type View = "map" | "island" | "battle" | "rating" | "alliances" | "profile";
+type View = "map" | "island" | "battle" | "rating" | "alliances" | "strategy" | "profile";
 
 type TelegramWebApp = {
   initData: string;
@@ -72,6 +74,7 @@ const NAV: Array<{ key: View; label: string }> = [
   { key: "battle", label: "Битвы" },
   { key: "rating", label: "Рейтинг" },
   { key: "alliances", label: "Союзы" },
+  { key: "strategy", label: "Штаб" },
   { key: "profile", label: "Профиль" },
 ];
 
@@ -258,12 +261,12 @@ export default function GameApp() {
     } catch (e) { notify(e instanceof Error ? e.message : "Ремонт не удался"); }
   }
 
-  async function attackIsland(island: IslandView) {
+  async function attackIsland(island: IslandView, battleType: WarType = "raid") {
     if (!snapshot) return;
     try {
       const result = await api<{ snapshot: GameSnapshot; battle: BattleView }>("/api/game/island/attack", initData, {
         method: "POST",
-        body: JSON.stringify({ stateId: snapshot.state.id, targetStateId: island.id }),
+        body: JSON.stringify({ stateId: snapshot.state.id, targetStateId: island.id, battleType }),
       });
       acceptSnapshot({ ...result.snapshot, activeBattle: result.battle });
       setSelectedIsland(null);
@@ -298,6 +301,42 @@ export default function GameApp() {
       await refreshLive();
       notify("Отношения островов обновлены");
     } catch (e) { notify(e instanceof Error ? e.message : "Дипломатия не удалась"); }
+  }
+
+  async function completeActivity(activityKey: string, optionKey: string) {
+    if (!snapshot) return;
+    try {
+      const result = await api<{ snapshot: GameSnapshot; result: { success?: boolean; contribution?: number } }>("/api/game/activity", initData, {
+        method: "POST",
+        body: JSON.stringify({ stateId: snapshot.state.id, activityKey, optionKey }),
+      });
+      acceptSnapshot(result.snapshot);
+      notify(result.result?.success === false ? "Операция прошла с осложнениями" : `Решение выполнено · вклад +${result.result?.contribution || 0}`);
+    } catch (e) { notify(e instanceof Error ? e.message : "Активность не выполнена"); }
+  }
+
+  async function supportAlly(battleId: string, side: "attacker" | "defender") {
+    if (!snapshot) return;
+    try {
+      const result = await api<{ snapshot: GameSnapshot; result: { power?: number } }>("/api/game/battle/support", initData, {
+        method: "POST",
+        body: JSON.stringify({ stateId: snapshot.state.id, battleId, side }),
+      });
+      acceptSnapshot(result.snapshot);
+      notify(`Союзнику отправлено +${result.result?.power || 0} силы`);
+    } catch (e) { notify(e instanceof Error ? e.message : "Поддержка не отправлена"); }
+  }
+
+  async function surrenderCurrentBattle() {
+    if (!snapshot?.activeBattle) return;
+    try {
+      const fresh = await api<GameSnapshot>("/api/game/battle/surrender", initData, {
+        method: "POST",
+        body: JSON.stringify({ stateId: snapshot.state.id, battleId: snapshot.activeBattle.id }),
+      });
+      acceptSnapshot(fresh);
+      notify("Капитуляция подтверждена");
+    } catch (e) { notify(e instanceof Error ? e.message : "Не удалось завершить бой"); }
   }
 
   async function claimMission(missionId: string) {
@@ -366,6 +405,7 @@ export default function GameApp() {
         {view === "battle" && <BattleScreen battle={snapshot.activeBattle || null} playerName={snapshot.player.displayName} freeport={snapshot.state.isFreeport} onJoin={joinBattle} onAction={actBattle} />}
         {view === "rating" && <IslandRanking snapshot={snapshot} />}
         {view === "alliances" && <IslandAlliances snapshot={snapshot} onDiplomacy={diplomacy} />}
+        {view === "strategy" && <StrategyPanel snapshot={snapshot} onActivity={completeActivity} onSupport={supportAlly} onSurrender={surrenderCurrentBattle} />}
         {view === "profile" && <StateViewPanel snapshot={snapshot} onClaim={claimMission} onPolitics={politics} onCustomize={customizeState} />}
       </section>
 
@@ -387,7 +427,7 @@ function Splash({ text, action, onAction }: { text: string; action?: string; onA
 
 const MobileHeader = memo(function MobileHeader({ snapshot }: { snapshot: GameSnapshot }) {
   const state = snapshot.state;
-  const role = state.isFreeport ? "Свободный игрок" : snapshot.player.role === "president" ? "Президент" : snapshot.player.role === "minister" ? "Министр" : snapshot.player.role === "general" ? "Генерал" : "Гражданин";
+  const role = state.isFreeport ? "Свободный игрок" : snapshot.player.role === "president" ? "Президент" : snapshot.player.role === "minister" || snapshot.player.role === "deputy" ? "Заместитель" : snapshot.player.role === "curator" ? "Куратор" : "Участник";
   const compact = (value: number) => COMPACT_FORMATTER.format(value);
   return (
     <header className="island-mobile-header game-mobile-header">
@@ -422,6 +462,7 @@ function NavIcon({ type }: { type: View }) {
   if (type === "battle") return <svg {...common}><path d="m6 4 5 5-6.5 6.5M18 4l-5 5 6.5 6.5"/><path d="m3.5 18.5 3-3 2 2-3 3ZM20.5 18.5l-3-3-2 2 3 3Z"/></svg>;
   if (type === "rating") return <svg {...common}><path d="M7 4h10v3.5c0 3.4-2.2 6-5 6s-5-2.6-5-6Z"/><path d="M7 6H4v2c0 2 1.3 3 3.4 3M17 6h3v2c0 2-1.3 3-3.4 3M12 13.5V18M8.5 20h7"/></svg>;
   if (type === "alliances") return <svg {...common}><path d="M7.5 13.5 4 10l3-3 3.5 3.5M16.5 13.5 20 10l-3-3-3.5 3.5"/><path d="m9.5 9.5 2.5-2 2.5 2M8.5 14.5 12 17l3.5-2.5"/></svg>;
+  if (type === "strategy") return <svg {...common}><path d="M4 20h16M6 20V9l6-5 6 5v11"/><path d="M9 20v-6h6v6M9 10h.01M15 10h.01"/></svg>;
   return <svg {...common}><circle cx="12" cy="8" r="3.5"/><path d="M5.5 20c.8-4 3-6 6.5-6s5.7 2 6.5 6"/></svg>;
 }
 

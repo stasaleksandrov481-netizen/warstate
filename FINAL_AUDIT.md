@@ -1,63 +1,47 @@
-# WARSTATE v1.6.0 — UI + project audit
+# WARSTATE v1.7.0 — final project audit
 
-This archive contains the current WARSTATE v1.6.0 project tree, based on the v1.5.0 gameplay build with a Mini App UI overhaul.
+This archive contains WARSTATE v1.7.0 (World Command Update), based on the v1.6.0 UI build and retaining the v1.5.0 state-war gameplay layer.
 
+## Major v1.7 changes
 
-## UI overhaul in v1.6.0
-
-- Replaced the font-rendered island-sheet close glyph with a symmetric two-path SVG icon.
-- Removed the artificial outer device/frame look from the Mini App shell.
-- Added Telegram WebApp chrome color synchronization through guarded SDK methods.
-- Rebuilt header, stat chips, island labels, map tools, selected-island sheet and bottom navigation around translucent sea-glass surfaces.
-- Reduced bottom navigation from seven cramped items to six primary destinations; Strategy remains accessible from Island through a dedicated HQ entry.
-- Unified internal screen surfaces and spacing around the WARSTATE beach/island visual language.
-- Updated user-facing brand strings and metadata to WARSTATE.
-
-## Implemented in v1.5.0
-
-- Unified state-war rules shared by Telegram chat commands and Mini App actions.
-- Role checks at action execution time for president/deputy-controlled actions.
-- Three battle types: raid, siege and territory.
-- State-size balancing with a large-attacker penalty, small-defender bonus, defensive buffer and aggression fatigue.
-- Strategic army/defense power now affects realtime scoring with bounded modifiers so capture-point play remains decisive.
-- Alliance battle support with a 35% base-power cap and side-correct Telegram/Mini App actions.
-- Draws for close battles, capped resource capture and a post-defeat protection shield.
-- One authoritative loot path; the legacy destruction-loot path is disabled.
-- Stored battle modifiers/random coefficients for transparent result reconstruction.
-- Daily activities with player choices, risk/reward outcomes and contribution rewards.
-- Contribution ledger and temporary contribution penalty after leaving Beginner Island.
-- Beginner Island rules: level cap, reduced economy/costs, attack restrictions, curator role and training rewards.
-- State-transition history and anti-abuse cooldowns, including protection against Freeport transition laundering.
-- Timed, database-backed building upgrades with atomic cost reservation and cooldowns.
-- Expanded buildings including outpost and trade chamber.
-- Realtime island map exposes level, army, defense, active players, state size and global ranking.
-- Telegram commands/actions for status, resources, contribution, activities, battles, upgrades, alliances, support and surrender.
-- Automatic battle finalization endpoint for Vercel Cron.
-- Optional Upstash Redis REST rate limiting and short-lived action locks while PostgreSQL remains the source of truth.
-- Obsolete demo/legacy attack code removed and guarded by the prebuild cleanup script.
+- World radar with state search and relation filters.
+- Clickable minimap, session camera persistence and stronger island culling/DOM budgets.
+- Lower-cost ocean rendering for Telegram WebView during pan/pinch and idle animation.
+- LIVE/OFFLINE connection state, manual sync, refresh on app visibility restore and Telegram BackButton integration.
+- 12-second client request timeout with mobile-network recovery messaging.
+- Typed info/success/error toast system with Telegram haptic feedback.
+- Strategy HQ rebuilt into Overview / Activities / Balance / Contribution tabs.
+- State-home economy dashboard with production, development progress and construction state.
+- Ranking redesign with TOP-3 podium, search and own-rank card.
+- Diplomacy dashboard with KPIs and incoming request inbox.
+- Battle HUD redesign with score-share bar, team KPIs, result summary, captured-resource output and larger event feed.
+- Russianized request-auth errors and safer HTTP error inference.
+- Built-in dependency-free `npm run audit:project` integrity checker.
 
 ## Audit performed
 
-- TypeScript/TSX syntax transpile audit after v1.6 UI changes: 56/56 source files passed.
-- Local import resolution audit: no missing project-local imports.
-- RPC contract audit: all 20 RPC names referenced by application code are defined in Supabase migrations.
-- SQL migration `013_full_state_wars_spec.sql`: structural delimiter check passed and required functions are present.
-- Environment-variable coverage: every application `process.env` reference is documented in `.env.example`.
-- `git diff --check`: passed with no whitespace errors.
-- Battle-formula sanity checks: caps and underdog/size/fatigue separation verified.
-- Surrender path uses the same battle finalizer as normal resolution.
-- Archive policy: `.env`, `.git`, `.next`, `node_modules`, build caches and local TypeScript build info are intentionally excluded.
+- TypeScript/TSX syntax transpile check: 55/55 application TS/TSX files passed.
+- Project-local import resolution: 0 missing imports.
+- Supabase RPC contract audit: all 20 RPC names referenced by application code exist in migrations.
+- API route inventory: 21 route handlers.
+- CSS structural check: opening/closing brace counts match.
+- `npm run audit:project`: passed; scans source imports, referenced ENV variables, package identity and forbidden legacy/private paths.
+- Environment coverage: all application ENV references other than platform-provided `NODE_ENV` are represented in `.env.example`.
+- Legacy demo paths remain absent (`lib/demo.ts`, legacy `/api/game/attack`).
+- Secret-like source scan found no embedded application credentials; SQL `service_role` hits are grants, not keys.
+- Final archive policy excludes `.env`, `.env.local`, `.git`, `.next`, `node_modules`, `.vercel`, caches and TypeScript build info.
 
 ## Build verification note
 
-A dependency-resolved `npm run typecheck` / `npm run build` could not be executed in the audit container because the npm registry was unavailable and dependencies were not cached locally. Both online installation and offline-cache installation were attempted. Static TypeScript transpilation, import/RPC/environment checks and project integrity checks passed as described above.
+A dependency-resolved `npm run typecheck` / `npm run build` still cannot be truthfully marked as passed in this container unless npm dependencies can be installed. The final packaging step attempts installation once with a bounded network timeout. Static syntax/import/RPC/environment/CSS/integrity checks are performed independently and are listed above.
 
-For deployment, use Node.js 22, install dependencies, then run:
+For deployment with network access:
 
 ```bash
 npm install
+npm run audit:project
 npm run typecheck
 npm run build
 ```
 
-Apply Supabase migrations through `013_full_state_wars_spec.sql`, configure the values listed in `.env.example`, configure Vercel Cron, and then configure the Telegram webhook with `npm run telegram:configure`.
+For an existing database already on migration 012, apply `supabase/migrations/013_full_state_wars_spec.sql`. Configure `.env.example`, Vercel Cron and then run `npm run telegram:configure`.

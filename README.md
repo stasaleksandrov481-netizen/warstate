@@ -1,8 +1,28 @@
-# WARSTATE v1.6.0 — Full State Wars + UI Overhaul
+# WARSTATE v1.7.0 — World Command Update
 
 Telegram-native strategy where every real Telegram group becomes an island-state in one persistent ocean world.
 
 
+
+## v1.7.0: World Command Update
+
+Большой проход по UX, карте, боевому интерфейсу, производительности и устойчивости Mini App. Это обновление не меняет базовые правила v1.5, а делает существующую игру заметно удобнее и тяжелее сломать на реальном мобильном соединении.
+
+- На мировой карте появился радар с поиском государств и фильтрами «все / враги / союзы / нейтральные».
+- Мини-карта стала интерактивной: тап перемещает камеру в выбранную область. Последняя позиция и zoom камеры сохраняются в сессии.
+- Усилен LOD/culling: одновременно в DOM держится ограниченное число ближайших островов, выбранный и собственный остров получают приоритет.
+- Анимация океана стала дешевле для Telegram WebView: снижены DPR/FPS-бюджеты и отключается мелкая рябь во время жестов.
+- В header появился LIVE/OFFLINE-индикатор с ручной синхронизацией; при возврате в Mini App данные автоматически освежаются.
+- Клиентские API-запросы получили 12-секундный timeout и понятное восстановление после плохой мобильной сети.
+- Telegram BackButton теперь закрывает выбранный остров и возвращает по навигационной иерархии вместо выхода из Mini App.
+- Toast-уведомления разделены на info/success/error и используют Telegram haptic feedback.
+- Штаб переработан в четыре вкладки: сводка, активности, баланс и вклад. Добавлены экономика, производство, состояние войны и союзные запросы.
+- Экран собственного острова показывает экономическую сводку, производство в час, прогресс развития и активные стройки.
+- Рейтинг получил подиум TOP-3, поиск, собственную позицию и более читаемую лиговую сетку.
+- Дипломатия получила KPI, отдельный inbox входящих предложений и более ясную книгу отношений.
+- Боевой экран получил динамическую шкалу счёта, KPI команд, итоговую карточку победы/поражения/ничьей, лут и расширенный live-feed.
+- Серверные ошибки авторизации приведены к понятным русским ответам и более корректным HTTP status codes.
+- Добавлена команда `npm run audit:project`: проверяет локальные импорты, ENV-документацию, legacy-файлы и чистоту проектного дерева.
 
 ## v1.6.0: глобальная переработка Mini App
 
@@ -85,10 +105,10 @@ Conceptually one Telegram member owns one deterministic house lot. Large-group L
 The ocean is a lightweight Canvas renderer, not a fixed wallpaper. v1.4.2 rewrites the hot path for camera movement.
 
 - Camera position comes from a live ref, so water follows the finger without waiting for React renders.
-- During panning/pinch the canvas targets 60 FPS; idle animation drops to an adaptive 18–32 FPS to save battery.
+- Water animation uses an adaptive budget: up to ~45 FPS on normal devices while interacting, ~30 FPS on low-power devices, and ~15–28 FPS while idle to reduce battery/GPU load.
 - Wave fields are pre-rendered into reusable transparent tiles and moved in world coordinates with `CanvasPattern.setTransform`.
 - Expensive per-frame radial gradients, nested wave sampling loops and repeated pattern creation were removed.
-- Canvas DPR is capped at 1.0–1.15 because animated water does not benefit from full 2x/3x phone DPR.
+- Animated-ocean DPR is capped at 1.0 on normal devices and below 1.0 in low-power mode because full 2x/3x phone DPR is wasted work for moving water.
 - Broad depth color is cached by world band instead of rebuilt on every tiny movement.
 - The island world layer moves imperatively on `requestAnimationFrame`; React camera state is throttled to culling/minimap/UI work only.
 - Pointer movement no longer calls `getBoundingClientRect()` every event; the viewport rect is cached for the gesture.
@@ -223,6 +243,7 @@ The project includes `scripts/clean-legacy.mjs`. `npm run typecheck`, `npm run b
 
 ```bash
 npm install
+npm run audit:project
 npm run typecheck
 npm run build
 ```

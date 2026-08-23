@@ -1,5 +1,5 @@
 /* =====================================================================
-   GROUP WARS v1.3 — CARTOON ISLAND UI OVERHAUL
+   WARSTATE v1.3 — CARTOON ISLAND UI OVERHAUL
    Solid game surfaces, animated ocean, shoreline foam and mobile-first UI.
    ===================================================================== */
 
@@ -209,7 +209,7 @@ button.primary:active,.splash button.primary:active{transform:translateY(2px);bo
 @media(max-width:390px){.game-island-sheet{left:6px;right:6px;bottom:6px}.sheet-title-copy h3{font-size:13px!important}.sheet-game-stats span{padding:6px 3px}}
 
 /* =====================================================================
-   GROUP WARS v1.4 — LIVE FREEPORT + PROCEDURAL WORLD UI
+   WARSTATE v1.4 — LIVE FREEPORT + PROCEDURAL WORLD UI
    Larger readable type, world-anchored ocean, equal navigation actions and
    a warmer mobile-strategy visual language. This block intentionally wins
    over legacy v0.x/v1.3 rules above while the old screens are phased out.
@@ -835,3 +835,151 @@ body{
   .island-bottom-nav{left:5px!important;right:5px!important;bottom:4px!important;height:66px!important;padding-left:3px!important;padding-right:3px!important}
   .island-bottom-nav button{height:52px!important}.island-bottom-nav button small{font-size:7px!important}.island-bottom-nav button svg{width:20px!important;height:20px!important}
 }
+
+/* ========================================================================== 
+   WARSTATE v1.7 — WORLD COMMAND update
+   Larger typography, radar navigation, responsive glass surfaces, clearer
+   battle information and lower paint cost on the procedural ocean map.
+   ========================================================================== */
+:root{
+  --ws-surface:rgba(7,35,44,.82);
+  --ws-surface-2:rgba(10,50,58,.72);
+  --ws-surface-3:rgba(255,249,224,.9);
+  --ws-hairline:rgba(226,241,233,.16);
+  --ws-hairline-gold:rgba(245,214,126,.34);
+  --ws-shadow:0 16px 44px rgba(0,23,30,.22);
+  --ws-radius-xl:24px;
+  --ws-radius-lg:18px;
+  --ws-radius-md:14px;
+}
+
+button,input,textarea{font:inherit}
+button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+button:not(:disabled){cursor:pointer}
+button:disabled{cursor:not-allowed}
+::selection{background:rgba(240,205,114,.32)}
+
+.app-shell.island-app-shell{max-width:620px!important;background:#0b2730!important}
+.island-viewport[data-view]:not([data-view="map"])>*{animation:wsSceneIn .19s ease-out both}
+@keyframes wsSceneIn{from{opacity:.5;transform:translate3d(0,5px,0)}to{opacity:1;transform:none}}
+
+/* Live connection indicator. */
+.game-header-identity{position:relative!important;padding-right:46px!important}
+.game-sync{position:absolute;right:0;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:4px;padding:4px 6px;border:1px solid rgba(219,238,230,.14);border-radius:999px;background:rgba(3,29,37,.3);color:#9db8b2;font-size:6.5px;font-weight:900;letter-spacing:.08em}
+.game-sync i{width:6px;height:6px;border-radius:50%;background:#7ed5a4;box-shadow:0 0 0 3px rgba(126,213,164,.1)}
+.game-sync.offline{color:#d9aaa2}.game-sync.offline i{background:#e98270;box-shadow:0 0 0 3px rgba(233,130,112,.1)}
+
+/* Header readability: no microscopic captions. */
+.game-stat-chip small{font-size:7.6px!important;letter-spacing:.015em!important}
+.game-header-name small{font-size:9.4px!important}
+.game-header-stats{min-width:0!important}
+.game-stat-chip{overflow:hidden!important}
+.game-stat-chip>div{min-width:0!important}.game-stat-chip b,.game-stat-chip small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Map compositor and node paint budget. */
+.game-world-layer{will-change:transform;contain:layout style paint;transform-origin:0 0}
+.game-island-node{contain:layout paint style;transform:translate3d(-50%,-50%,0);backface-visibility:hidden}
+.game-ocean{overscroll-behavior:none;touch-action:none}
+.game-ocean.dragging .game-island-label{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:rgba(7,42,50,.88)!important}
+.game-ocean.detail-far .game-island-label{box-shadow:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+.game-ocean.detail-far .game-island-copy small,.game-ocean.detail-far .relation-tag{display:none!important}
+
+/* World radar/search. */
+.map-radar-panel{position:absolute;z-index:76;left:12px;right:12px;top:12px;padding:13px;border:1px solid var(--ws-hairline);border-radius:20px;background:linear-gradient(180deg,rgba(6,37,46,.94),rgba(7,31,40,.92));box-shadow:0 18px 48px rgba(0,22,29,.34);backdrop-filter:blur(22px) saturate(130%);-webkit-backdrop-filter:blur(22px) saturate(130%);color:#f4f8f4;animation:radarIn .16s ease-out both}
+@keyframes radarIn{from{opacity:0;transform:translateY(-7px) scale(.985)}to{opacity:1;transform:none}}
+.map-radar-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.map-radar-head small{display:block;color:#99b7b1;font-size:7.5px;font-weight:900;letter-spacing:.12em}.map-radar-head b{display:block;margin-top:2px;font-size:14px;letter-spacing:-.02em}.map-radar-head>button{width:32px;height:32px;display:grid;place-items:center;border:1px solid rgba(225,239,232,.14);border-radius:10px;background:rgba(2,25,33,.35);color:#eaf5f1}.map-radar-head svg{width:15px;height:15px}.map-radar-head path{stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.map-search{height:42px;margin-top:11px;padding:0 11px;display:flex;align-items:center;gap:8px;border:1px solid rgba(230,242,236,.14);border-radius:13px;background:rgba(3,27,35,.42)}.map-search>span{font-size:20px;color:#f0d27c;line-height:1}.map-search input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:#f6faf7;font-size:12px;font-weight:750}.map-search input::placeholder{color:#7fa09a}
+.map-filter-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:8px}.map-filter-row button{min-width:0;height:40px;padding:5px;border:1px solid rgba(220,238,230,.11);border-radius:11px;background:rgba(9,58,64,.42);color:#99b6b0}.map-filter-row button b{display:block;font-size:9px}.map-filter-row button small{display:block;margin-top:1px;font-size:7px;color:#789a94}.map-filter-row button.active{border-color:rgba(240,205,114,.42);background:rgba(240,205,114,.12);color:#ffe39a}.map-filter-row button.active small{color:#cdbb83}
+.map-search-results{display:flex;flex-direction:column;gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(225,240,233,.09);max-height:218px;overflow:auto}.map-search-results>button{display:grid;grid-template-columns:34px minmax(0,1fr) 14px;align-items:center;gap:8px;min-height:45px;padding:5px 7px;border:0;border-radius:11px;background:rgba(13,67,70,.35);color:#eef8f3;text-align:left}.map-search-results>button>span{width:34px;height:34px;display:grid;place-items:center;border:1px solid rgba(255,232,161,.34);border-radius:10px;font-weight:900}.map-search-results b{display:block;font-size:10.5px}.map-search-results small{display:block;margin-top:2px;font-size:7.5px;color:#99b5af}.map-search-results i{font-style:normal;color:#f0d27a;font-size:18px}.map-search-results p{margin:5px 0;color:#91aaa5;font-size:10px;text-align:center}
+.map-radar-foot{display:flex;align-items:center;justify-content:space-between;margin-top:9px;color:#789b94;font-size:7.5px;font-weight:800}.map-radar-foot span:first-child{display:flex;align-items:center;gap:5px}.map-radar-foot i{width:6px;height:6px;border-radius:50%;background:#6ed0a5}
+.map-tool-radar.active{border-color:rgba(240,205,114,.5)!important;background:rgba(240,205,114,.16)!important;color:#ffe7a0!important}
+.game-map-status{position:absolute;z-index:45;right:13px;bottom:92px;display:flex;gap:6px;align-items:center;padding:5px 7px;border:1px solid rgba(224,239,232,.12);border-radius:999px;background:rgba(3,28,36,.58);color:#a5bdb8;backdrop-filter:blur(10px);font-size:7px;font-weight:850;pointer-events:auto}.game-map-status b{color:#f1d47c}.game-minimap{cursor:crosshair!important}
+
+/* Selected island sheet has clearer visual hierarchy. */
+.sheet-game-stats span small{font-size:7.7px!important;line-height:1.15!important}.sheet-game-stats span b{font-size:15px!important}.sheet-status{font-size:7.6px!important;padding:5px 8px!important}.sheet-war-types button{min-height:34px!important;font-size:8.5px!important}.sheet-home small,.sheet-attack small{font-size:8px!important;line-height:1.25!important}.sheet-freeport,.sheet-danger{font-size:9px!important;line-height:1.35!important;padding:9px 10px!important}
+
+/* Navigation has notification states and bigger tap targets. */
+.island-bottom-nav button small{font-size:8.4px!important}.nav-pending-dot{position:absolute;right:-1px;top:-1px;width:8px;height:8px;border-radius:50%;background:#f0cd72;border:2px solid #0a3039;box-shadow:0 0 0 2px rgba(240,205,114,.08)}
+.island-bottom-nav button:active{transform:scale(.96)!important}
+
+/* Toasts now communicate result type. */
+.toast{left:50%!important;bottom:88px!important;transform:translateX(-50%)!important;min-width:min(320px,calc(100% - 28px))!important;max-width:calc(100% - 28px)!important;padding:10px 13px!important;border:1px solid rgba(229,242,235,.17)!important;border-radius:14px!important;background:rgba(6,36,44,.94)!important;color:#f5f9f6!important;box-shadow:0 18px 46px rgba(0,20,27,.3)!important;backdrop-filter:blur(18px)!important;font-size:10px!important;font-weight:800!important;text-align:center!important}.toast-success{border-color:rgba(111,211,160,.35)!important}.toast-error{border-color:rgba(239,124,103,.38)!important}.toast-success::before,.toast-error::before,.toast-info::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;background:#79d3a2}.toast-error::before{background:#ef7c67}.toast-info::before{background:#f0cd72}
+
+/* Splash/loading: calm and product-like instead of a blank slab. */
+.ws-splash{background:radial-gradient(circle at 50% 34%,rgba(49,159,168,.24),transparent 27%),linear-gradient(180deg,#092b36,#071c26)!important;color:#f4f8f3!important}.ws-splash-orbit{position:relative;width:86px;height:86px;display:grid;place-items:center;margin-bottom:4px}.ws-splash-orbit::before,.ws-splash-orbit::after{content:"";position:absolute;inset:4px;border:1px solid rgba(240,205,114,.15);border-radius:50%}.ws-splash-orbit::after{inset:13px;border-color:rgba(107,205,182,.13)}.ws-splash .logo-mark{width:48px;height:48px;border-radius:15px;border:1px solid rgba(255,227,145,.45);background:linear-gradient(145deg,#f1d57e,#bb8737);color:#2c433d;box-shadow:0 12px 28px rgba(0,18,24,.25)}.ws-splash h1{font-size:25px;letter-spacing:.05em;margin:6px 0 4px}.ws-splash p{font-size:10px;color:#9cb7b1}.ws-loading-bars{display:flex;gap:5px;margin-top:8px}.ws-loading-bars i{width:20px;height:3px;border-radius:99px;background:#214d56;animation:loadPulse 1.15s ease-in-out infinite}.ws-loading-bars i:nth-child(2){animation-delay:.12s}.ws-loading-bars i:nth-child(3){animation-delay:.24s}@keyframes loadPulse{50%{background:#f0cd72;transform:scaleX(.78)}}
+
+/* My island: economy dashboard and development progress. */
+.state-economy-overview{margin:10px;padding:12px;border:1px solid rgba(225,238,219,.2);border-radius:19px;background:linear-gradient(145deg,rgba(8,55,62,.92),rgba(7,41,50,.9));color:#f4f8f3;box-shadow:var(--ws-shadow)}
+.state-economy-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.state-economy-head>div small{display:block;color:#91afa9;font-size:7px;font-weight:900;letter-spacing:.11em}.state-economy-head>div b{display:block;margin-top:2px;font-size:13px}.state-economy-head>span{position:relative;min-width:88px;height:30px;padding:4px 7px;border:1px solid rgba(240,205,114,.17);border-radius:10px;background:rgba(240,205,114,.08);overflow:hidden;text-align:right}.state-economy-head>span>i{position:absolute;left:0;top:0;bottom:0;background:rgba(240,205,114,.08)}.state-economy-head>span b,.state-economy-head>span small{position:relative;z-index:1}.state-economy-head>span b{display:block;color:#f4d67f;font-size:10px}.state-economy-head>span small{display:block;color:#9fb6b1;font-size:6px}
+.state-resource-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;margin-top:10px}.state-resource-row>span{min-width:0;padding:7px 5px;border:1px solid rgba(222,238,230,.1);border-radius:12px;background:rgba(5,31,39,.38);text-align:center}.state-resource-row i{display:block;color:#f1d079;font-size:11px;font-style:normal}.state-resource-row small{display:block;margin:3px 0 1px;color:#86a49e;font-size:6px;font-weight:900}.state-resource-row b{display:block;overflow:hidden;text-overflow:ellipsis;font-size:9.5px}.state-resource-row em{display:block;margin-top:2px;color:#79cda5;font-size:6.2px;font-style:normal;font-weight:800}
+.construction-live{display:flex;align-items:center;gap:6px;margin-top:9px;padding:6px 8px;border-radius:10px;background:rgba(76,175,148,.09);color:#a9cfc1;font-size:7.5px}.construction-live>i{width:7px;height:7px;border-radius:50%;background:#74d2a6;animation:constructionPulse 1.5s ease-in-out infinite}.construction-live b{color:#d8eee4}.construction-live span{margin-left:auto;color:#819f99}@keyframes constructionPulse{50%{opacity:.35}}
+.development-track{position:relative;height:24px;margin:9px 0 11px;border-radius:9px;background:rgba(47,86,73,.08);overflow:hidden}.development-track>i{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,rgba(74,174,139,.18),rgba(240,205,114,.23))}.development-track>span{position:relative;z-index:1;height:100%;display:flex;align-items:center;padding-left:8px;color:#577066;font-size:7.5px;font-weight:850}
+
+/* Strategy center v2. */
+.strategy-screen{padding-top:10px!important}
+.strategy-hero-v2{position:relative;overflow:hidden!important}.strategy-hero-v2::after{content:"";position:absolute;width:150px;height:150px;right:-60px;top:-80px;border:1px solid rgba(67,104,89,.1);border-radius:50%;box-shadow:0 0 0 22px rgba(67,104,89,.04),0 0 0 44px rgba(67,104,89,.025)}.strategy-hero-main{position:relative;z-index:1;min-width:0}.strategy-health-row{display:flex;gap:6px;margin-top:11px}.strategy-health-row>span{position:relative;min-width:92px;overflow:hidden;padding:7px 8px;border-radius:10px;background:rgba(54,93,77,.08)}.strategy-health-row>span>i{position:absolute;left:0;top:0;bottom:0;background:rgba(88,168,125,.12)}.strategy-health-row b,.strategy-health-row small{position:relative;z-index:1}.strategy-health-row b{display:block;font-size:10px}.strategy-health-row small{display:block;margin-top:1px;font-size:6.5px;color:#6a7f74}
+.strategy-tabs{position:sticky;z-index:12;top:-1px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin:10px 0 2px;padding:5px;border:1px solid rgba(218,234,215,.2);border-radius:15px;background:rgba(245,237,205,.88);backdrop-filter:blur(16px)}.strategy-tabs button{min-width:0;height:36px;padding:4px;border:0;border-radius:10px;background:transparent;color:#687c70;font-size:7.8px;font-weight:850}.strategy-tabs button.active{background:#355f55;color:#fff8dc;box-shadow:0 5px 14px rgba(43,84,73,.16)}
+.strategy-stat-grid-v2 article{min-height:76px!important;display:flex;flex-direction:column;justify-content:center}.strategy-economy-card>.strategy-title>b{font-size:10px!important;color:#49675b!important;background:#e9dfb4!important}.strategy-resource-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;margin-top:11px}.strategy-resource-grid>span{min-width:0;padding:8px 4px;border:1px solid rgba(71,103,89,.12);border-radius:11px;background:rgba(238,235,196,.38);text-align:center}.strategy-resource-grid i{display:block;color:#7b6030;font-style:normal;font-weight:900}.strategy-resource-grid small{display:block;margin-top:3px;font-size:6px;color:#728278;font-weight:900}.strategy-resource-grid b{display:block;margin-top:1px;overflow:hidden;text-overflow:ellipsis;font-size:9px}.strategy-resource-grid em{display:block;margin-top:2px;color:#4d8a69;font-size:6px;font-style:normal;font-weight:850}
+.strategy-battle-progress,.activity-day-progress{height:7px;margin:10px 0;border-radius:999px;background:rgba(44,78,66,.1);overflow:hidden}.strategy-battle-progress i,.activity-day-progress i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#cf7160,#e6bb62,#66b98d)}.battle-math-grid.compact{grid-template-columns:repeat(3,minmax(0,1fr))}.strategy-detail-link{width:100%;margin-top:8px;padding:8px;border:1px solid rgba(65,101,86,.13);border-radius:10px;background:rgba(54,92,76,.06);color:#496c5d;font-size:8px;font-weight:900}.strategy-peace-card{display:flex;align-items:center;gap:11px}.strategy-peace-mark{width:42px;height:42px;flex:0 0 42px;display:grid;place-items:center;border-radius:50%;background:rgba(70,141,113,.11);color:#477b65;font-size:24px}.strategy-peace-card small{font-size:7px;color:#6d8176;font-weight:900}.strategy-peace-card h3{margin:2px 0;font-size:14px}.strategy-peace-card p{margin:0;color:#718179;font-size:8.5px;line-height:1.35}
+.activity-copy{display:grid!important;grid-template-columns:31px minmax(0,1fr);gap:8px;align-items:start}.activity-index{width:31px;height:31px;display:grid;place-items:center;border-radius:10px;background:rgba(58,100,83,.09);color:#537565;font-size:8px;font-weight:900}.strategy-activities-card .activity-list>article{padding:11px!important}.contribution-feed-v2{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:6px!important}.contribution-feed-v2 span{display:flex!important;align-items:center!important;justify-content:space-between!important;min-height:42px!important}.contribution-feed-v2 b{font-size:13px!important}.contribution-feed-v2 small{font-size:7px!important}
+
+/* Ranking: podium + search. */
+.ranking-hero-v2{display:flex!important;align-items:flex-start!important;justify-content:space-between!important;gap:12px!important}.ranking-hero-v2>div{min-width:0}.ranking-my-rank{min-width:86px;padding:9px;border:1px solid rgba(63,100,84,.14);border-radius:13px;background:rgba(255,248,218,.5);text-align:center}.ranking-my-rank small{display:block;font-size:6px;color:#748178;font-weight:900}.ranking-my-rank b{display:block;margin:2px 0;font-size:21px;color:#365e50}.ranking-my-rank em{display:block;font-size:7px;color:#796b48;font-style:normal;font-weight:850}
+.ranking-podium{display:grid;grid-template-columns:1fr 1.12fr 1fr;align-items:end;gap:6px;margin:10px;padding:12px 8px 8px;border:1px solid rgba(228,240,218,.18);border-radius:20px;background:linear-gradient(180deg,rgba(7,50,58,.86),rgba(9,42,49,.9));box-shadow:0 14px 36px rgba(0,30,35,.16)}.ranking-podium article{position:relative;min-width:0;padding:13px 5px 8px;border:1px solid rgba(232,243,233,.12);border-radius:14px;background:rgba(13,65,68,.5);color:#eef8f2;text-align:center}.ranking-podium .podium-1{padding-top:19px;border-color:rgba(240,205,114,.35);background:linear-gradient(180deg,rgba(240,205,114,.18),rgba(13,65,68,.5))}.ranking-podium article>i{position:absolute;top:-8px;left:50%;transform:translateX(-50%);width:25px;height:20px;display:grid;place-items:center;border-radius:8px;background:#294f52;color:#d3e5dc;font-size:8px;font-style:normal;font-weight:950}.ranking-podium .podium-1>i{background:#e4bf5f;color:#3d4434}.ranking-podium article>span{width:38px;height:38px;margin:0 auto 6px;display:grid;place-items:center;border:1px solid rgba(255,234,166,.33);border-radius:12px;font-weight:950}.ranking-podium article>b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9.5px}.ranking-podium article>strong{display:block;margin-top:4px;color:#f0d27b;font-size:13px}.ranking-podium article>small{display:block;margin-top:1px;color:#8faea7;font-size:6.5px}.ranking-podium article.mine{box-shadow:inset 0 0 0 2px rgba(111,201,159,.22)}
+.ranking-search{height:42px;margin:10px;display:flex;align-items:center;gap:7px;padding:0 11px;border:1px solid rgba(60,99,83,.15);border-radius:13px;background:rgba(255,249,224,.75)}.ranking-search span{color:#537667;font-size:18px}.ranking-search input{width:100%;border:0;outline:0;background:transparent;color:#30493f;font-size:10px;font-weight:800}.ranking-search input::placeholder{color:#8a9b91}.ranking-list-v2 article>strong{display:flex!important;flex-direction:column!important;align-items:flex-end!important}.ranking-list-v2 article>strong small{font-size:6px;color:#8a8873}.ranking-empty{margin:10px;padding:18px;border-radius:14px;background:rgba(255,249,224,.68);color:#687c70;text-align:center;font-size:9px}.elo-explain-v2{margin:10px!important}
+
+/* Diplomacy as a real command screen. */
+.diplomacy-hero-v2{display:flex!important;justify-content:space-between!important;gap:12px!important}.diplomacy-hero-v2>div{min-width:0}.diplomacy-score{min-width:72px;padding:8px;border:1px solid rgba(63,100,84,.14);border-radius:13px;background:rgba(255,248,218,.48);text-align:center}.diplomacy-score small{display:block;font-size:6px;color:#728077;font-weight:900}.diplomacy-score b{font-size:22px;color:#365e50}
+.diplomacy-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:10px}.diplomacy-kpis>span{min-width:0;padding:9px 6px;border:1px solid rgba(54,94,79,.12);border-radius:13px;background:rgba(255,249,225,.73);text-align:center}.diplomacy-kpis small{display:block;font-size:6px;color:#75877c;font-weight:900}.diplomacy-kpis b{display:block;margin:2px 0;font-size:16px}.diplomacy-kpis em{display:block;font-size:6px;color:#8a958e;font-style:normal}.diplomacy-kpis .ally b{color:#468266}.diplomacy-kpis .enemy b{color:#ae5c51}.diplomacy-kpis .truce b{color:#587a8e}.diplomacy-kpis .pending b{color:#8f753c}
+.diplomacy-inbox,.diplomacy-book{margin:10px;padding:11px;border:1px solid rgba(52,91,76,.14);border-radius:18px;background:rgba(255,249,225,.84);box-shadow:0 10px 26px rgba(34,74,62,.08)}.diplomacy-inbox>article{display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:8px;align-items:center;margin-top:7px;padding:8px;border:1px solid rgba(66,102,88,.1);border-radius:12px;background:rgba(238,232,193,.38)}.relations-list-v2{margin-top:7px!important}.relations-list-v2 article{position:relative!important;overflow:hidden!important}.relations-list-v2 article::before{content:"";position:absolute;left:0;top:7px;bottom:7px;width:3px;border-radius:99px;background:#9b9c83}.relations-list-v2 article.ally::before{background:#5ca17c}.relations-list-v2 article.enemy::before{background:#c76a5c}.relations-list-v2 article.truce::before{background:#668ba0}.relations-list-v2 article.pending::before{background:#c3a04f}.relations-list-v2 article>div:nth-child(2)>em{display:block;margin-top:3px;color:#849287;font-size:6.5px;font-style:normal}.diplomacy-empty{display:flex!important;flex-direction:column;align-items:center;gap:3px;padding:24px 12px!important}.diplomacy-empty i{font-size:28px;color:#7d927f;font-style:normal}.diplomacy-empty b{font-size:12px}.diplomacy-empty span{color:#7a887f;font-size:8px}
+
+/* Battle command center. */
+.empty-battle{display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;padding:28px!important;text-align:center!important}.empty-battle>small{margin-top:10px;color:#9dbcb5!important;font-size:7px!important;font-weight:900!important;letter-spacing:.12em!important}.battle-empty-orbit{width:88px;height:88px;display:grid;place-items:center;border:1px solid rgba(244,218,139,.13);border-radius:50%;box-shadow:0 0 0 16px rgba(244,218,139,.035)}.battle-map-cta{min-width:150px;margin-top:10px;padding:10px 14px;border:1px solid rgba(244,218,139,.36);border-radius:12px;background:rgba(240,205,114,.14);color:#ffe8a5;font-size:9px;font-weight:900}
+.scoreboard-v2{position:relative!important;height:60px!important;overflow:hidden!important}.scoreboard-v2>.score-a,.scoreboard-v2>.score-d{display:flex!important;flex-direction:column!important;justify-content:center!important;line-height:1!important}.scoreboard-v2>.score-a small,.scoreboard-v2>.score-d small{display:block;max-width:116px;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#a7c7c0;font-size:6px}.scoreboard-v2>.score-d{align-items:flex-end}.scoreboard-v2>span:first-child{height:4px!important;top:auto!important;bottom:0!important;opacity:1!important}
+.battle-kpi-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:0 10px 8px}.battle-kpi-row>span{min-width:0;padding:8px;border:1px solid rgba(222,239,231,.11);border-radius:12px;background:rgba(10,58,65,.58);color:#edf6f0;text-align:center}.battle-kpi-row small{display:block;color:#90aea8;font-size:6px;font-weight:900}.battle-kpi-row b{display:block;margin:2px 0;font-size:14px}.battle-kpi-row em{display:block;color:#93aaa5;font-size:6px;font-style:normal}
+.battle-result-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;margin:8px 10px;padding:13px;border:1px solid rgba(225,239,232,.15);border-radius:16px;background:rgba(7,45,53,.74);color:#f2f7f3}.battle-result-card small{font-size:6.5px;color:#9bb7b1;font-weight:900;letter-spacing:.1em}.battle-result-card h3{margin:2px 0;font-size:20px}.battle-result-card p{margin:0;color:#a9c1bb;font-size:8px;line-height:1.35}.battle-result-card>strong{align-self:center;font-size:22px;color:#f2d47f}.battle-result-card>strong i{margin:0 4px;color:#9fb6b0;font-style:normal}.battle-result-card footer{grid-column:1/-1;display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid rgba(224,239,231,.1);font-size:7px}.battle-result-card footer span{color:#8eaaa4}.battle-result-card footer b{color:#f2d47f}.battle-result-card.victory{border-color:rgba(105,205,157,.28);background:linear-gradient(145deg,rgba(28,92,75,.7),rgba(7,45,53,.75))}.battle-result-card.defeat{border-color:rgba(231,113,95,.28);background:linear-gradient(145deg,rgba(104,55,51,.65),rgba(7,45,53,.76))}.battle-result-card.draw{border-color:rgba(240,205,114,.25)}
+.battle-feed p{display:grid!important;grid-template-columns:36px minmax(0,1fr)!important;gap:6px!important}.battle-feed p time{color:#73958e;font-size:6.5px;font-variant-numeric:tabular-nums}
+
+/* Inputs on light/beach screens are now consistent. */
+.island-home-screen input,.island-home-screen textarea,.state-screen input,.state-screen textarea{outline:none!important;transition:border-color .15s ease,box-shadow .15s ease!important}.island-home-screen input:focus,.island-home-screen textarea:focus,.state-screen input:focus,.state-screen textarea:focus{border-color:rgba(53,103,84,.42)!important;box-shadow:0 0 0 3px rgba(53,103,84,.08)!important}
+
+/* Common focus / accessibility. */
+:is(.map-radar-panel,.strategy-screen,.ranking-screen,.alliances-screen,.island-home-screen,.state-screen,.battle-screen) button:focus-visible,.island-bottom-nav button:focus-visible{outline:2px solid #f4d77f!important;outline-offset:2px!important}
+
+@media(max-width:410px){
+  .game-sync{display:none}
+  .game-header-identity{padding-right:0!important}
+  .game-stat-chip small{font-size:7px!important}
+  .map-radar-panel{left:7px;right:7px;top:7px;padding:10px;border-radius:17px}.map-filter-row{gap:4px}.map-filter-row button{height:37px;padding:4px 2px}.map-filter-row button b{font-size:8px}
+  .game-map-status{right:8px;bottom:85px}
+  .sheet-game-stats span small{font-size:7px!important}.sheet-status{font-size:7px!important}
+  .island-bottom-nav button small{font-size:7.6px!important}
+  .state-resource-row,.strategy-resource-grid{grid-template-columns:repeat(5,minmax(52px,1fr));overflow-x:auto;scrollbar-width:none}.state-resource-row::-webkit-scrollbar,.strategy-resource-grid::-webkit-scrollbar{display:none}
+  .state-resource-row>span,.strategy-resource-grid>span{min-width:52px}
+  .construction-live span{display:none}
+  .strategy-tabs{grid-template-columns:repeat(4,minmax(62px,1fr));overflow-x:auto;scrollbar-width:none}.strategy-tabs::-webkit-scrollbar{display:none}.strategy-tabs button{font-size:7px}
+  .ranking-podium{margin:7px;gap:4px;padding-left:5px;padding-right:5px}.ranking-podium article{padding-left:3px;padding-right:3px}.ranking-podium article>b{font-size:8.5px}
+  .diplomacy-kpis{gap:4px;margin:7px}.diplomacy-kpis>span{padding:7px 3px}.diplomacy-kpis em{display:none}
+  .battle-result-card{margin-left:7px;margin-right:7px}.battle-kpi-row{margin-left:7px;margin-right:7px;gap:4px}.battle-kpi-row em{display:none}
+}
+
+@media(max-width:355px){
+  .game-stat-chip:nth-child(2) small,.game-stat-chip:nth-child(3) small{display:none!important}
+  .map-filter-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .sheet-game-stats{gap:4px!important}.sheet-game-stats span{padding-left:3px!important;padding-right:3px!important}.sheet-game-stats span b{font-size:13px!important}
+  .state-resource-row>span,.strategy-resource-grid>span{min-width:58px}
+  .ranking-hero-v2,.diplomacy-hero-v2{flex-direction:column}.ranking-my-rank,.diplomacy-score{width:100%;display:flex;align-items:center;justify-content:space-between;text-align:left}.ranking-my-rank b{font-size:16px}
+}
+
+@media(prefers-reduced-motion:reduce){
+  .island-viewport[data-view]:not([data-view="map"])>*,.map-radar-panel,.ws-loading-bars i,.construction-live>i{animation:none!important}
+}
+.ws-fatal{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px;text-align:center;background:radial-gradient(circle at 50% 35%,rgba(53,155,164,.18),transparent 30%),linear-gradient(180deg,#092b36,#071c26)!important;color:#f3f8f4!important}.ws-fatal>small{margin-top:10px;color:#ef9b86!important;font-size:7px!important;font-weight:900!important;letter-spacing:.14em!important}.ws-fatal h1{max-width:340px;margin:4px 0 6px!important;font-size:24px!important}.ws-fatal p{max-width:370px;color:#9db8b2!important;font-size:9.5px!important;line-height:1.5!important}.ws-fatal .primary{margin-top:8px!important;border:1px solid rgba(240,205,114,.35)!important;background:rgba(240,205,114,.14)!important;color:#ffe7a3!important;box-shadow:none!important}
+
+/* v1.7 network resilience */
+.game-sync { appearance:none; border:0; font:inherit; cursor:pointer; }
+.game-sync:disabled { cursor:default; }
+.game-sync.syncing i { animation: ws-sync-pulse .72s ease-in-out infinite alternate; }
+.game-sync.syncing { min-width:58px; }
+@keyframes ws-sync-pulse { from { transform:scale(.72); opacity:.45 } to { transform:scale(1.18); opacity:1 } }
+@media (prefers-reduced-motion: reduce) { .game-sync.syncing i { animation:none; } }

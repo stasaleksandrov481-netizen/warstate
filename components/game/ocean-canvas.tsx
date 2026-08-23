@@ -146,9 +146,9 @@ function OceanCanvasInner({ cameraRef, viewport, interactingRef, reduced = false
     const lowPower = cores <= 4;
 
     const ensureSize = (width: number, height: number) => {
-      // A high DPR is wasted on animated water and is one of the largest GPU
-      // costs inside Telegram WebView. 1.15 still looks crisp under the SVG UI.
-      const dpr = Math.min(lowPower ? 1 : 1.15, window.devicePixelRatio || 1);
+      // Animated water does not need text-level pixel density. Keeping the
+      // backing store close to CSS pixels removes a large WebView GPU cost.
+      const dpr = Math.min(lowPower ? 0.88 : 1, window.devicePixelRatio || 1);
       const pixelW = Math.max(1, Math.round(width * dpr));
       const pixelH = Math.max(1, Math.round(height * dpr));
       if (canvas.width !== pixelW || canvas.height !== pixelH) {
@@ -171,9 +171,10 @@ function OceanCanvasInner({ cameraRef, viewport, interactingRef, reduced = false
       }
 
       const interacting = Boolean(interactingRef?.current);
-      // Panning must visually track the finger at display refresh rate. Idle
-      // water can animate slower to save battery.
-      const targetFps = interacting ? 60 : reducedRef.current ? 18 : lowPower ? 24 : 32;
+      // The island/world layer follows the finger at display refresh rate. The
+      // water itself can refresh a little slower without creating perceived
+      // input lag, which saves a full-screen canvas repaint on mobile WebViews.
+      const targetFps = interacting ? (lowPower ? 30 : 45) : reducedRef.current ? 15 : lowPower ? 20 : 28;
       const interval = 1000 / targetFps;
       if (time - lastDraw < interval) {
         raf = requestAnimationFrame(draw);
@@ -201,9 +202,11 @@ function OceanCanvasInner({ cameraRef, viewport, interactingRef, reduced = false
       // Two cached wave fields move at different velocities. Both remain
       // anchored in world coordinates, so camera movement never feels like the
       // ocean is glued to the screen.
-      fillWorldPattern(ctx, swellPattern, width, height, camera, seconds * 5.5, seconds * 1.6, reducedRef.current ? 0.54 : 0.86);
-      if (!reducedRef.current || interacting) {
-        fillWorldPattern(ctx, ripplePattern, width, height, camera, -seconds * 8.2, seconds * 3.1, lowPower ? 0.46 : 0.62);
+      fillWorldPattern(ctx, swellPattern, width, height, camera, seconds * 5.5, seconds * 1.6, reducedRef.current ? 0.50 : interacting ? 0.72 : 0.84);
+      // Fine ripples are the most expensive layer and add little while the
+      // camera is moving, so suspend them during drag/pinch interactions.
+      if (!reducedRef.current && !interacting) {
+        fillWorldPattern(ctx, ripplePattern, width, height, camera, -seconds * 8.2, seconds * 3.1, lowPower ? 0.40 : 0.58);
       }
 
       // A cheap horizon/depth veil keeps the water dimensional without any

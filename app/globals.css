@@ -224,7 +224,7 @@ button{-webkit-tap-highlight-color:transparent}button:focus-visible{outline:2px 
 .brand-mark{border-color:color-mix(in srgb,var(--brand-color,#9b7cff),transparent 48%);background:linear-gradient(145deg,#121720,color-mix(in srgb,var(--brand-color,#9b7cff),#151923 28%));box-shadow:0 8px 24px rgba(0,0,0,.3),0 0 18px color-mix(in srgb,var(--brand-color,#9b7cff),transparent 78%)}
 
 /* =========================================================
-   GROUP WARS v0.9 — Island World mobile UI
+   WARSTATE v0.9 — Island World mobile UI
    Realistic mobile-first DOM/CSS implementation, no art assets.
    ========================================================= */
 

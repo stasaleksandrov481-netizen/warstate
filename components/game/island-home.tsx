@@ -114,6 +114,11 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment, onOpenS
   const repairCredits = repairAmount * 24;
   const repairSteel = repairAmount * 3;
   const canRepair = !destroyed && repairAmount > 0 && canManage && state.treasury.credits >= repairCredits && state.treasury.steel >= repairSteel;
+  const buildingCap = state.isBeginnerIsland ? 5 : 12;
+  const developmentCurrent = snapshot.buildings.reduce((sum, building) => sum + Math.min(building.level, buildingCap), 0);
+  const developmentMax = Math.max(1, snapshot.buildings.length * buildingCap);
+  const developmentPct = Math.round((developmentCurrent / developmentMax) * 100);
+  const activeConstruction = snapshot.buildings.filter((building) => building.upgradeTargetLevel && building.upgradeFinishesAt && new Date(building.upgradeFinishesAt).getTime() > now).length;
 
   return (
     <div className="island-home-screen">
@@ -131,6 +136,18 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment, onOpenS
         <span><small>МИР</small><b>#{state.seasonRank}</b><em>{state.islandWins}W · {state.islandLosses}L</em></span>
       </div>
 
+      <section className="state-economy-overview">
+        <div className="state-economy-head"><div><small>ЭКОНОМИКА ОСТРОВА</small><b>Ресурсы и производство</b></div><span><i style={{ width: `${developmentPct}%` }} /><b>{developmentPct}%</b><small>развитие</small></span></div>
+        <div className="state-resource-row">
+          <span><i>₡</i><small>КАЗНА</small><b>{state.treasury.credits.toLocaleString("ru-RU")}</b><em>+{state.productionPerHour.credits.toLocaleString("ru-RU")}/ч</em></span>
+          <span><i>▰</i><small>СТАЛЬ</small><b>{state.treasury.steel.toLocaleString("ru-RU")}</b><em>+{state.productionPerHour.steel.toLocaleString("ru-RU")}/ч</em></span>
+          <span><i>◈</i><small>ТОПЛИВО</small><b>{state.treasury.fuel.toLocaleString("ru-RU")}</b><em>+{state.productionPerHour.fuel.toLocaleString("ru-RU")}/ч</em></span>
+          <span><i>◆</i><small>ЕДА</small><b>{state.treasury.food.toLocaleString("ru-RU")}</b><em>+{state.productionPerHour.food.toLocaleString("ru-RU")}/ч</em></span>
+          <span><i>⌁</i><small>TECH</small><b>{state.treasury.tech.toLocaleString("ru-RU")}</b><em>+{state.productionPerHour.tech.toLocaleString("ru-RU")}/ч</em></span>
+        </div>
+        {activeConstruction > 0 && <div className="construction-live"><i /><b>{activeConstruction} {activeConstruction === 1 ? "стройка идёт" : "стройки идут"}</b><span>завершение применяется автоматически</span></div>}
+      </section>
+
       {onOpenStrategy && (
         <button className="strategy-entry" type="button" onClick={onOpenStrategy}>
           <span className="strategy-entry-icon" aria-hidden="true">⌂</span>
@@ -144,7 +161,7 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment, onOpenS
       ) : null}
 
       <section className="island-section">
-        <div className="section-row"><div><small>ИНФРАСТРУКТУРА</small><h3>Развитие острова</h3></div><span>{state.memberCount.toLocaleString("ru-RU")} жилых домов</span></div>
+        <div className="section-row"><div><small>ИНФРАСТРУКТУРА</small><h3>Развитие острова</h3></div><span>{developmentCurrent}/{developmentMax} уровней</span></div><div className="development-track"><i style={{ width: `${developmentPct}%` }} /><span>{developmentPct}% освоено</span></div>
         <div className="infra-grid">
           {snapshot.buildings.map((building) => {
             const meta = INFRA[building.type];

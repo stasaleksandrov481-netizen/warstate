@@ -35,6 +35,7 @@ type TelegramWebApp = {
   setBackgroundColor?: (color: string) => void;
   setBottomBarColor?: (color: string) => void;
   disableVerticalSwipes?: () => void;
+  BackButton?: { show?: () => void; hide?: () => void; onClick?: (cb: () => void) => void; offClick?: (cb: () => void) => void };
   HapticFeedback?: { impactOccurred?: (style: string) => void; notificationOccurred?: (type: string) => void };
 };
 
@@ -52,22 +53,37 @@ function mergeIslandLists(current: IslandView[] = [], incoming: IslandView[] = [
 }
 
 async function api<T>(path: string, initData: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      "x-telegram-init-data": initData,
-      ...(init?.headers || {}),
-    },
-    cache: "no-store",
-  });
-  let json: unknown = null;
-  try { json = await response.json(); } catch { /* non-JSON gateway errors */ }
-  if (!response.ok) {
-    const message = typeof json === "object" && json && "error" in json ? String((json as { error?: unknown }).error || "") : "";
-    throw new Error(message || `Request failed (${response.status})`);
+  const controller = new AbortController();
+  const externalSignal = init?.signal;
+  const forwardAbort = () => controller.abort();
+  if (externalSignal?.aborted) controller.abort();
+  else externalSignal?.addEventListener("abort", forwardAbort, { once: true });
+  const timeout = window.setTimeout(() => controller.abort(), 12_000);
+  try {
+    const response = await fetch(path, {
+      ...init,
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-init-data": initData,
+        ...(init?.headers || {}),
+      },
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    let json: unknown = null;
+    try { json = await response.json(); } catch { /* non-JSON gateway errors */ }
+    if (!response.ok) {
+      const message = typeof json === "object" && json && "error" in json ? String((json as { error?: unknown }).error || "") : "";
+      throw new Error(message || `Сервер вернул ошибку ${response.status}`);
+    }
+    return json as T;
+  } catch (error) {
+    if (controller.signal.aborted && !externalSignal?.aborted) throw new Error("Сервер не ответил вовремя. Проверь соединение и повтори попытку.");
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    externalSignal?.removeEventListener("abort", forwardAbort);
   }
-  return json as T;
 }
 
 const COMPACT_FORMATTER = new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 });
@@ -87,7 +103,10 @@ export default function GameApp() {
   const [selectedIsland, setSelectedIsland] = useState<IslandView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; tone: "info" | "success" | "error" } | null>(null);
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
+  const [lastSyncAt, setLastSyncAt] = useState(() => Date.now());
+  const [syncing, setSyncing] = useState(false);
   const refreshLiveTimer = useRef<number | null>(null);
   const refreshBattleTimer = useRef<number | null>(null);
   const toastTimer = useRef<number | null>(null);
@@ -106,8 +125,10 @@ export default function GameApp() {
     }));
   }, []);
 
-  const notify = useCallback((message: string) => {
-    setToast(message);
+  const notify = useCallback((message: string, tone: "info" | "success" | "error" = "info") => {
+    setToast({ message, tone });
+    if (tone === "success") tg()?.HapticFeedback?.notificationOccurred?.("success");
+    if (tone === "error") tg()?.HapticFeedback?.notificationOccurred?.("error");
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 2600);
   }, []);
@@ -130,6 +151,7 @@ export default function GameApp() {
       }
       const data = await api<GameSnapshot>("/api/game/bootstrap", app.initData, { method: "POST" });
       setSnapshot(data);
+      setLastSyncAt(Date.now());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось открыть игру");
     } finally {
@@ -146,6 +168,20 @@ export default function GameApp() {
     exploreAbortRef.current?.abort();
   }, []);
 
+  useEffect(() => {
+    const app = tg();
+    const back = app?.BackButton;
+    if (!back) return;
+    const handleBack = () => {
+      if (selectedIsland) { setSelectedIsland(null); return; }
+      if (view === "strategy") { setView("island"); return; }
+      if (view !== "map") setView("map");
+    };
+    if (view === "map" && !selectedIsland) back.hide?.(); else back.show?.();
+    back.onClick?.(handleBack);
+    return () => back.offClick?.(handleBack);
+  }, [view, selectedIsland?.id]);
+
 
   useEffect(() => {
     if (!selectedIsland || !snapshot) return;
@@ -159,6 +195,7 @@ export default function GameApp() {
     try {
       const fresh = await api<GameSnapshot>(`/api/game/state?stateId=${snapshot.state.id}`, initData);
       acceptSnapshot(fresh);
+      setLastSyncAt(Date.now());
     } catch {
       // Realtime/visibility refreshes are best-effort. A transient Vercel or
       // mobile-network failure must not become an unhandled promise rejection.
@@ -167,10 +204,41 @@ export default function GameApp() {
     }
   }, [snapshot?.state.id, initData, acceptSnapshot]);
 
+  const syncNow = useCallback(async () => {
+    if (!snapshot || !initData || syncing) return;
+    setSyncing(true);
+    try {
+      const fresh = await api<GameSnapshot>(`/api/game/state?stateId=${snapshot.state.id}`, initData);
+      acceptSnapshot(fresh);
+      setLastSyncAt(Date.now());
+      notify("Данные синхронизированы", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Не удалось синхронизировать данные", "error");
+    } finally {
+      setSyncing(false);
+    }
+  }, [snapshot?.state.id, initData, syncing, acceptSnapshot, notify]);
+
   const scheduleRefreshLive = useCallback(() => {
     if (refreshLiveTimer.current) window.clearTimeout(refreshLiveTimer.current);
     refreshLiveTimer.current = window.setTimeout(() => { void refreshLive(); }, 220);
   }, [refreshLive]);
+
+  useEffect(() => {
+    const online = () => { setIsOnline(true); scheduleRefreshLive(); };
+    const offline = () => setIsOnline(false);
+    window.addEventListener("online", online);
+    window.addEventListener("offline", offline);
+    return () => { window.removeEventListener("online", online); window.removeEventListener("offline", offline); };
+  }, [scheduleRefreshLive]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") scheduleRefreshLive();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [scheduleRefreshLive]);
 
   const refreshBattle = useCallback(async () => {
     const battleId = snapshot?.activeBattle?.id;
@@ -179,6 +247,7 @@ export default function GameApp() {
     try {
       const battle = await api<BattleView>(`/api/game/battle?battleId=${battleId}`, initData);
       setSnapshot((current) => current ? { ...current, activeBattle: battle } : current);
+      setLastSyncAt(Date.now());
       if (battle.status === "resolved") window.setTimeout(() => scheduleRefreshLive(), 500);
     } catch { /* realtime can race with resolution */ }
     finally { refreshBattleInFlightRef.current = false; }
@@ -254,8 +323,8 @@ export default function GameApp() {
         body: JSON.stringify({ stateId: snapshot.state.id, buildingType: type }),
       });
       acceptSnapshot(fresh);
-      notify("Инфраструктура улучшена");
-    } catch (e) { notify(e instanceof Error ? e.message : "Ошибка улучшения"); }
+      notify("Инфраструктура улучшена", "success");
+    } catch (e) { notify(e instanceof Error ? e.message : "Ошибка улучшения", "error"); }
   }
 
   async function repairOwnIsland(amount = 25) {
@@ -266,8 +335,8 @@ export default function GameApp() {
         body: JSON.stringify({ stateId: snapshot.state.id, amount }),
       });
       acceptSnapshot(result.snapshot);
-      notify(`+${result.repair.repaired}% прочности · ${result.repair.integrity}%`);
-    } catch (e) { notify(e instanceof Error ? e.message : "Ремонт не удался"); }
+      notify(`+${result.repair.repaired}% прочности · ${result.repair.integrity}%`, "success");
+    } catch (e) { notify(e instanceof Error ? e.message : "Ремонт не удался", "error"); }
   }
 
   async function attackIsland(island: IslandView, battleType: WarType = "raid") {
@@ -280,8 +349,8 @@ export default function GameApp() {
       acceptSnapshot({ ...result.snapshot, activeBattle: result.battle });
       setSelectedIsland(null);
       setView("battle");
-      notify("Атака началась. Зови людей из чата.");
-    } catch (e) { notify(e instanceof Error ? e.message : "Атака не удалась"); }
+      notify("Атака началась. Зови людей из чата.", "success");
+    } catch (e) { notify(e instanceof Error ? e.message : "Атака не удалась", "error"); }
   }
 
   async function joinBattle(klass: BattleClass) {
@@ -289,7 +358,7 @@ export default function GameApp() {
     try {
       const battle = await api<BattleView>("/api/game/battle/join", initData, { method: "POST", body: JSON.stringify({ battleId: snapshot.activeBattle.id, class: klass }) });
       setSnapshot({ ...snapshot, activeBattle: battle });
-    } catch (e) { notify(e instanceof Error ? e.message : "Не удалось войти в бой"); }
+    } catch (e) { notify(e instanceof Error ? e.message : "Не удалось войти в бой", "error"); }
   }
 
   async function actBattle(action: string, payload: Record<string, unknown> = {}) {
@@ -297,7 +366,7 @@ export default function GameApp() {
     try {
       const battle = await api<BattleView>("/api/game/battle/action", initData, { method: "POST", body: JSON.stringify({ battleId: snapshot.activeBattle.id, action, ...payload }) });
       setSnapshot({ ...snapshot, activeBattle: battle });
-    } catch (e) { notify(e instanceof Error ? e.message : "Действие не удалось"); }
+    } catch (e) { notify(e instanceof Error ? e.message : "Действие не удалось", "error"); }
   }
 
   async function diplomacy(targetStateId: string, action: DiplomacyAction) {
@@ -308,8 +377,8 @@ export default function GameApp() {
         body: JSON.stringify({ stateId: snapshot.state.id, targetStateId, action }),
       });
       await refreshLive();
-      notify("Отношения островов обновлены");
-    } catch (e) { notify(e instanceof Error ? e.message : "Дипломатия не удалась"); }
+      notify("Отношения островов обновлены", "success");
+    } catch (e) { notify(e instanceof Error ? e.message : "Дипломатия не удалась", "error"); }
   }
 
   async function completeActivity(activityKey: string, optionKey: string) {
@@ -320,8 +389,8 @@ export default function GameApp() {
         body: JSON.stringify({ stateId: snapshot.state.id, activityKey, optionKey }),
       });
       acceptSnapshot(result.snapshot);
-      notify(result.result?.success === false ? "Операция прошла с осложнениями" : `Решение выполнено · вклад +${result.result?.contribution || 0}`);
-    } catch (e) { notify(e instanceof Error ? e.message : "Активность не выполнена"); }
+      notify(result.result?.success === false ? "Операция прошла с осложнениями" : `Решение выполнено · вклад +${result.result?.contribution || 0}`, result.result?.success === false ? "info" : "success");
+    } catch (e) { notify(e instanceof Error ? e.message : "Активность не выполнена", "error"); }
   }
 
   async function supportAlly(battleId: string, side: "attacker" | "defender") {
@@ -332,8 +401,8 @@ export default function GameApp() {
         body: JSON.stringify({ stateId: snapshot.state.id, battleId, side }),
       });
       acceptSnapshot(result.snapshot);
-      notify(`Союзнику отправлено +${result.result?.power || 0} силы`);
-    } catch (e) { notify(e instanceof Error ? e.message : "Поддержка не отправлена"); }
+      notify(`Союзнику отправлено +${result.result?.power || 0} силы`, "success");
+    } catch (e) { notify(e instanceof Error ? e.message : "Поддержка не отправлена", "error"); }
   }
 
   async function surrenderCurrentBattle() {
@@ -344,8 +413,8 @@ export default function GameApp() {
         body: JSON.stringify({ stateId: snapshot.state.id, battleId: snapshot.activeBattle.id }),
       });
       acceptSnapshot(fresh);
-      notify("Капитуляция подтверждена");
-    } catch (e) { notify(e instanceof Error ? e.message : "Не удалось завершить бой"); }
+      notify("Капитуляция подтверждена", "success");
+    } catch (e) { notify(e instanceof Error ? e.message : "Не удалось завершить бой", "error"); }
   }
 
   async function claimMission(missionId: string) {
@@ -353,8 +422,8 @@ export default function GameApp() {
     try {
       const fresh = await api<GameSnapshot>("/api/game/missions/claim", initData, { method: "POST", body: JSON.stringify({ stateId: snapshot.state.id, missionId }) });
       acceptSnapshot(fresh);
-      notify("Награда получена");
-    } catch (e) { notify(e instanceof Error ? e.message : "Не удалось получить награду"); }
+      notify("Награда получена", "success");
+    } catch (e) { notify(e instanceof Error ? e.message : "Не удалось получить награду", "error"); }
   }
 
   async function politics(action: string, payload: Record<string, string> = {}) {
@@ -362,8 +431,8 @@ export default function GameApp() {
     try {
       const fresh = await api<GameSnapshot>("/api/game/politics", initData, { method: "POST", body: JSON.stringify({ stateId: snapshot.state.id, action, ...payload }) });
       acceptSnapshot(fresh);
-      notify(action === "vote" ? "Голос учтён" : "Государство обновлено");
-    } catch (e) { notify(e instanceof Error ? e.message : "Политическое действие не удалось"); }
+      notify(action === "vote" ? "Голос учтён" : "Государство обновлено", "success");
+    } catch (e) { notify(e instanceof Error ? e.message : "Политическое действие не удалось", "error"); }
   }
 
   async function customizeState(patch: Partial<Pick<StateView, "motto" | "emblem" | "theme" | "color">>) {
@@ -371,8 +440,8 @@ export default function GameApp() {
     try {
       const fresh = await api<GameSnapshot>("/api/game/customize", initData, { method: "POST", body: JSON.stringify({ stateId: snapshot.state.id, ...patch }) });
       acceptSnapshot(fresh);
-      notify("Оформление острова обновлено");
-    } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить оформление"); }
+      notify("Оформление острова обновлено", "success");
+    } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить оформление", "error"); }
   }
 
   async function recruitment(action: string, payload: Record<string, unknown> = {}) {
@@ -383,11 +452,17 @@ export default function GameApp() {
         body: JSON.stringify({ stateId: snapshot.state.id, action, ...payload }),
       });
       acceptSnapshot(fresh);
-      notify("Набор обновлён");
+      notify("Набор обновлён", "success");
     } catch (e) {
-      notify(e instanceof Error ? e.message : "Не удалось выполнить действие набора");
+      notify(e instanceof Error ? e.message : "Не удалось выполнить действие набора", "error");
     }
   }
+
+  const navigate = useCallback((next: View) => {
+    tg()?.HapticFeedback?.impactOccurred?.("light");
+    if (next !== "map") setSelectedIsland(null);
+    setView(next);
+  }, []);
 
   if (loading) return <Splash text="Открываем мировой океан…" />;
   if (error || !snapshot) return <Splash text={error || "Ошибка"} action="Повторить" onAction={bootstrap} />;
@@ -396,9 +471,9 @@ export default function GameApp() {
 
   return (
     <main className="app-shell island-app-shell">
-      <MobileHeader snapshot={snapshot} />
+      <MobileHeader snapshot={snapshot} online={isOnline} lastSyncAt={lastSyncAt} syncing={syncing} onSync={syncNow} />
 
-      <section className="viewport island-viewport">
+      <section className="viewport island-viewport" data-view={view}>
         {view === "map" && (
           <IslandMap
             snapshot={snapshot}
@@ -406,12 +481,12 @@ export default function GameApp() {
             onSelect={setSelectedIsland}
             onAttack={attackIsland}
             onExplore={exploreIslands}
-            onOpenBattle={() => setView("battle")}
-            onOpenIsland={() => setView("island")}
+            onOpenBattle={() => navigate("battle")}
+            onOpenIsland={() => navigate("island")}
           />
         )}
-        {view === "island" && <IslandHome snapshot={snapshot} onUpgrade={upgrade} onRepair={repairOwnIsland} onRecruitment={recruitment} onOpenStrategy={() => setView("strategy")} />}
-        {view === "battle" && <BattleScreen battle={snapshot.activeBattle || null} playerName={snapshot.player.displayName} freeport={snapshot.state.isFreeport} onJoin={joinBattle} onAction={actBattle} />}
+        {view === "island" && <IslandHome snapshot={snapshot} onUpgrade={upgrade} onRepair={repairOwnIsland} onRecruitment={recruitment} onOpenStrategy={() => navigate("strategy")} />}
+        {view === "battle" && <BattleScreen battle={snapshot.activeBattle || null} playerName={snapshot.player.displayName} freeport={snapshot.state.isFreeport} onJoin={joinBattle} onAction={actBattle} onOpenMap={() => navigate("map")} />}
         {view === "rating" && <IslandRanking snapshot={snapshot} />}
         {view === "alliances" && <IslandAlliances snapshot={snapshot} onDiplomacy={diplomacy} />}
         {view === "strategy" && <StrategyPanel snapshot={snapshot} onActivity={completeActivity} onSupport={supportAlly} onSurrender={surrenderCurrentBattle} />}
@@ -420,21 +495,21 @@ export default function GameApp() {
 
       <nav className="bottom-nav island-bottom-nav">
         {availableNav.map((item) => (
-          <button type="button" key={item.key} aria-current={view === item.key ? "page" : undefined} aria-label={item.label} className={(view === item.key || (view === "strategy" && item.key === "island")) ? "active" : ""} onClick={() => { tg()?.HapticFeedback?.impactOccurred?.("light"); setView(item.key); }}>
-            <span className="nav-icon-wrap"><NavIcon type={item.key} />{item.key === "battle" && snapshot.activeBattle ? <i className="nav-live-dot" /> : null}</span><small>{item.label}</small>
+          <button type="button" key={item.key} aria-current={view === item.key ? "page" : undefined} aria-label={item.label} className={(view === item.key || (view === "strategy" && item.key === "island")) ? "active" : ""} onClick={() => navigate(item.key)}>
+            <span className="nav-icon-wrap"><NavIcon type={item.key} />{item.key === "battle" && snapshot.activeBattle ? <i className="nav-live-dot" /> : null}{item.key === "alliances" && snapshot.diplomacy.some((rel) => rel.status.endsWith("_pending") && rel.requestedByStateId !== snapshot.state.id) ? <i className="nav-pending-dot" /> : null}</span><small>{item.label}</small>
           </button>
         ))}
       </nav>
-      {toast && <div className="toast">{toast}</div>}
+      {toast && <div className={`toast toast-${toast.tone}`} role="status" aria-live="polite"><span>{toast.message}</span></div>}
     </main>
   );
 }
 
 function Splash({ text, action, onAction }: { text: string; action?: string; onAction?: () => void }) {
-  return <main className="splash"><div className="logo-mark">GW</div><h1>WARSTATE</h1><p>{text}</p>{action && <button className="primary" onClick={onAction}>{action}</button>}</main>;
+  return <main className="splash ws-splash"><div className="ws-splash-orbit"><div className="logo-mark">GW</div></div><h1>WARSTATE</h1><p>{text}</p><div className="ws-loading-bars" aria-hidden="true"><i/><i/><i/></div>{action && <button className="primary" onClick={onAction}>{action}</button>}</main>;
 }
 
-const MobileHeader = memo(function MobileHeader({ snapshot }: { snapshot: GameSnapshot }) {
+const MobileHeader = memo(function MobileHeader({ snapshot, online, lastSyncAt, syncing, onSync }: { snapshot: GameSnapshot; online: boolean; lastSyncAt: number; syncing: boolean; onSync: () => void }) {
   const state = snapshot.state;
   const role = state.isFreeport ? "Свободный игрок" : snapshot.player.role === "president" ? "Президент" : snapshot.player.role === "minister" || snapshot.player.role === "deputy" ? "Заместитель" : snapshot.player.role === "curator" ? "Куратор" : "Участник";
   const compact = (value: number) => COMPACT_FORMATTER.format(value);
@@ -444,6 +519,7 @@ const MobileHeader = memo(function MobileHeader({ snapshot }: { snapshot: GameSn
         <span className="game-brand-rune" aria-hidden="true">GW</span>
         <span className="header-avatar game-header-avatar" style={{ background: state.color }}>{state.avatarUrl ? <Image src={state.avatarUrl} alt="" width={42} height={42} unoptimized /> : state.emblem}</span>
         <div className="header-state-name game-header-name"><b>{state.name}</b><small>{role}{state.isFreeport ? " · нейтральная гавань" : ` · #${state.seasonRank}`}</small></div>
+        <button type="button" className={`game-sync ${online ? "online" : "offline"} ${syncing ? "syncing" : ""}`} onClick={onSync} disabled={!online || syncing} aria-label="Синхронизировать данные" title={online ? `Последняя синхронизация · ${new Date(lastSyncAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Нет соединения"}><i />{syncing ? "SYNC" : online ? "LIVE" : "OFF"}</button>
       </div>
       <div className="game-header-stats">
         {state.isFreeport ? (

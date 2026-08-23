@@ -150,7 +150,7 @@ function IslandArtInner({ id, members, color, integrity, ruined = false, selecte
       {/* Beach and grass use the same paired silhouette. */}
       <path d={COASTS[variant]} fill={`url(#beach-${seed})`} filter={detail === "far" ? undefined : `url(#softShadow-${seed})`} />
       <path d={LAND[variant]} fill={`url(#land-${seed})`} />
-      <path d={LAND[variant]} fill={`url(#landShade-${seed})`} opacity=".48" transform="translate(0 5) scale(1 .96)" transformOrigin="120px 90px" />
+      <path d={LAND[variant]} fill={`url(#landShade-${seed})`} opacity=".48" transform="translate(0 5) translate(0 90) scale(1 .96) translate(0 -90)" />
 
       {/* Every land decoration is clipped by the grass silhouette as a final
           guardrail: even a future bad anchor cannot render a house in water. */}

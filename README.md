@@ -1,4 +1,6 @@
-# GROUP WARS v1.3 — Cartoon Island UI Overhaul
+# GROUP WARS
+
+> v1.3.1 hotfix: corrected React SVG typing in island shading (`transformOrigin` was removed from `<path>` props). v1.3 — Cartoon Island UI Overhaul
 
 Telegram-native multiplayer strategy where **every Telegram group becomes a persistent island-state** on an expandable ocean.
 

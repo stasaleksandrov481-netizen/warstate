@@ -190,7 +190,7 @@ async function inviteForState(stateId: string, playerName: string) {
     .single();
   if (error || !state) throw new Error("Государство не найдено.");
   if (state.is_freeport || !state.telegram_chat_id) throw new Error("В Freeport приглашение не требуется.");
-  const invite = await createSingleUseInviteLink(Number(state.telegram_chat_id), `GROUP WARS · ${playerName}`);
+  const invite = await createSingleUseInviteLink(Number(state.telegram_chat_id), `WARSTATE · ${playerName}`);
   return invite.invite_link;
 }
 

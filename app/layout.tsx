@@ -5,8 +5,8 @@ import "./globals.css";
 import "./game-theme.css";
 
 export const metadata: Metadata = {
-  title: "GROUP WARS",
-  description: "Telegram groups become island-states. Grow your island, fight rivals and climb the ELO ladder.",
+  title: "WARSTATE",
+  description: "WARSTATE — Telegram strategy game where chats become island-states.",
 };
 
 export const viewport: Viewport = {
@@ -15,7 +15,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: "#173a50",
+  themeColor: "#0b2730",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

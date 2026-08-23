@@ -86,7 +86,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
   try {
     if (["help", "помощь", "команды"].includes(command)) {
       await send(chatId,
-        "🧭 КОМАНДЫ GROUP WARS\n\n" +
+        "🧭 КОМАНДЫ WARSTATE\n\n" +
         "!статус — государство и баланс\n" +
         "!ресурсы — казна и производство\n" +
         "!профиль — роль, опыт и вклад\n" +

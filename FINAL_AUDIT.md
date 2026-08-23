@@ -1,6 +1,17 @@
-# GROUP WARS v1.5.0 — Final audit
+# WARSTATE v1.6.0 — UI + project audit
 
-This archive contains the complete current project tree for GROUP WARS v1.5.0.
+This archive contains the current WARSTATE v1.6.0 project tree, based on the v1.5.0 gameplay build with a Mini App UI overhaul.
+
+
+## UI overhaul in v1.6.0
+
+- Replaced the font-rendered island-sheet close glyph with a symmetric two-path SVG icon.
+- Removed the artificial outer device/frame look from the Mini App shell.
+- Added Telegram WebApp chrome color synchronization through guarded SDK methods.
+- Rebuilt header, stat chips, island labels, map tools, selected-island sheet and bottom navigation around translucent sea-glass surfaces.
+- Reduced bottom navigation from seven cramped items to six primary destinations; Strategy remains accessible from Island through a dedicated HQ entry.
+- Unified internal screen surfaces and spacing around the WARSTATE beach/island visual language.
+- Updated user-facing brand strings and metadata to WARSTATE.
 
 ## Implemented in v1.5.0
 
@@ -27,7 +38,7 @@ This archive contains the complete current project tree for GROUP WARS v1.5.0.
 
 ## Audit performed
 
-- TypeScript/TSX syntax transpile audit: 55/55 source files passed.
+- TypeScript/TSX syntax transpile audit after v1.6 UI changes: 56/56 source files passed.
 - Local import resolution audit: no missing project-local imports.
 - RPC contract audit: all 20 RPC names referenced by application code are defined in Supabase migrations.
 - SQL migration `013_full_state_wars_spec.sql`: structural delimiter check passed and required functions are present.

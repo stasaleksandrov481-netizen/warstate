@@ -42,6 +42,16 @@ function attackReason(snapshot: GameSnapshot, island: IslandView, now: number) {
   return null;
 }
 
+
+function CloseIcon() {
+  return (
+    <svg className="ui-close-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 6L18 18" />
+      <path d="M18 6L6 18" />
+    </svg>
+  );
+}
+
 type Camera = { x: number; y: number; zoom: number };
 
 function cameraTransform(camera: Camera, viewport: { width: number; height: number }) {
@@ -391,7 +401,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
 
       {selected && (
         <section className="game-island-sheet" style={{ ["--sheet-color" as any]: selected.color }}>
-          <button className="sheet-close" type="button" onClick={() => onSelect(null)}>×</button>
+          <button className="sheet-close" type="button" onClick={() => onSelect(null)} aria-label="Закрыть"><CloseIcon /></button>
           <div className="sheet-island-id">
             <span className="sheet-avatar" style={{ background: selected.color }}>
               {selected.avatarUrl ? <Image src={selected.avatarUrl} alt="" width={52} height={52} unoptimized /> : selected.emblem}

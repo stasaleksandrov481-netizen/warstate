@@ -17,7 +17,7 @@ async function sendFreeportMessage(chatId: number) {
     chat_id: chatId,
     text:
       `⚓ FREEPORT\n\n` +
-      `Нейтральная гавань GROUP WARS. Здесь можно начать одному, прокачать профиль, найти государство и подать заявку на вступление.\n\n` +
+      `Нейтральная гавань WARSTATE. Здесь можно начать одному, прокачать профиль, найти государство и подать заявку на вступление.\n\n` +
       `Когда вступишь в Telegram-группу государства, открой игру из той группы — привязка подтвердится автоматически.`,
     reply_markup: {
       inline_keyboard: [[{ text: "⚓ Войти в Freeport", url: miniAppLink() }]],
@@ -30,7 +30,7 @@ async function sendLaunchMessage(chatId: number, title?: string) {
   return telegramApi("sendMessage", {
     chat_id: chatId,
     text:
-      `⚔️ GROUP WARS\n\n` +
+      `⚔️ WARSTATE\n\n` +
       `${title ? `Группа «${title}»` : "Этот чат"} может стать островом-государством. ` +
       `Размер острова растёт вместе с сообществом, а рейтинг меняется в морских войнах против других Telegram-групп.\n\n` +
       `Первый запуск должен сделать администратор группы.`,
@@ -77,7 +77,7 @@ async function processSuccessfulPayment(message: any) {
   const supabase = getSupabaseAdmin();
   const { data: player, error: playerError } = await supabase.from("players").select("id").eq("telegram_id", senderId).maybeSingle();
   if (playerError) throw playerError;
-  if (!player) throw new Error("Paid Telegram account has no GROUP WARS player row.");
+  if (!player) throw new Error("Paid Telegram account has no WARSTATE player row.");
 
   const { error: paymentError } = await supabase.from("payments").insert({
     telegram_charge_id: chargeId,

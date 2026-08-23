@@ -92,9 +92,10 @@ type IslandHomeProps = {
   onUpgrade: (type: BuildingType) => void;
   onRepair: (amount?: number) => void;
   onRecruitment: RecruitmentAction;
+  onOpenStrategy?: () => void;
 };
 
-function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment }: IslandHomeProps) {
+function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment, onOpenStrategy }: IslandHomeProps) {
   const state = snapshot.state;
   const [now, setNow] = useState(() => Date.now());
   const [headline, setHeadline] = useState(snapshot.recruitment.post?.headline || "Набор открыт");
@@ -129,6 +130,14 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment }: Islan
         <span><small>СЕРИЯ</small><b>×{state.winStreak}</b><em>рекорд ×{state.bestWinStreak}</em></span>
         <span><small>МИР</small><b>#{state.seasonRank}</b><em>{state.islandWins}W · {state.islandLosses}L</em></span>
       </div>
+
+      {onOpenStrategy && (
+        <button className="strategy-entry" type="button" onClick={onOpenStrategy}>
+          <span className="strategy-entry-icon" aria-hidden="true">⌂</span>
+          <span><small>СТРАТЕГИЧЕСКИЙ ЦЕНТР</small><b>Открыть штаб</b><em>Армия, оборона, активности и союзная поддержка</em></span>
+          <i aria-hidden="true">›</i>
+        </button>
+      )}
 
       {destroyed ? <div className="rebuild-card"><b>☠ Остров разрушен</b><p>Идёт аварийное восстановление. После выхода из руин остров вернётся с базовой прочностью и щитом.</p></div> : state.islandIntegrity < 100 ? (
         <div className="repair-card"><div><small>РЕМОНТ ОСТРОВА</small><b>{state.islandIntegrity}% → {Math.min(100, state.islandIntegrity + repairAmount)}%</b><span>Повреждения снижают производство.</span></div><button type="button" disabled={!canRepair} onClick={() => onRepair(repairAmount)}>Ремонт<small>{repairCredits} ₡ · {repairSteel} стали</small></button></div>

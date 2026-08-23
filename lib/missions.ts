@@ -2,7 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 import type { DailyMissionView, MissionKey } from "@/lib/types";
 
 export const DAILY: Array<{ key: MissionKey; title: string; description: string; target: number; rewardXp: number; rewardCredits: number }> = [
-  { key: "check_in", title: "На связи", description: "Открой GROUP WARS сегодня", target: 1, rewardXp: 80, rewardCredits: 300 },
+  { key: "check_in", title: "На связи", description: "Открой WARSTATE сегодня", target: 1, rewardXp: 80, rewardCredits: 300 },
   { key: "join_battle", title: "Мобилизация", description: "Войди хотя бы в одну битву", target: 1, rewardXp: 140, rewardCredits: 450 },
   { key: "battle_action", title: "На передовой", description: "Совершите 5 действий в бою", target: 5, rewardXp: 180, rewardCredits: 600 },
   { key: "capture_point", title: "Захватчик", description: "Захвати одну точку A/B/C", target: 1, rewardXp: 220, rewardCredits: 800 },

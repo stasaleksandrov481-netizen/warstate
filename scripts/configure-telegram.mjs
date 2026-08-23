@@ -27,7 +27,7 @@ await api("setWebhook", {
 
 await api("setMyCommands", {
   commands: [
-    { command: "groupwars", description: "Открыть GROUP WARS для этого чата" },
+    { command: "groupwars", description: "Открыть WARSTATE для этого чата" },
     { command: "gw", description: "Быстрый вход в игру" },
   ],
 });

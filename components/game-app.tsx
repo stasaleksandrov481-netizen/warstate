@@ -31,6 +31,10 @@ type TelegramWebApp = {
   initDataUnsafe?: { start_param?: string; user?: { first_name?: string } };
   ready?: () => void;
   expand?: () => void;
+  setHeaderColor?: (color: string) => void;
+  setBackgroundColor?: (color: string) => void;
+  setBottomBarColor?: (color: string) => void;
+  disableVerticalSwipes?: () => void;
   HapticFeedback?: { impactOccurred?: (style: string) => void; notificationOccurred?: (type: string) => void };
 };
 
@@ -74,7 +78,6 @@ const NAV: Array<{ key: View; label: string }> = [
   { key: "battle", label: "Битвы" },
   { key: "rating", label: "Рейтинг" },
   { key: "alliances", label: "Союзы" },
-  { key: "strategy", label: "Штаб" },
   { key: "profile", label: "Профиль" },
 ];
 
@@ -116,6 +119,12 @@ export default function GameApp() {
       const app = tg();
       app?.ready?.();
       app?.expand?.();
+      // Telegram does not support a truly transparent native chrome on every client.
+      // Matching the chrome to the app background makes the Mini App frame visually disappear.
+      app?.setHeaderColor?.("#0b2730");
+      app?.setBackgroundColor?.("#0b2730");
+      app?.setBottomBarColor?.("#0b2730");
+      app?.disableVerticalSwipes?.();
       if (!app?.initData) {
         throw new Error("Откройте live-версию игры внутри Telegram Mini App.");
       }
@@ -401,7 +410,7 @@ export default function GameApp() {
             onOpenIsland={() => setView("island")}
           />
         )}
-        {view === "island" && <IslandHome snapshot={snapshot} onUpgrade={upgrade} onRepair={repairOwnIsland} onRecruitment={recruitment} />}
+        {view === "island" && <IslandHome snapshot={snapshot} onUpgrade={upgrade} onRepair={repairOwnIsland} onRecruitment={recruitment} onOpenStrategy={() => setView("strategy")} />}
         {view === "battle" && <BattleScreen battle={snapshot.activeBattle || null} playerName={snapshot.player.displayName} freeport={snapshot.state.isFreeport} onJoin={joinBattle} onAction={actBattle} />}
         {view === "rating" && <IslandRanking snapshot={snapshot} />}
         {view === "alliances" && <IslandAlliances snapshot={snapshot} onDiplomacy={diplomacy} />}
@@ -411,7 +420,7 @@ export default function GameApp() {
 
       <nav className="bottom-nav island-bottom-nav">
         {availableNav.map((item) => (
-          <button type="button" key={item.key} aria-current={view === item.key ? "page" : undefined} aria-label={item.label} className={view === item.key ? "active" : ""} onClick={() => { tg()?.HapticFeedback?.impactOccurred?.("light"); setView(item.key); }}>
+          <button type="button" key={item.key} aria-current={view === item.key ? "page" : undefined} aria-label={item.label} className={(view === item.key || (view === "strategy" && item.key === "island")) ? "active" : ""} onClick={() => { tg()?.HapticFeedback?.impactOccurred?.("light"); setView(item.key); }}>
             <span className="nav-icon-wrap"><NavIcon type={item.key} />{item.key === "battle" && snapshot.activeBattle ? <i className="nav-live-dot" /> : null}</span><small>{item.label}</small>
           </button>
         ))}
@@ -422,7 +431,7 @@ export default function GameApp() {
 }
 
 function Splash({ text, action, onAction }: { text: string; action?: string; onAction?: () => void }) {
-  return <main className="splash"><div className="logo-mark">GW</div><h1>GROUP WARS</h1><p>{text}</p>{action && <button className="primary" onClick={onAction}>{action}</button>}</main>;
+  return <main className="splash"><div className="logo-mark">GW</div><h1>WARSTATE</h1><p>{text}</p>{action && <button className="primary" onClick={onAction}>{action}</button>}</main>;
 }
 
 const MobileHeader = memo(function MobileHeader({ snapshot }: { snapshot: GameSnapshot }) {

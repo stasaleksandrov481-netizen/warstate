@@ -10,7 +10,7 @@ export interface GameProduct {
 export const PRODUCTS: Record<string, GameProduct> = {
   season_pass: {
     title: "Season Pass",
-    description: "Сезонная косметическая ветка GROUP WARS",
+    description: "Сезонная косметическая ветка WARSTATE",
     stars: 250,
     scope: "player",
   },

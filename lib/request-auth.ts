@@ -57,8 +57,8 @@ export async function authorizeBattleAction(request: Request, battleId: string) 
   const session = sessionFromRequest(request);
   const supabase = getSupabaseAdmin();
   const { data: player, error: playerError } = await supabase.from("players").select("*").eq("telegram_id", session.user.id).single();
-  if (playerError) throw new Error("Player not found. Open GROUP WARS from your group first.");
-  const playerRow = requireData(player, "Player not found. Open GROUP WARS from your group first.");
+  if (playerError) throw new Error("Player not found. Open WARSTATE from your group first.");
+  const playerRow = requireData(player, "Player not found. Open WARSTATE from your group first.");
   const { data: battle, error: battleError } = await supabase.from("battles").select("attacker_state_id,defender_state_id").eq("id", battleId).single();
   if (battleError) throw new Error("Battle not found.");
   const battleRow = requireData(battle, "Battle not found.");

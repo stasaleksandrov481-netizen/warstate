@@ -653,9 +653,6 @@ begin
   if is_transition then
     -- Freeport is not a citizenship laundering route: once a player actually
     -- leaves one home state, the same 24h transition cooldown follows them.
-    if player_row.last_state_change_at is not null and player_row.last_state_change_at>now()-interval '24 hours' then
-      raise exception 'Менять государство можно не чаще одного раза в 24 часа.';
-    end if;
     if not current_state.is_freeport and not target_state.is_freeport
       and not current_state.is_beginner_island and not target_state.is_beginner_island then
       raise exception 'Прямой переход между обычными государствами запрещён.';

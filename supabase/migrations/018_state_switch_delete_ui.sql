@@ -36,10 +36,6 @@ begin
     return membership.id;
   end if;
 
-  if player_row.last_state_change_at is not null and player_row.last_state_change_at > now()-interval '24 hours' then
-    raise exception 'Менять государство можно не чаще одного раза в 24 часа.';
-  end if;
-
   if player_row.home_state_id is not null then
     select * into current_state from public.states where id=player_row.home_state_id for update;
     if found then

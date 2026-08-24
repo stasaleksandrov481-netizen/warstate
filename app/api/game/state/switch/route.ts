@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     });
     if (switchError) {
       if (switchError.code === "PGRST202") throw new Error("Не применена миграция 018_state_switch_delete_ui.sql.");
-      throw switchError;
+      throw new Error(switchError.message || "Не удалось сменить государство.");
     }
 
     const { data: member, error: memberError } = await supabase

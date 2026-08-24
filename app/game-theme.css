@@ -1246,3 +1246,60 @@ body{background:radial-gradient(circle at 50% -15%,rgba(30,135,146,.22),transpar
 .government-vote{margin-top:12px;padding:12px;border:1px solid rgba(103,221,235,.18);border-radius:16px;background:linear-gradient(135deg,rgba(17,72,82,.38),rgba(8,37,48,.22))}
 .government-vote>label{display:block;font-size:11px;font-weight:900;letter-spacing:.08em;color:rgba(220,248,250,.74);margin-bottom:7px}
 .government-vote>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.government-vote input{min-width:0}.government-vote>small{display:block;margin-top:7px;color:rgba(205,231,233,.62);font-size:10px;line-height:1.35}
+
+/* ========================================================================== */
+/* WARSTATE v2.0.0 · Event-driven command polish                              */
+/* ========================================================================== */
+
+/* Compact event ribbon: actionable live state without opening five screens. */
+.world-pulse{
+  position:absolute;z-index:54;left:8px;right:8px;top:82px;display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;
+  padding:0 1px 5px;scrollbar-width:none;pointer-events:auto;mask-image:linear-gradient(90deg,transparent,#000 8px,#000 calc(100% - 8px),transparent)
+}
+.world-pulse::-webkit-scrollbar{display:none}
+.world-pulse-item{
+  flex:0 0 auto;min-width:124px;height:42px;padding:5px 8px 5px 6px;border:1px solid rgba(212,239,228,.16);border-radius:14px;
+  display:grid;grid-template-columns:28px minmax(58px,1fr) auto;align-items:center;gap:6px;color:#eef8f1;
+  background:linear-gradient(145deg,rgba(8,48,58,.92),rgba(5,34,44,.91));box-shadow:var(--ws-inset),0 8px 20px rgba(1,20,28,.15);backdrop-filter:blur(12px) saturate(1.15)
+}
+.world-pulse-item>i{width:27px;height:27px;display:grid;place-items:center;border-radius:9px;background:rgba(255,255,255,.06);font-size:12px;font-style:normal}
+.world-pulse-item>span{min-width:0;text-align:left}.world-pulse-item small{display:block;font-size:5.6px;font-weight:900;letter-spacing:.08em;color:#91b4ad}.world-pulse-item b{display:block;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:8.4px;color:#fff}.world-pulse-item>em{font-size:7px;font-style:normal;font-weight:900;color:#c8ddd7;white-space:nowrap}
+.world-pulse-item.danger{border-color:rgba(238,118,101,.27);background:linear-gradient(145deg,rgba(105,43,43,.84),rgba(39,36,43,.91))}.world-pulse-item.danger>i{background:rgba(238,118,101,.14);color:#ffb1a5}.world-pulse-item.danger>em{color:#ffc0b7}
+.world-pulse-item.build{border-color:rgba(242,207,114,.23)}.world-pulse-item.build>i{background:rgba(242,207,114,.12);color:#ffe09a}.world-pulse-item.build>em{color:#f5db94}
+.world-pulse-item.vote{border-color:rgba(116,199,187,.24)}.world-pulse-item.vote>i{background:rgba(116,199,187,.11);color:#9de4d6}
+.world-pulse-item.reward{border-color:rgba(112,214,157,.24)}.world-pulse-item.reward>i{background:rgba(112,214,157,.12);color:#9ce4b7}.world-pulse-item.reward>em{color:#9ce4b7}
+.world-pulse-item:active{transform:translateY(1px) scale(.975)!important}
+
+/* Navigation now advertises relevant state instead of making players hunt. */
+.nav-build-dot,.nav-reward-dot{position:absolute;right:-1px;top:-1px;width:8px;height:8px;border-radius:50%;border:2px solid #0a3039}
+.nav-build-dot{background:#75cfd0;box-shadow:0 0 0 2px rgba(117,207,208,.06)}
+.nav-reward-dot{background:#f1cf70;box-shadow:0 0 0 2px rgba(241,207,112,.07)}
+
+/* More consistent high-end surfaces across every non-map page. */
+:is(.island-home-screen,.strategy-screen,.ranking-screen,.alliances-screen,.state-screen,.battle-screen){
+  scrollbar-width:thin;scrollbar-color:rgba(174,215,201,.24) transparent
+}
+:is(.island-home-screen,.strategy-screen,.ranking-screen,.alliances-screen,.state-screen,.battle-screen)::-webkit-scrollbar{width:4px}
+:is(.island-home-screen,.strategy-screen,.ranking-screen,.alliances-screen,.state-screen,.battle-screen)::-webkit-scrollbar-thumb{background:rgba(174,215,201,.22);border-radius:99px}
+:is(.island-section,.panel,.strategy-card,.battle-head-v2,.scoreboard-v2,.combat-card-v2,.ranking-list-v2 article,.relations-list-v2 article){
+  transform:translateZ(0);backface-visibility:hidden
+}
+:is(.island-home-screen,.strategy-screen,.ranking-screen,.alliances-screen,.state-screen,.battle-screen) :is(input,textarea,select){
+  -webkit-tap-highlight-color:transparent;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease
+}
+:is(.island-home-screen,.strategy-screen,.ranking-screen,.alliances-screen,.state-screen,.battle-screen) :is(input,textarea,select):focus{
+  outline:0!important;border-color:rgba(242,207,114,.34)!important;box-shadow:0 0 0 3px rgba(242,207,114,.07)!important;background:rgba(4,38,47,.72)!important
+}
+
+/* Empty/loading states feel intentional instead of looking like missing data. */
+.scene-loading{min-height:220px!important;display:grid!important;place-content:center!important;justify-items:center!important;gap:10px!important;color:#a8c2bc!important;background:radial-gradient(circle,rgba(80,163,156,.10),transparent 60%)!important}
+.scene-loading>i{width:42px!important;height:42px!important;border-radius:50%!important;border:2px solid rgba(211,235,225,.14)!important;border-top-color:#f0cf74!important;animation:wsSceneSpin .9s linear infinite!important}.scene-loading>span{font-size:9px!important;font-weight:800!important;letter-spacing:.03em!important}
+@keyframes wsSceneSpin{to{transform:rotate(360deg)}}
+
+@media(max-width:390px){
+  .world-pulse{left:6px;right:6px;top:78px;gap:4px}.world-pulse-item{min-width:113px;height:39px;grid-template-columns:25px minmax(54px,1fr) auto;padding-right:6px}.world-pulse-item>i{width:24px;height:24px}.world-pulse-item b{font-size:7.6px}.world-pulse-item>em{font-size:6.4px}
+}
+
+@media(prefers-reduced-motion:reduce){
+  .scene-loading>i{animation:none!important}.world-pulse-item{transition:none!important}
+}

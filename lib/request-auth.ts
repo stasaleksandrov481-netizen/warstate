@@ -55,9 +55,14 @@ export function jsonError(error: unknown, status?: number) {
     lower.includes("подп") || lower.includes("initdata") || lower.includes("в браузере live-версия") || lower.includes("внутри telegram") || lower.includes("истёк") || lower.includes("expired") ? 401 :
     lower.includes("нет прав") || lower.includes("только президент") || lower.includes("не состоите") || lower.includes("больше не состоите") || lower.includes("другому игроку") ? 403 :
     lower.includes("не найден") || lower.includes("не найдена") ? 404 :
+    lower.includes("слишком много") || lower.includes("rate limit") ? 429 :
+    lower.includes("уже выполняется") || lower.includes("уже идёт") || lower.includes("уже идет") || lower.includes("already") ? 409 :
     lower.includes("не настроен") || lower.includes("not configured") || lower.includes("unavailable") ? 503 : 400
   );
-  return Response.json({ error: message }, { status: inferred });
+  return Response.json({ error: message }, {
+    status: inferred,
+    headers: inferred === 429 ? { "retry-after": "5" } : undefined,
+  });
 }
 
 export async function authorizeBattleAction(request: Request, battleId: string) {

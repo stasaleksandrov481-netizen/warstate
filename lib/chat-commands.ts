@@ -119,7 +119,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     if (command === "выборы") {
       if (!snapshot.government.canFounderManage) throw new Error("Внеочередные выборы запускает только Основатель.");
       const electionId = await openGovernmentElection(snapshot.state.id, snapshot.player.id);
-      await send(chatId, `🗳 ВЫБОРЫ ПРЕЗИДЕНТА\n\nГолосование открыто на 30 минут.\nКоманда: !голосовать @username\n\nID выборов: ${electionId}`);
+      await send(chatId, `🗳 ВЫБОРЫ ПРЕЗИДЕНТА\n\nГолосование открыто на 30 минут.\nКоманда: !голосовать @username\n\nИтог будет подведён автоматически при следующей активности государства.`);
       return true;
     }
 
@@ -259,9 +259,9 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
 
     if (command === "государства" || command === "states") {
       const supabase = getSupabaseAdmin();
-      const { data, error } = await supabase.from("states").select("telegram_chat_id,name,state_username,game_level,rating,active_player_count,is_beginner_island").eq("is_freeport", false).order("rating", { ascending: false }).limit(15);
+      const { data, error } = await supabase.from("states").select("name,state_username,game_level,rating,active_player_count,is_beginner_island").eq("is_freeport", false).order("rating", { ascending: false }).limit(15);
       if (error) throw error;
-      const lines = (data || []).map((state: any, index: number) => `${index + 1}. ${state.is_beginner_island ? "🧭 " : ""}${state.name} · ур.${state.game_level} · ${state.rating} ELO · ${state.active_player_count} активных · ID ${state.telegram_chat_id}`);
+      const lines = (data || []).map((state: any, index: number) => `${index + 1}. ${state.is_beginner_island ? "🧭 " : ""}${state.name}${state.state_username ? ` · @${state.state_username}` : ""} · ур.${state.game_level} · ${state.rating} ELO · ${state.active_player_count} активных`);
       await send(chatId, `🌍 ГОСУДАРСТВА\n\n${lines.join("\n") || "Других государств пока нет."}`);
       return true;
     }

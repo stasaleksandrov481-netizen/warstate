@@ -4,6 +4,7 @@ import { getProduct } from "@/lib/products";
 import { handleGroupCallback, handleGroupTextCommand } from "@/lib/chat-commands";
 import { recordChatActivity, registerTelegramState } from "@/lib/government";
 import { bootstrapGame } from "@/lib/game";
+import { reconcileStateRuntimeByChatId } from "@/lib/maintenance";
 
 export const runtime = "nodejs";
 
@@ -121,6 +122,19 @@ export async function POST(request: Request) {
   }
 
   try {
+    // Pre-checkout and successful-payment updates use their own Telegram/charge
+    // idempotency flow because a failed payment write must be allowed to retry.
+    // All ordinary commands, callbacks and membership events are claimed once
+    // globally in PostgreSQL before any game action is executed.
+    if (!update.pre_checkout_query && !update.message?.successful_payment && Number.isSafeInteger(Number(update.update_id))) {
+      const supabase = getSupabaseAdmin();
+      const { data: claimed, error: claimError } = await supabase.rpc("gw_claim_telegram_update", {
+        p_update_id: Number(update.update_id),
+      });
+      if (claimError && claimError.code !== "PGRST202") throw claimError;
+      if (!claimError && claimed === false) return Response.json({ ok: true, duplicate: true });
+    }
+
     if (update.pre_checkout_query) {
       const query = update.pre_checkout_query;
       const payload = parseInvoicePayload(query.invoice_payload);
@@ -174,6 +188,13 @@ export async function POST(request: Request) {
     }
 
     if (message?.chat?.id && ["group", "supergroup"].includes(message.chat.type)) {
+      // Every group update is also an event-driven world tick. Do this before
+      // command handling so !status / !elections / !battle can never observe a
+      // state that is stale merely because Vercel Cron is disabled.
+      await reconcileStateRuntimeByChatId(Number(message.chat.id)).catch((runtimeError) => {
+        console.warn("WARSTATE event-driven maintenance skipped", runtimeError);
+      });
+
       if (await handleGroupTextCommand(message)) return Response.json({ ok: true });
       const text = String(message.text || "").split("@")[0].trim();
       if (["/groupwars", "/gw", "/war"].includes(text)) {
@@ -201,6 +222,7 @@ export async function POST(request: Request) {
           console.warn("WARSTATE chat activity reward skipped", activityError);
         }
       }
+
     }
   } catch (error) {
     console.error("Telegram webhook error", error);

@@ -59,22 +59,69 @@ for (const forbidden of [".env", ".env.local", ".next", "node_modules", ".vercel
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 if (packageJson.name !== "warstate") failures.push(`Unexpected package name: ${packageJson.name}`);
+if (!String(packageJson.version || "").startsWith("2.0.")) failures.push(`Expected v2.0.x package version, found ${packageJson.version}`);
 
-const requiredV19 = [
-  "supabase/migrations/014_government_chat_control.sql",
+const requiredV20 = [
+  "supabase/migrations/015_event_driven_runtime.sql",
+  "lib/maintenance.ts",
   "lib/government.ts",
   "lib/actions.ts",
   "app/api/game/government/route.ts",
-  "app/api/cron/elections/route.ts",
+  "app/api/game/runtime/route.ts",
 ];
-for (const rel of requiredV19) if (!fs.existsSync(path.join(root, rel))) failures.push(`Missing v1.9 file: ${rel}`);
+for (const rel of requiredV20) if (!fs.existsSync(path.join(root, rel))) failures.push(`Missing v2.0 file: ${rel}`);
 
-if (!String(packageJson.version || "").startsWith("1.9.")) failures.push(`Expected v1.9.x package version, found ${packageJson.version}`);
+const vercelPath = path.join(root, "vercel.json");
+if (fs.existsSync(vercelPath)) {
+  const vercel = JSON.parse(fs.readFileSync(vercelPath, "utf8"));
+  if (Array.isArray(vercel.crons) && vercel.crons.length) failures.push("vercel.json still contains scheduled crons; v2.0 must be event-driven by default");
+}
+
+
+const webhookSource = fs.readFileSync(path.join(root, "app/api/telegram/webhook/route.ts"), "utf8");
+if (!webhookSource.includes("gw_claim_telegram_update")) failures.push("Telegram webhook idempotency claim is missing");
+const runtimeMigration = fs.readFileSync(path.join(root, "supabase/migrations/015_event_driven_runtime.sql"), "utf8");
+if (!runtimeMigration.includes("telegram_update_receipts")) failures.push("Telegram update receipt table is missing from migration 015");
+if (!runtimeMigration.includes("gw_claim_state_maintenance")) failures.push("Event-driven maintenance lease RPC is missing from migration 015");
+
+const nextConfigSource = fs.readFileSync(path.join(root, "next.config.ts"), "utf8");
+for (const header of ["X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"]) {
+  if (!nextConfigSource.includes(header)) failures.push(`Security header missing from next.config.ts: ${header}`);
+}
+if (!nextConfigSource.includes("poweredByHeader: false")) failures.push("Next.js X-Powered-By header is still enabled");
+
+// Every application RPC must exist in the migration set. This catches a very
+// common production failure before it reaches Supabase/PostgREST.
+const referencedRpc = new Set();
+for (const file of sourceFiles) {
+  const text = fs.readFileSync(path.join(root, file), "utf8");
+  for (const match of text.matchAll(/\.rpc\(\s*["']([a-zA-Z0-9_]+)["']/g)) referencedRpc.add(match[1]);
+}
+const migrationFiles = walk("supabase/migrations").filter((file) => file.endsWith(".sql"));
+const definedRpc = new Set();
+for (const file of migrationFiles) {
+  const text = fs.readFileSync(path.join(root, file), "utf8");
+  for (const match of text.matchAll(/create\s+(?:or\s+replace\s+)?function\s+(?:public\.)?([a-zA-Z0-9_]+)/gi)) definedRpc.add(match[1]);
+}
+for (const rpc of referencedRpc) if (!definedRpc.has(rpc)) failures.push(`RPC used by app but missing from migrations: ${rpc}`);
+
+const commandSource = fs.readFileSync(path.join(root, "lib/chat-commands.ts"), "utf8");
+const requiredCommands = [
+  "помощь","государство","статус","ресурсы","рейтинг","карта","альянсы","президент","замы","выборы","голосовать",
+  "назначитьпрезидента","назначитьзама","снятьзама","казна","постройки","улучшить","налоги","война","бой","сдаться","разведка",
+  "оборона","союз","разорватьсоюз","активность","миссия","награда","профиль","создатьюз","юз","название","найти",
+];
+for (const command of requiredCommands) if (!commandSource.includes(`"${command}"`) && !commandSource.includes(`'${command}'`)) failures.push(`Requested chat command is missing: !${command}`);
 
 const routes = walk("app/api").filter((file) => file.endsWith("route.ts"));
 notes.push(`${sourceFiles.length} source files scanned`);
 notes.push(`${routes.length} API routes found`);
 notes.push(`${referencedEnv.size} environment variables referenced and documented`);
+notes.push(`${referencedRpc.size}/${referencedRpc.size} referenced RPCs found in migrations`);
+notes.push(`${requiredCommands.length}/${requiredCommands.length} required chat commands present`);
+notes.push("Vercel Cron dependency: disabled by default (event-driven runtime)");
+notes.push("Telegram webhook idempotency: PostgreSQL-backed");
+notes.push("Baseline security headers: enabled");
 
 if (failures.length) {
   console.error("WARSTATE project audit: FAILED");

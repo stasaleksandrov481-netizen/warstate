@@ -290,7 +290,7 @@ export default function GameApp() {
       .subscribe();
     const refreshWhenVisible = () => { if (document.visibilityState === "visible") scheduleRefreshLive(); };
     document.addEventListener("visibilitychange", refreshWhenVisible);
-    const slowTimer = window.setInterval(() => { if (document.visibilityState === "visible") scheduleRefreshLive(); }, 45_000);
+    const slowTimer = window.setInterval(() => { if (document.visibilityState === "visible") scheduleRefreshLive(); }, 75_000);
     return () => {
       window.clearInterval(slowTimer);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
@@ -495,6 +495,7 @@ export default function GameApp() {
   return (
     <main className="app-shell island-app-shell">
       <MobileHeader snapshot={snapshot} online={isOnline} lastSyncAt={lastSyncAt} syncing={syncing} onSync={syncNow} />
+      <WorldPulseBar snapshot={snapshot} onBattle={() => navigate("battle")} onIsland={() => navigate("island")} onProfile={() => navigate("profile")} />
 
       <section className={`viewport island-viewport ws-view-${viewPhase}`} data-view={view}>
         <div className="ws-view-stage" key={view}>
@@ -521,7 +522,12 @@ export default function GameApp() {
       <nav className="bottom-nav island-bottom-nav">
         {availableNav.map((item) => (
           <button type="button" key={item.key} aria-current={view === item.key ? "page" : undefined} aria-label={item.label} className={(view === item.key || (view === "strategy" && item.key === "island")) ? "active" : ""} onClick={() => navigate(item.key)}>
-            <span className="nav-icon-wrap"><NavIcon type={item.key} />{item.key === "battle" && snapshot.activeBattle ? <i className="nav-live-dot" /> : null}{item.key === "alliances" && snapshot.diplomacy.some((rel) => rel.status.endsWith("_pending") && rel.requestedByStateId !== snapshot.state.id) ? <i className="nav-pending-dot" /> : null}</span><small>{item.label}</small>
+            <span className="nav-icon-wrap"><NavIcon type={item.key} />
+              {item.key === "battle" && snapshot.activeBattle ? <i className="nav-live-dot" /> : null}
+              {item.key === "alliances" && snapshot.diplomacy.some((rel) => rel.status.endsWith("_pending") && rel.requestedByStateId !== snapshot.state.id) ? <i className="nav-pending-dot" /> : null}
+              {item.key === "island" && snapshot.buildings.some((building) => building.upgradeFinishesAt && new Date(building.upgradeFinishesAt).getTime() > Date.now()) ? <i className="nav-build-dot" /> : null}
+              {item.key === "profile" && snapshot.dailyMissions.some((mission) => !mission.claimed && mission.progress >= mission.target) ? <i className="nav-reward-dot" /> : null}
+            </span><small>{item.label}</small>
           </button>
         ))}
       </nav>
@@ -532,6 +538,33 @@ export default function GameApp() {
 
 function Splash({ text, action, onAction }: { text: string; action?: string; onAction?: () => void }) {
   return <main className="splash ws-splash"><div className="ws-splash-orbit"><div className="logo-mark">GW</div></div><h1>WARSTATE</h1><p>{text}</p><div className="ws-loading-bars" aria-hidden="true"><i/><i/><i/></div>{action && <button className="primary" onClick={onAction}>{action}</button>}</main>;
+}
+
+function WorldPulseBar({ snapshot, onBattle, onIsland, onProfile }: { snapshot: GameSnapshot; onBattle: () => void; onIsland: () => void; onProfile: () => void }) {
+  const [, forceTime] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => forceTime((value) => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const now = Date.now();
+  const battle = snapshot.activeBattle && snapshot.activeBattle.status !== "resolved" ? snapshot.activeBattle : null;
+  const construction = snapshot.buildings
+    .filter((building) => building.upgradeFinishesAt && new Date(building.upgradeFinishesAt).getTime() > now)
+    .sort((a, b) => new Date(a.upgradeFinishesAt || 0).getTime() - new Date(b.upgradeFinishesAt || 0).getTime())[0];
+  const election = snapshot.election?.status === "open" && new Date(snapshot.election.endsAt).getTime() > now ? snapshot.election : null;
+  const readyRewards = snapshot.dailyMissions.filter((mission) => !mission.claimed && mission.progress >= mission.target).length;
+  const formatLeft = (iso: string) => {
+    const seconds = Math.max(0, Math.ceil((new Date(iso).getTime() - now) / 1000));
+    const minutes = Math.floor(seconds / 60);
+    return minutes > 59 ? `${Math.floor(minutes / 60)}ч ${minutes % 60}м` : `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+  };
+  if (!battle && !construction && !election && !readyRewards) return null;
+  return <div className="world-pulse" aria-label="Текущие события государства">
+    {battle && <button type="button" className="world-pulse-item danger" onClick={onBattle}><i>⚔</i><span><small>БОЙ ИДЁТ</small><b>{battle.attackerScore}:{battle.defenderScore}</b></span><em>{formatLeft(battle.endsAt)}</em></button>}
+    {construction && <button type="button" className="world-pulse-item build" onClick={onIsland}><i>⌂</i><span><small>СТРОИТСЯ</small><b>{construction.label}</b></span><em>{formatLeft(construction.upgradeFinishesAt!)}</em></button>}
+    {election && <button type="button" className="world-pulse-item vote" onClick={onProfile}><i>◆</i><span><small>ВЫБОРЫ</small><b>Президент</b></span><em>{formatLeft(election.endsAt)}</em></button>}
+    {readyRewards > 0 && <button type="button" className="world-pulse-item reward" onClick={onProfile}><i>★</i><span><small>НАГРАДЫ</small><b>{readyRewards} готово</b></span><em>забрать</em></button>}
+  </div>;
 }
 
 const MobileHeader = memo(function MobileHeader({ snapshot, online, lastSyncAt, syncing, onSync }: { snapshot: GameSnapshot; online: boolean; lastSyncAt: number; syncing: boolean; onSync: () => void }) {

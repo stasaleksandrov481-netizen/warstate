@@ -2,6 +2,7 @@ import { authorizeStateAction, jsonError } from "@/lib/request-auth";
 import { getGameSnapshot } from "@/lib/game";
 import { appointPresident, openGovernmentElection, removePresident, renameState, setDeputy, setStateUsername, voteForUsername } from "@/lib/government";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { reconcileStateRuntime } from "@/lib/maintenance";
 
 export const runtime = "nodejs";
 
@@ -13,6 +14,7 @@ export async function POST(request: Request) {
     if (!stateId || !action) throw new Error("stateId and action are required");
     const auth = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
     if (auth.state.is_freeport) throw new Error("У Freeport нет собственного правительства.");
+    await reconcileStateRuntime(stateId, { force: true });
 
     if (action === "open_election") {
       await openGovernmentElection(stateId, auth.player.id);

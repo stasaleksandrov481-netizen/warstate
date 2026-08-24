@@ -11,6 +11,7 @@ import { requireData } from "@/lib/invariants";
 import { getRecruitmentHub } from "@/lib/recruitment";
 import { getStrategyView } from "@/lib/strategy";
 import { getGovernmentView, registerTelegramState } from "@/lib/government";
+import { reconcileStateRuntime } from "@/lib/maintenance";
 
 const BUILDING_META: Record<BuildingType, { label: string; description: string; x: number; y: number }> = {
   hq: { label: "Казначейство и штаб", description: "Бюджет, управление, оборона и уровень государства", x: 50, y: 36 },
@@ -246,7 +247,12 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null): 
     if (refreshedMemberError) throw refreshedMemberError;
     role = refreshedMember?.role || "citizen";
   }
-  if (!state.is_freeport) state = await tickState(state.id);
+  if (!state.is_freeport) {
+    // Event-driven maintenance replaces the old mandatory Vercel Cron jobs.
+    // The DB lease makes this cheap when many players open the same state.
+    await reconcileStateRuntime(state.id);
+    state = await tickState(state.id);
+  }
   await recordMissionProgress(player.id, state.id, "check_in");
   return getGameSnapshot(player.id, state.id, user.id, role);
 }

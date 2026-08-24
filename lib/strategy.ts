@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { resolveBattleByScore } from "@/lib/battle";
+import { resolveBattleByScore, tickBattle } from "@/lib/battle";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { enforceRateLimit, withActionLock } from "@/lib/redis";
 import type { ActivityOptionView, ActivityView, StrategyView, WarType } from "@/lib/types";
@@ -141,6 +141,7 @@ export async function completeDailyActivity(playerId: string, stateId: string, a
 
 export async function addAllianceBattleSupport(battleId: string, stateId: string, playerId: string, side: "attacker" | "defender") {
   await enforceRateLimit(`support:${stateId}`, 8, 60);
+  await tickBattle(battleId);
   return withActionLock(`support:${battleId}:${stateId}`, 8, async () => {
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase.rpc("gw_add_battle_support", {

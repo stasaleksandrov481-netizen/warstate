@@ -212,7 +212,9 @@ async function getPlayerMemberSnapshot(stateId: string, playerId: string) {
     .select("contribution,duty_role")
     .eq("state_id", stateId)
     .eq("player_id", playerId)
-    .single();
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
   if (!rich.error) return { contribution: Number(rich.data?.contribution || 0), dutyRole: rich.data?.duty_role || null };
   if (!isMissingDutyRoleError(rich.error)) throw rich.error;
 
@@ -223,7 +225,9 @@ async function getPlayerMemberSnapshot(stateId: string, playerId: string) {
     .select("contribution")
     .eq("state_id", stateId)
     .eq("player_id", playerId)
-    .single();
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
   if (fallback.error) throw fallback.error;
   return { contribution: Number(fallback.data?.contribution || 0), dutyRole: null };
 }

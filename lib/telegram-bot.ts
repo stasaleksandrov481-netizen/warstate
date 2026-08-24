@@ -36,7 +36,7 @@ export function miniAppLink(chatId?: number | string | null) {
 export type ChatMemberStatus = "creator" | "administrator" | "member" | "restricted" | "left" | "kicked";
 
 export async function getChatMember(chatId: number, userId: number) {
-  return telegramApi<{ status: ChatMemberStatus }>("getChatMember", { chat_id: chatId, user_id: userId });
+  return telegramApi<{ status: ChatMemberStatus; is_member?: boolean }>("getChatMember", { chat_id: chatId, user_id: userId });
 }
 
 export async function getChat(chatId: number) {
@@ -44,8 +44,75 @@ export async function getChat(chatId: number) {
     id: number;
     title?: string;
     username?: string;
+    invite_link?: string;
     photo?: { small_file_id?: string; big_file_id?: string };
   }>("getChat", { chat_id: chatId });
+}
+
+export function isTelegramChatMember(member: { status: ChatMemberStatus; is_member?: boolean }) {
+  if (["creator", "administrator", "member"].includes(member.status)) return true;
+  return member.status === "restricted" && member.is_member !== false;
+}
+
+export async function assertTelegramChatOwner(chatId: number, userId: number) {
+  const member = await getChatMember(chatId, userId);
+  if (member.status !== "creator") {
+    throw new Error("Удалить государство может только владелец Telegram-чата.");
+  }
+  return member;
+}
+
+export class TelegramMembershipRequiredError extends Error {
+  inviteLink: string | null;
+
+  constructor(message: string, inviteLink: string | null) {
+    super(message);
+    this.name = "TelegramMembershipRequiredError";
+    this.inviteLink = inviteLink;
+  }
+}
+
+export async function createStateJoinLink(chatId: number, name: string) {
+  try {
+    return (await createSingleUseInviteLink(chatId, name)).invite_link;
+  } catch {
+    try {
+      const chat = await getChat(chatId);
+      if (chat.invite_link) return chat.invite_link;
+      if (chat.username) return `https://t.me/${chat.username.replace(/^@/, "")}`;
+    } catch {
+      // The membership gate still denies admission even if Telegram cannot mint a link.
+    }
+    return null;
+  }
+}
+
+export async function assertTelegramChatMembership(
+  chatId: number,
+  userId: number,
+  playerName = "Игрок",
+  options: { sendInvite?: boolean } = {},
+) {
+  const member = await getChatMember(chatId, userId);
+  if (isTelegramChatMember(member)) return member;
+
+  const inviteLink = await createStateJoinLink(chatId, `WARSTATE · ${playerName}`);
+  let inviteSent = false;
+  if (options.sendInvite !== false && inviteLink) {
+    inviteSent = await telegramApi("sendMessage", {
+      chat_id: userId,
+      text: "🏛 ВСТУПЛЕНИЕ В ГОСУДАРСТВО\n────────────\nСначала вступите в Telegram-чат этого государства. Затем вернитесь на карту WARSTATE и нажмите «Перейти» ещё раз.",
+      reply_markup: { inline_keyboard: [[{ text: "Вступить в чат Государства", url: inviteLink }]] },
+    }).then(() => true).catch(() => false);
+  }
+  throw new TelegramMembershipRequiredError(
+    inviteLink
+      ? inviteSent
+        ? "Сначала вступите в Telegram-чат этого Государства. Пригласительная ссылка отправлена вам в личные сообщения."
+        : "Сначала вступите в Telegram-чат этого Государства. Откройте личный чат с ботом (/start), чтобы бот смог отправить приглашение."
+      : "Сначала вступите в Telegram-чат этого Государства. Боту не удалось создать пригласительную ссылку: проверьте права администратора.",
+    inviteLink,
+  );
 }
 
 export async function getChatMemberCount(chatId: number) {

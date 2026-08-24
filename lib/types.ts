@@ -61,6 +61,7 @@ export interface PlayerView {
   energy: number;
   contribution: number;
   role: string;
+  dutyRole?: "diplomat" | "spy" | "miner" | "worker" | null;
 }
 
 export interface StateView {

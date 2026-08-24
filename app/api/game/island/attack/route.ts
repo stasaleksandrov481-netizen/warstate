@@ -1,13 +1,21 @@
-import { getBattleView } from "@/lib/battle";
-import { startWarAction } from "@/lib/actions";
-import { getGameSnapshot } from "@/lib/game";
+import { createStateVote } from "@/lib/community";
 import { authorizeStateAction, jsonError } from "@/lib/request-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { miniAppLink, telegramApi } from "@/lib/telegram-bot";
-import { getAlliedStateChats, recordWorldEvent } from "@/lib/diplomacy";
+import { telegramApi } from "@/lib/telegram-bot";
 import type { WarType } from "@/lib/types";
 
 export const runtime = "nodejs";
+
+function voteKeyboard(voteId: string) {
+  return [[
+    { text: "✅ За", callback_data: `gw:vote:yes:${voteId}` },
+    { text: "❌ Против", callback_data: `gw:vote:no:${voteId}` },
+  ]];
+}
+
+function warLabel(type: WarType) {
+  return type === "siege" ? "осаду" : type === "territory" ? "войну за территорию" : "рейд";
+}
 
 export async function POST(request: Request) {
   try {
@@ -17,64 +25,39 @@ export async function POST(request: Request) {
     const battleType = (["raid", "siege", "territory"].includes(String(body.battleType)) ? String(body.battleType) : "raid") as WarType;
     if (!stateId || !targetStateId) throw new Error("stateId and targetStateId are required");
 
-    const { player, member, session, state: authState } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
-    const battleId = await startWarAction({ actorRole: member.role, attackerStateId: stateId, defenderStateId: targetStateId, battleType, attackerIsFreeport: Boolean(authState.is_freeport) });
-    const battle = await getBattleView(battleId, player.id);
+    const { player, member, state } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
+    if (state.is_freeport) throw new Error("Freeport не может начинать войну.");
+    if (state.is_beginner_island) throw new Error("Остров новичков не может начинать войну.");
+    if (member.role !== "president") throw new Error("Голосование о начале войны запускает Президент.");
+
     const supabase = getSupabaseAdmin();
     const { data: states, error: statesError } = await supabase
       .from("states")
-      .select("id,telegram_chat_id,name")
+      .select("id,name,telegram_chat_id,is_freeport,is_beginner_island")
       .in("id", [stateId, targetStateId]);
     if (statesError) throw statesError;
+    const attacker = states?.find((row: any) => String(row.id) === stateId);
+    const defender = states?.find((row: any) => String(row.id) === targetStateId);
+    if (!attacker || !defender) throw new Error("Государство не найдено.");
+    if (defender.is_freeport) throw new Error("Freeport — нейтральная территория.");
+    if (defender.is_beginner_island) throw new Error("Остров новичков находится под защитой.");
+    if (!attacker.telegram_chat_id) throw new Error("У государства отсутствует Telegram-чат для голосования.");
 
-    const attacker = states?.find((row: any) => row.id === stateId);
-    const defender = states?.find((row: any) => row.id === targetStateId);
-    const typeLabel = battleType === "siege" ? "ОСАДА" : battleType === "territory" ? "СПОР ЗА ТЕРРИТОРИЮ" : "РЕЙД";
-    const minutes = battleType === "siege" ? 30 : battleType === "territory" ? 20 : 15;
-    const text = `⚔️ ${typeLabel}\n\n${attacker?.name || "Атакующие"} vs ${defender?.name || "Защитники"}\nВремя: ${minutes} мин.\n\nЗахватывайте A/B/C. Размер государств, оборонительный буфер, усталость, случайный фактор и союзная поддержка входят в расчёт.`;
-    for (const state of states || []) {
-      const isDefender = String(state.id) === targetStateId;
-      await telegramApi("sendMessage", {
-        chat_id: Number(state.telegram_chat_id),
-        text,
-        reply_markup: { inline_keyboard: isDefender ? [
-          [{ text: "🛡️ Организовать оборону", url: miniAppLink(Number(state.telegram_chat_id)) }],
-          [{ text: "🤝 Запросить союзную помощь", callback_data: `gw:battle:support:${battleId}` }],
-          [{ text: "🏳 Сдаться", callback_data: `gw:battle:surrender:${battleId}` }],
-        ] : [[{ text: "⚔️ Войти в бой", url: miniAppLink(Number(state.telegram_chat_id)) }]] },
-      }).catch((error) => console.error("island Telegram notification failed", error));
-    }
-
-    const [attackerAllies, defenderAllies] = await Promise.all([getAlliedStateChats(stateId), getAlliedStateChats(targetStateId)]);
-    const supportNotices = [
-      ...attackerAllies.map((ally: { id: string; name: string; telegramChatId: number }) => ({ ...ally, side: "attack" as const, requester: attacker?.name || "Союзник", enemy: defender?.name || "противник" })),
-      ...defenderAllies.map((ally: { id: string; name: string; telegramChatId: number }) => ({ ...ally, side: "defense" as const, requester: defender?.name || "Союзник", enemy: attacker?.name || "противник" })),
-    ];
-    for (const ally of supportNotices) {
-      await telegramApi("sendMessage", {
-        chat_id: ally.telegramChatId,
-        text: `🤝 СОЮЗНЫЙ ЗАПРОС\n\n${ally.requester} просит поддержки в бою против ${ally.enemy}.\nВыберите действие или используйте команду !поддержать ${battleId} ${ally.side}.`,
-        reply_markup: { inline_keyboard: [
-          [ally.side === "defense"
-            ? { text: "🛡️ Помочь защитой", callback_data: `gw:support:defender:${battleId}` }
-            : { text: "⚔️ Помочь атакой", callback_data: `gw:support:attacker:${battleId}` }],
-          [{ text: "Пропустить", callback_data: `gw:support:skip:${battleId}` }],
-          [{ text: "Открыть бой", url: miniAppLink(ally.telegramChatId) }],
-        ] },
-      }).catch((error) => console.error("ally battle notification failed", error));
-    }
-
-    await recordWorldEvent({
-      eventType: "island_attack",
-      title: "Морская атака",
-      body: `${attacker?.name || "Остров"} атакует ${defender?.name || "другой остров"}.`,
-      actorStateId: stateId,
+    const vote = await createStateVote({
+      stateId,
+      createdByPlayerId: player.id,
+      kind: "war",
       targetStateId,
-      payload: { battleId, battleType },
+      payload: { battleType },
     });
 
-    const snapshot = await getGameSnapshot(player.id, stateId, session.user.id, member.role);
-    return Response.json({ snapshot, battle });
+    await telegramApi("sendMessage", {
+      chat_id: Number(attacker.telegram_chat_id),
+      text: `🗳 ГОЛОСОВАНИЕ О ВОЙНЕ\n\nНачать ${warLabel(battleType)} против «${defender.name}»?\nГолосуют граждане государства. Срок: 10 минут. При абсолютном большинстве решение исполняется досрочно.`,
+      reply_markup: { inline_keyboard: voteKeyboard(vote.id) },
+    });
+
+    return Response.json({ voteId: vote.id, endsAt: vote.ends_at, voteStarted: true });
   } catch (error) {
     return jsonError(error);
   }

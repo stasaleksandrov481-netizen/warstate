@@ -1,12 +1,18 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { miniAppLink, telegramApi } from "@/lib/telegram-bot";
 import { getProduct } from "@/lib/products";
-import { handleGroupCallback, handleGroupTextCommand } from "@/lib/chat-commands";
+import { handleGroupCallback, handleGroupTextCommand, processDueGroupVotes } from "@/lib/chat-commands";
 import { recordChatActivity, registerTelegramState } from "@/lib/government";
 import { bootstrapGame } from "@/lib/game";
 import { reconcileStateRuntimeByChatId } from "@/lib/maintenance";
 
 export const runtime = "nodejs";
+// Command handling can chain several Supabase round-trips plus Telegram API
+// calls (bootstrapGame -> getGameSnapshot, etc.). Give it real headroom so a
+// slower command doesn't get killed mid-flight and silently black-holed by
+// the update-claim lease in migration 017. Vercel clamps this to whatever
+// the current plan allows, so it's always safe to request the higher value.
+export const maxDuration = 60;
 
 function validWebhookSecret(request: Request) {
   const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -19,9 +25,10 @@ async function sendFreeportMessage(chatId: number) {
   return telegramApi("sendMessage", {
     chat_id: chatId,
     text:
-      `⚓ FREEPORT\n\n` +
-      `Нейтральная гавань WARSTATE. Здесь можно начать одному, прокачать профиль, найти государство и подать заявку на вступление.\n\n` +
-      `Когда вступишь в Telegram-группу государства, открой игру из той группы — привязка подтвердится автоматически.`,
+      `⚓ FREEPORT\n────────────\n` +
+      `Нейтральная гавань для свободных игроков.\n\n` +
+      `• прокачивай профиль\n• находи государства на карте\n• вступай в их Telegram-чаты\n\n` +
+      `После вступления выбери остров и нажми «Перейти» — бот проверит членство автоматически.`,
     reply_markup: {
       inline_keyboard: [[{ text: "⚓ Войти в Freeport", url: miniAppLink() }]],
     },
@@ -33,10 +40,10 @@ async function sendLaunchMessage(chatId: number, title?: string) {
   return telegramApi("sendMessage", {
     chat_id: chatId,
     text:
-      `⚔️ WARSTATE\n\n` +
-      `${title ? `Группа «${title}»` : "Этот чат"} может стать островом-государством. ` +
-      `Размер острова растёт вместе с сообществом, а рейтинг меняется в морских войнах против других Telegram-групп.\n\n` +
-      `Первый запуск должен сделать администратор группы.`,
+      `⚔️ WARSTATE · НОВОЕ ГОСУДАРСТВО\n────────────\n` +
+      `${title ? `«${title}»` : "Этот чат"} готов стать островом на мировой карте.\n\n` +
+      `👥 Размер острова зависит от сообщества\n🏆 ELO растёт в войнах с другими государствами\n💬 Общение приносит ресурсы\n\n` +
+      `Откройте Mini App, чтобы зарегистрировать государство.`,
     reply_markup: {
       inline_keyboard: [[{ text: "🌊 Открыть остров", url: link }]],
     },
@@ -107,7 +114,7 @@ async function processSuccessfulPayment(message: any) {
 
   await telegramApi("sendMessage", {
     chat_id: message.chat.id,
-    text: `✅ Покупка активирована: ${payload.sku}`,
+    text: `✅ ПОКУПКА АКТИВИРОВАНА\n────────────\n${payload.sku} уже доступен в WARSTATE.`,
   });
 }
 
@@ -127,12 +134,25 @@ export async function POST(request: Request) {
     // All ordinary commands, callbacks and membership events are claimed once
     // globally in PostgreSQL before any game action is executed.
     if (!update.pre_checkout_query && !update.message?.successful_payment && Number.isSafeInteger(Number(update.update_id))) {
-      const supabase = getSupabaseAdmin();
-      const { data: claimed, error: claimError } = await supabase.rpc("gw_claim_telegram_update", {
-        p_update_id: Number(update.update_id),
-      });
-      if (claimError && claimError.code !== "PGRST202") throw claimError;
-      if (!claimError && claimed === false) return Response.json({ ok: true, duplicate: true });
+      try {
+        const supabase = getSupabaseAdmin();
+        const { data: claimed, error: claimError } = await supabase.rpc("gw_claim_telegram_update", {
+          p_update_id: Number(update.update_id),
+        });
+        // Migration 015 may be missing during a rolling deploy. In that one case
+        // fail open so group commands still work. Real database/transport errors
+        // must surface as 500, allowing Telegram to redeliver instead of losing the update.
+        if (claimError?.code === "PGRST202") {
+          console.warn("Telegram update receipt RPC is unavailable; processing without receipt claim");
+        } else if (claimError) {
+          throw claimError;
+        } else if (claimed === false) {
+          return Response.json({ ok: true, duplicate: true });
+        }
+      } catch (claimError) {
+        console.error("Telegram update receipt claim failed", claimError);
+        return Response.json({ ok: false, retry: true }, { status: 500 });
+      }
     }
 
     if (update.pre_checkout_query) {
@@ -188,13 +208,8 @@ export async function POST(request: Request) {
     }
 
     if (message?.chat?.id && ["group", "supergroup"].includes(message.chat.type)) {
-      // Every group update is also an event-driven world tick. Do this before
-      // command handling so !status / !elections / !battle can never observe a
-      // state that is stale merely because Vercel Cron is disabled.
-      await reconcileStateRuntimeByChatId(Number(message.chat.id)).catch((runtimeError) => {
-        console.warn("WARSTATE event-driven maintenance skipped", runtimeError);
-      });
-
+      // Commands are the critical path. Never make a !command wait for optional
+      // world maintenance, vote settlement or chat-farm bookkeeping.
       if (await handleGroupTextCommand(message)) return Response.json({ ok: true });
       const text = String(message.text || "").split("@")[0].trim();
       if (["/groupwars", "/gw", "/war"].includes(text)) {
@@ -206,9 +221,10 @@ export async function POST(request: Request) {
       // Every ordinary group message can award +2 XP and +1 state contribution,
       // but SQL enforces a strict one-minute cooldown per player. If this is a
       // legacy chat/player, self-heal registration/citizenship once and retry.
-      if (message.from?.id && !String(message.text || "").trim().startsWith("!")) {
+      if (message.from?.id && !message.from?.is_bot && !String(message.text || "").trim().startsWith("!")) {
         try {
           const first = await recordChatActivity(Number(message.chat.id), Number(message.from.id));
+          let activity = first;
           if (!first?.applied && ["state_missing", "player_missing", "not_member"].includes(String(first?.reason || ""))) {
             await bootstrapGame({
               id: Number(message.from.id),
@@ -216,16 +232,32 @@ export async function POST(request: Request) {
               last_name: message.from.last_name ? String(message.from.last_name) : undefined,
               username: message.from.username ? String(message.from.username) : undefined,
             }, Number(message.chat.id));
-            await recordChatActivity(Number(message.chat.id), Number(message.from.id));
+            activity = await recordChatActivity(Number(message.chat.id), Number(message.from.id));
+          }
+          const bundles = Number(activity?.resourceBundles || 0);
+          if (bundles > 0) {
+            await telegramApi("sendMessage", {
+              chat_id: Number(message.chat.id),
+              text: `📦 РЕСУРСЫ ЗА АКТИВНОСТЬ\n────────────\n10 сообщений граждан → +${bundles} ко всем ресурсам государства.`,
+            });
           }
         } catch (activityError) {
           console.warn("WARSTATE chat activity reward skipped", activityError);
         }
       }
 
+      await processDueGroupVotes(Number(message.chat.id)).catch((voteError) => {
+        console.warn("WARSTATE vote settlement skipped", voteError);
+      });
+      await reconcileStateRuntimeByChatId(Number(message.chat.id)).catch((runtimeError) => {
+        console.warn("WARSTATE event-driven maintenance skipped", runtimeError);
+      });
+
     }
   } catch (error) {
     console.error("Telegram webhook error", error);
+    // Do not acknowledge a failed update as successful: Telegram can retry it.
+    return Response.json({ ok: false, retry: true }, { status: 500 });
   }
 
   return Response.json({ ok: true });

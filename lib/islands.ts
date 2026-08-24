@@ -60,7 +60,22 @@ export async function getIslandWorld(
   if (error) throw error;
 
   const relationByState = new Map(diplomacy.map((item) => [item.otherStateId, item.status]));
-  const islandRows = data || [];
+  const islandRows = [...(data || [])] as any[];
+  // The protected beginner island is a global landmark. Radius-based world RPCs
+  // used to omit it whenever it lived far from the current camera, which made
+  // the island effectively invisible to free players. Always inject configured
+  // beginner states so the map/radar can focus and select them from anywhere.
+  if (!islandRows.some((row: any) => row.is_beginner_island)) {
+    const { data: beginnerRows, error: beginnerError } = await supabase
+      .from("states")
+      .select("id,name,color,emblem,world_x,world_y,telegram_member_count,rating,island_wins,island_losses,island_integrity,win_streak,last_battle_at,destroyed_until,shield_until,chat_avatar_file_id,is_freeport,is_beginner_island,game_level,max_level,influence,reputation,army_power,defense_power,active_player_count,state_size")
+      .eq("is_beginner_island", true)
+      .eq("is_freeport", false);
+    if (beginnerError) throw beginnerError;
+    for (const row of beginnerRows || []) {
+      if (!islandRows.some((item: any) => String(item.id) === String(row.id))) islandRows.push({ ...row, rank: 0 });
+    }
+  }
   const ids = islandRows.map((row: any) => String(row.id)).filter(Boolean);
   const handles = new Map<string, string>();
   if (ids.length) {

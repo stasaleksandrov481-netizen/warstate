@@ -33,3 +33,8 @@ await api("setMyCommands", {
 });
 
 console.log("Telegram bot configured.");
+console.log("");
+console.log("IMPORTANT for !commands in groups:");
+console.log("1) Keep the bot as a group administrator. BotFather /setprivacy -> Disable is recommended for predictable !command delivery.");
+console.log("2) Add the bot as a group administrator so getChatMember and invite links are reliable.");
+console.log("3) Grant permission to invite users (required for state join links).");

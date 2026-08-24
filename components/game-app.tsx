@@ -35,6 +35,7 @@ type TelegramWebApp = {
   setBackgroundColor?: (color: string) => void;
   setBottomBarColor?: (color: string) => void;
   disableVerticalSwipes?: () => void;
+  openTelegramLink?: (url: string) => void;
   BackButton?: { show?: () => void; hide?: () => void; onClick?: (cb: () => void) => void; offClick?: (cb: () => void) => void };
   HapticFeedback?: { impactOccurred?: (style: string) => void; notificationOccurred?: (type: string) => void };
 };
@@ -42,6 +43,15 @@ type TelegramWebApp = {
 function tg(): TelegramWebApp | null {
   if (typeof window === "undefined") return null;
   return (window as any).Telegram?.WebApp || null;
+}
+
+class ApiRequestError extends Error {
+  inviteLink: string | null;
+  constructor(message: string, inviteLink: string | null = null) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.inviteLink = inviteLink;
+  }
 }
 
 function mergeIslandLists(current: IslandView[] = [], incoming: IslandView[] = [], max = 420) {
@@ -73,8 +83,10 @@ async function api<T>(path: string, initData: string, init?: RequestInit): Promi
     let json: unknown = null;
     try { json = await response.json(); } catch { /* non-JSON gateway errors */ }
     if (!response.ok) {
-      const message = typeof json === "object" && json && "error" in json ? String((json as { error?: unknown }).error || "") : "";
-      throw new Error(message || `Сервер вернул ошибку ${response.status}`);
+      const payload = typeof json === "object" && json ? json as { error?: unknown; inviteLink?: unknown } : null;
+      const message = payload?.error ? String(payload.error) : "";
+      const inviteLink = payload?.inviteLink ? String(payload.inviteLink) : null;
+      throw new ApiRequestError(message || `Сервер вернул ошибку ${response.status}`, inviteLink);
     }
     return json as T;
   } catch (error) {
@@ -361,15 +373,37 @@ export default function GameApp() {
   async function attackIsland(island: IslandView, battleType: WarType = "raid") {
     if (!snapshot) return;
     try {
-      const result = await api<{ snapshot: GameSnapshot; battle: BattleView }>("/api/game/island/attack", initData, {
+      await api<{ voteId: string; endsAt: string; voteStarted: true }>("/api/game/island/attack", initData, {
         method: "POST",
         body: JSON.stringify({ stateId: snapshot.state.id, targetStateId: island.id, battleType }),
       });
-      acceptSnapshot({ ...result.snapshot, activeBattle: result.battle });
       setSelectedIsland(null);
-      navigate("battle");
-      notify("Атака началась. Зови людей из чата.", "success");
-    } catch (e) { notify(e instanceof Error ? e.message : "Атака не удалась", "error"); }
+      await refreshLive();
+      notify("Голосование о войне отправлено в чат государства", "success");
+    } catch (e) { notify(e instanceof Error ? e.message : "Голосование не запущено", "error"); }
+  }
+
+  async function switchState(island: IslandView) {
+    if (!snapshot || island.isMine || island.isFreeport) return;
+    try {
+      const fresh = await api<GameSnapshot>("/api/game/state/switch", initData, {
+        method: "POST",
+        body: JSON.stringify({ targetStateId: island.id }),
+      });
+      setSelectedIsland(null);
+      setSnapshot(fresh);
+      setLastSyncAt(Date.now());
+      navigate("island");
+      notify(`Теперь вы гражданин государства «${fresh.state.name}»`, "success");
+    } catch (e) {
+      if (e instanceof ApiRequestError && e.inviteLink) {
+        tg()?.openTelegramLink?.(e.inviteLink);
+        if (!tg()?.openTelegramLink) window.open(e.inviteLink, "_blank", "noopener,noreferrer");
+        notify("Сначала вступите в Telegram-чат, затем нажмите «Перейти» ещё раз", "info");
+        return;
+      }
+      notify(e instanceof Error ? e.message : "Не удалось сменить государство", "error");
+    }
   }
 
   async function joinBattle(klass: BattleClass) {
@@ -396,7 +430,7 @@ export default function GameApp() {
         body: JSON.stringify({ stateId: snapshot.state.id, targetStateId, action }),
       });
       await refreshLive();
-      notify("Отношения островов обновлены", "success");
+      notify(["propose_alliance", "accept_alliance"].includes(action) ? "Голосование о союзе отправлено в чат" : "Отношения островов обновлены", "success");
     } catch (e) { notify(e instanceof Error ? e.message : "Дипломатия не удалась", "error"); }
   }
 
@@ -460,7 +494,13 @@ export default function GameApp() {
     try {
       const fresh = await api<GameSnapshot>("/api/game/government", initData, { method: "POST", body: JSON.stringify({ stateId: snapshot.state.id, action, ...payload }) });
       acceptSnapshot(fresh);
-      notify("Правительство обновлено", "success");
+      if (action === "delete_state") {
+        setSelectedIsland(null);
+        navigate("map");
+        notify("Государство удалено. Игроки переведены во Freeport", "success");
+      } else {
+        notify("Правительство обновлено", "success");
+      }
     } catch (e) { notify(e instanceof Error ? e.message : "Действие правительства не удалось", "error"); }
   }
 
@@ -505,6 +545,7 @@ export default function GameApp() {
             selected={selectedIsland}
             onSelect={setSelectedIsland}
             onAttack={attackIsland}
+            onSwitchState={switchState}
             onExplore={exploreIslands}
             onOpenBattle={() => navigate("battle")}
             onOpenIsland={() => navigate("island")}

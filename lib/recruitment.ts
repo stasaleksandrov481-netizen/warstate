@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { createSingleUseInviteLink } from "@/lib/telegram-bot";
+import { createStateJoinLink } from "@/lib/telegram-bot";
 import type {
   FreeAgentView,
   RecruitmentHubView,
@@ -190,8 +190,9 @@ async function inviteForState(stateId: string, playerName: string) {
     .single();
   if (error || !state) throw new Error("Государство не найдено.");
   if (state.is_freeport || !state.telegram_chat_id) throw new Error("В Freeport приглашение не требуется.");
-  const invite = await createSingleUseInviteLink(Number(state.telegram_chat_id), `WARSTATE · ${playerName}`);
-  return invite.invite_link;
+  const inviteLink = await createStateJoinLink(Number(state.telegram_chat_id), `WARSTATE · ${playerName}`);
+  if (!inviteLink) throw new Error("Не удалось создать ссылку-приглашение. Проверьте права бота на приглашение участников.");
+  return inviteLink;
 }
 
 export async function recruitmentAction(params: {

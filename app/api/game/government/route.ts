@@ -1,8 +1,9 @@
 import { authorizeStateAction, jsonError } from "@/lib/request-auth";
-import { getGameSnapshot } from "@/lib/game";
-import { appointPresident, openGovernmentElection, removePresident, renameState, setDeputy, setStateUsername, voteForUsername } from "@/lib/government";
+import { bootstrapGame, getGameSnapshot } from "@/lib/game";
+import { appointPresident, deleteState, openGovernmentElection, removePresident, renameState, setDeputy, setStateUsername, voteForUsername } from "@/lib/government";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { reconcileStateRuntime } from "@/lib/maintenance";
+import { assertTelegramChatOwner } from "@/lib/telegram-bot";
 
 export const runtime = "nodejs";
 
@@ -32,6 +33,11 @@ export async function POST(request: Request) {
       await setStateUsername(stateId, auth.player.id, String(body.username || ""));
     } else if (action === "rename_state") {
       await renameState(stateId, auth.player.id, String(body.name || ""));
+    } else if (action === "delete_state") {
+      if (!auth.state.telegram_chat_id) throw new Error("У государства не привязан Telegram-чат.");
+      await assertTelegramChatOwner(Number(auth.state.telegram_chat_id), auth.session.user.id);
+      await deleteState(stateId, auth.player.id);
+      return Response.json(await bootstrapGame(auth.session.user, null));
     } else {
       throw new Error("Неизвестное действие правительства.");
     }

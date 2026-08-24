@@ -57,7 +57,7 @@ export async function getDiplomacyForState(stateId: string): Promise<DiplomacyRe
 }
 
 
-export async function getAlliedStateChats(stateId: string) {
+export async function getAlliedStateChats(stateId: string): Promise<Array<{ id: string; name: string; telegramChatId: number }>> {
   const supabase = getSupabaseAdmin();
   const { data: relations, error } = await supabase
     .from("diplomacy_relations")

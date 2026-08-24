@@ -31,7 +31,7 @@ This means a Redis outage no longer disables attacks, activities or alliance sup
 
 Telegram may redeliver the same webhook update. Migration `015` stores compact update receipts in PostgreSQL, and ordinary commands/callbacks are claimed exactly once before gameplay logic runs. Receipts older than seven days are cleaned opportunistically without a scheduled job. Successful payments keep their separate Telegram charge-id idempotency path so failed entitlement writes can still retry safely.
 
-Every group update runs the lightweight state reconciliation **before** command handling, so `!статус`, `!бой`, elections and other text commands observe the same current world state as the Mini App.
+Group `!` commands are handled on the **critical path before optional maintenance**. Ordinary group messages then settle due votes and run lightweight state reconciliation on a best-effort path, so a maintenance hiccup cannot silence chat commands.
 
 ### Runtime diagnostics
 
@@ -114,6 +114,9 @@ Handles can be used in war, alliance, reconnaissance and search commands.
 
 ```text
 !помощь
+!играть                # подробная инструкция как играть
+!как_играть            # алиас
+!гайд                   # алиас
 !государство
 !статус
 !ресурсы
@@ -121,6 +124,10 @@ Handles can be used in war, alliance, reconnaissance and search commands.
 !карта
 !альянсы
 !профиль
+!роли
+!роль @username <дипломат|шпион|шахтер|рабочий|снять>
+!голосование
+!шпион @state
 
 !президент
 !замы
@@ -157,6 +164,11 @@ Handles can be used in war, alliance, reconnaissance and search commands.
 ```
 
 Every ordinary citizen message can award `+2 XP` and `+1 state contribution`, at most once per minute. The cooldown is enforced in PostgreSQL.
+
+## How to play guide
+
+New players can open the detailed Russian-language guide directly in a state chat with `!играть` (aliases: `!как_играть`, `!какиграть`, `!гайд`). The same guide is available as a compact expandable section on the Mini App profile screen. It covers joining a state, Telegram membership verification, roles, resource farming, wars and civic votes, alliances, spy quests, daily actions and the main commands.
+
 
 ## Battle balance
 
@@ -233,15 +245,18 @@ CRON_SECRET=
 
 ## Supabase migrations
 
-Fresh database: apply `001` through `015` in numeric order.
+Fresh database: apply `001` through `018` in numeric order.
 
-Existing v1.9 database: apply only:
+Existing v1.9 database: apply sequentially:
 
 ```text
 supabase/migrations/015_event_driven_runtime.sql
+supabase/migrations/016_member_activity_votes_spy.sql
+supabase/migrations/017_telegram_update_claim_lease.sql
+supabase/migrations/018_state_switch_delete_ui.sql
 ```
 
-If your database is older, apply every missing migration sequentially. Do not skip `013` or `014`.
+Migration `016` adds member specializations, civic war/alliance votes, the 10-message resource farm, and spy quests. Migration `017` makes Telegram update claims retry-safe. Migration `018` adds explicit state switching and owner-only state deletion. If your database is older, apply every missing migration sequentially. Do not skip intermediate migrations.
 
 ## Telegram setup
 
@@ -257,6 +272,12 @@ The webhook subscribes to:
 - `callback_query`
 - `my_chat_member`
 - `pre_checkout_query`
+
+### Required Telegram group settings for `!` commands
+
+To receive ordinary group messages such as `!война`, `!карта`, and `!помощь`, WARSTATE should be a **group administrator**. Telegram also allows a non-admin bot to receive them when Privacy Mode is disabled. For predictable deployment, keep the bot as an administrator and in **BotFather** run `/setprivacy` -> select the bot -> **Disable**. After changing Privacy Mode, re-add the bot to existing groups if Telegram has not applied the new setting there yet.
+
+Grant the bot permission to invite users. WARSTATE uses `getChatMember` before granting citizenship and creates an invite link when the player is not yet in the state's Telegram chat. `getChatMember` is guaranteed for other users when the bot is an administrator.
 
 ## Verification
 

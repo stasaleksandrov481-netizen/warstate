@@ -54,3 +54,10 @@ npm run build
 ```
 
 `audit:project` also verifies that Vercel Cron schedules have not returned accidentally.
+
+
+## Community mechanics patch (migration 016)
+
+Apply `supabase/migrations/016_member_activity_votes_spy.sql` after migration 015. It adds duty roles (Diplomat, Spy, Miner, Worker), inline civic votes for war/alliance decisions, +1 to every state resource per 10 ordinary human chat messages, and persistent spy quests.
+
+For `!` commands in groups, disable Telegram BotFather Privacy Mode (`/setprivacy` -> Disable). The bot should be a group administrator with invite-user permission so `getChatMember` checks and state invite links work reliably.

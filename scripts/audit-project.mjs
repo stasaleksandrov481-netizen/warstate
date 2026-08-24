@@ -63,6 +63,11 @@ if (!String(packageJson.version || "").startsWith("2.0.")) failures.push(`Expect
 
 const requiredV20 = [
   "supabase/migrations/015_event_driven_runtime.sql",
+  "supabase/migrations/016_member_activity_votes_spy.sql",
+  "supabase/migrations/017_telegram_update_claim_lease.sql",
+  "supabase/migrations/018_state_switch_delete_ui.sql",
+  "app/api/game/state/switch/route.ts",
+  "lib/community.ts",
   "lib/maintenance.ts",
   "lib/government.ts",
   "lib/actions.ts",
@@ -105,11 +110,41 @@ for (const file of migrationFiles) {
 }
 for (const rpc of referencedRpc) if (!definedRpc.has(rpc)) failures.push(`RPC used by app but missing from migrations: ${rpc}`);
 
+const communityMigration = fs.readFileSync(path.join(root, "supabase/migrations/016_member_activity_votes_spy.sql"), "utf8");
+for (const marker of ["duty_role", "state_votes", "state_vote_ballots", "spy_quests", "gw_resolve_spy_quest", "chat_message_progress"]) {
+  if (!communityMigration.includes(marker)) failures.push(`Migration 016 is missing community mechanic: ${marker}`);
+}
+if (!webhookSource.includes('["group", "supergroup"].includes(message.chat.type)')) failures.push("Telegram webhook must handle both group and supergroup chats");
+if (!webhookSource.includes("handleGroupTextCommand(message)")) failures.push("Telegram group command handler is not wired into webhook");
+const islandSource = fs.readFileSync(path.join(root, "lib/islands.ts"), "utf8");
+if (!islandSource.includes('.eq("is_beginner_island", true)')) failures.push("Beginner island is not force-included in world map data");
+const telegramBotSource = fs.readFileSync(path.join(root, "lib/telegram-bot.ts"), "utf8");
+if (!telegramBotSource.includes('getChatMember') || !telegramBotSource.includes('createStateJoinLink')) failures.push("Telegram membership gate or invite-link fallback is missing");
+if (!telegramBotSource.includes('assertTelegramChatOwner')) failures.push("Telegram owner gate for state deletion is missing");
+const stateSwitchSource = fs.readFileSync(path.join(root, "app/api/game/state/switch/route.ts"), "utf8");
+if (!stateSwitchSource.includes("assertTelegramChatMembership") || !stateSwitchSource.includes("gw_switch_player_state")) failures.push("Explicit state switch membership gate is incomplete");
+const themeSource = fs.readFileSync(path.join(root, "app/game-theme.css"), "utf8");
+if (/\.game-world-layer\{[^}]*contain\s*:\s*layout style paint/i.test(themeSource)) failures.push("World layer still clips island nodes with paint containment");
+const guideSource = fs.readFileSync(path.join(root, "lib/game-guide.ts"), "utf8");
+if (!guideSource.includes("GAME_GUIDE_SECTIONS") || !guideSource.includes("telegramGameGuideText")) failures.push("Detailed game guide is missing");
+const stateViewSource = fs.readFileSync(path.join(root, "components/game/state-view.tsx"), "utf8");
+if (!stateViewSource.includes("GameGuidePanel") || !stateViewSource.includes("GAME_GUIDE_SECTIONS")) failures.push("Mini App game guide section is missing");
+const governmentRouteSource = fs.readFileSync(path.join(root, "app/api/game/government/route.ts"), "utf8");
+if (!governmentRouteSource.includes("assertTelegramChatOwner") || !governmentRouteSource.includes('action === "delete_state"')) failures.push("Owner-only state deletion route is incomplete");
+
+const attackRouteSource = fs.readFileSync(path.join(root, "app/api/game/island/attack/route.ts"), "utf8");
+if (!attackRouteSource.includes("createStateVote") || attackRouteSource.includes("startWarAction")) failures.push("Mini App attack route must start a civic vote instead of a direct battle");
+const diplomacyRouteSource = fs.readFileSync(path.join(root, "app/api/game/diplomacy/route.ts"), "utf8");
+if (!diplomacyRouteSource.includes("createStateVote") || !diplomacyRouteSource.includes('action === "propose_alliance" || action === "accept_alliance"')) failures.push("Mini App alliance creation/acceptance must be vote-gated");
+const actionSource = fs.readFileSync(path.join(root, "lib/actions.ts"), "utf8");
+if (!actionSource.includes('new Set(["president"])')) failures.push("War initiation core guard must be President-only");
+
 const commandSource = fs.readFileSync(path.join(root, "lib/chat-commands.ts"), "utf8");
 const requiredCommands = [
   "помощь","государство","статус","ресурсы","рейтинг","карта","альянсы","президент","замы","выборы","голосовать",
   "назначитьпрезидента","назначитьзама","снятьзама","казна","постройки","улучшить","налоги","война","бой","сдаться","разведка",
   "оборона","союз","разорватьсоюз","активность","миссия","награда","профиль","создатьюз","юз","название","найти",
+  "роли","роль","голосование","шпион","играть","как_играть","гайд",
 ];
 for (const command of requiredCommands) if (!commandSource.includes(`"${command}"`) && !commandSource.includes(`'${command}'`)) failures.push(`Requested chat command is missing: !${command}`);
 
@@ -120,6 +155,7 @@ notes.push(`${referencedEnv.size} environment variables referenced and documente
 notes.push(`${referencedRpc.size}/${referencedRpc.size} referenced RPCs found in migrations`);
 notes.push(`${requiredCommands.length}/${requiredCommands.length} required chat commands present`);
 notes.push("Vercel Cron dependency: disabled by default (event-driven runtime)");
+if (!fs.readFileSync(path.join(root, "README.md"), "utf8").includes("/setprivacy")) failures.push("README must document disabling BotFather Privacy Mode for !commands");
 notes.push("Telegram webhook idempotency: PostgreSQL-backed");
 notes.push("Baseline security headers: enabled");
 

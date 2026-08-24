@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { getChatMember } from "@/lib/telegram-bot";
+import { assertTelegramChatMembership, TelegramMembershipRequiredError } from "@/lib/telegram-bot";
 import { findActiveBattleForState } from "@/lib/battle";
 import { getDiplomacyForState, getLeaderboard, getWorldFeed, recordWorldEvent } from "@/lib/diplomacy";
 import { getDailyMissions, recordMissionProgress } from "@/lib/missions";
@@ -12,6 +12,7 @@ import { getRecruitmentHub } from "@/lib/recruitment";
 import { getStrategyView } from "@/lib/strategy";
 import { getGovernmentView, registerTelegramState } from "@/lib/government";
 import { reconcileStateRuntime } from "@/lib/maintenance";
+import { applyWorkforceBonus } from "@/lib/community";
 
 const BUILDING_META: Record<BuildingType, { label: string; description: string; x: number; y: number }> = {
   hq: { label: "Казначейство и штаб", description: "Бюджет, управление, оборона и уровень государства", x: 50, y: 36 },
@@ -78,7 +79,8 @@ export async function tickState(stateId: string) {
 
   const rawRates = production((buildings || []) as Array<{ building_type: BuildingType; level: number }>);
   const incomeFactor = state?.is_beginner_island ? 0.60 : 1;
-  const rates = Object.fromEntries(Object.entries(rawRates).map(([key, value]) => [key, Math.round(value * incomeFactor)])) as typeof rawRates;
+  const baseAdjusted = Object.fromEntries(Object.entries(rawRates).map(([key, value]) => [key, Math.round(value * incomeFactor)])) as typeof rawRates;
+  const rates = await applyWorkforceBonus(stateId, baseAdjusted);
   const { data, error } = await supabase.rpc("gw_tick_state", {
     p_state_id: stateId,
     p_credits_rate: rates.credits,
@@ -171,15 +173,14 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null): 
   let membershipVerifiedAt: string | null = null;
 
   if (chatId) {
-    const membership = await getChatMember(chatId, user.id);
-    if (membership.status === "left" || membership.status === "kicked") throw new Error("Вы не состоите в этой Telegram-группе.");
+    await assertTelegramChatMembership(chatId, user.id, [user.first_name, user.last_name].filter(Boolean).join(" ") || user.username || "Игрок");
 
     state = await ensureStateForChat(chatId, player.id, user.id);
     state = await syncStateChatMeta(state.id, chatId);
 
     const home = await existingHomeState(player.id);
     if (home && !home.is_freeport && home.id !== state.id && !home.is_beginner_island && !state.is_beginner_island) {
-      throw new Error(`Вы уже состоите в государстве «${home.name}». Прямой переход между обычными государствами запрещён: сначала используйте предусмотренный игровой маршрут через Остров новичков.`);
+      throw new Error(`Вы уже состоите в государстве «${home.name}». Чтобы сменить гражданство, откройте карту WARSTATE, выберите остров нужного государства и нажмите «Перейти».`);
     }
 
     const { data: existingMember, error: existingMemberError } = await supabase
@@ -197,14 +198,15 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null): 
   } else {
     const home = await existingHomeState(player.id);
     if (home && !home.is_freeport && home.telegram_chat_id) {
-      const membership = await getChatMember(Number(home.telegram_chat_id), user.id);
-      if (!["left", "kicked"].includes(membership.status)) {
+      try {
+        await assertTelegramChatMembership(Number(home.telegram_chat_id), user.id, [user.first_name, user.last_name].filter(Boolean).join(" ") || user.username || "Игрок", { sendInvite: false });
         state = await syncStateChatMeta(home.id, Number(home.telegram_chat_id));
         const { data: existingMember, error: existingMemberError } = await supabase.from("state_members").select("role").eq("state_id", home.id).eq("player_id", player.id).maybeSingle();
         if (existingMemberError) throw existingMemberError;
         role = existingMember?.role || "citizen";
         membershipVerifiedAt = new Date().toISOString();
-      } else {
+      } catch (error) {
+        if (!(error instanceof TelegramMembershipRequiredError)) throw error;
         // The final gw_set_player_home_state call atomically moves this player
         // to Freeport and removes the stale Telegram-state membership.
         state = null;
@@ -305,7 +307,7 @@ export async function getGameSnapshot(
     supabase.from("states").select("id,name,state_username,telegram_chat_title,color,motto,emblem,theme,telegram_chat_id,credits,steel,fuel,food,tech,rating,rating_peak,telegram_member_count,world_x,world_y,island_wins,island_losses,destroyed_until,chat_avatar_file_id,shield_until,next_attack_at,island_integrity,win_streak,best_win_streak,last_battle_at,is_freeport,is_beginner_island,game_level,max_level,influence,reputation,army_power,defense_power,active_player_count,state_size").eq("id", stateId).single(),
     supabase.from("buildings").select("building_type,level,upgrade_target_level,upgrade_started_at,upgrade_finishes_at,upgrade_cooldown_until").eq("state_id", stateId).order("building_type"),
     supabase.from("state_members").select("id", { count: "exact", head: true }).eq("state_id", stateId),
-    supabase.from("state_members").select("contribution").eq("state_id", stateId).eq("player_id", playerId).single(),
+    supabase.from("state_members").select("contribution,duty_role").eq("state_id", stateId).eq("player_id", playerId).single(),
   ]);
   for (const response of [playerRes, stateRes, buildingsRes, membersRes, myMemberRes]) {
     if (response.error) throw response.error;
@@ -319,7 +321,8 @@ export async function getGameSnapshot(
   const buildingsRaw = (buildingsRes.data || []) as Array<{ building_type: BuildingType; level: number; upgrade_target_level?: number | null; upgrade_started_at?: string | null; upgrade_finishes_at?: string | null; upgrade_cooldown_until?: string | null }>;
   const baseRates = production(buildingsRaw);
   const beginnerIncomeFactor = state.is_beginner_island ? 0.60 : 1;
-  const rates = state.is_freeport ? { credits: 0, steel: 0, fuel: 0, food: 0, tech: 0 } : Object.fromEntries(Object.entries(baseRates).map(([key, value]) => [key, Math.round(value * beginnerIncomeFactor)])) as typeof baseRates;
+  const baseAdjustedRates = Object.fromEntries(Object.entries(baseRates).map(([key, value]) => [key, Math.round(value * beginnerIncomeFactor)])) as typeof baseRates;
+  const rates = state.is_freeport ? { credits: 0, steel: 0, fuel: 0, food: 0, tech: 0 } : await applyWorkforceBonus(stateId, baseAdjustedRates);
   // Island World no longer ships the legacy 127-hex map in every snapshot.
   const wins = state.island_wins || 0;
   const rankPromise = state.is_freeport
@@ -370,6 +373,7 @@ export async function getGameSnapshot(
       energy: player.energy,
       contribution: myMemberRes.data?.contribution || 0,
       role,
+      dutyRole: myMemberRes.data?.duty_role || null,
     },
     state: {
       id: state.id,

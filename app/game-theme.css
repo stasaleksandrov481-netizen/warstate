@@ -383,7 +383,7 @@ button,input,textarea{font-family:inherit!important}
 .game-ocean{background:var(--gw42-sea)!important;contain:layout paint style;isolation:isolate}
 .ocean-physics-canvas{contain:strict;will-change:auto!important;image-rendering:auto;transform:none!important}
 .ocean-depth-vignette{background:radial-gradient(ellipse at center,transparent 58%,rgba(3,43,61,.13) 100%)!important;opacity:.72!important}
-.game-world-layer{will-change:transform!important;backface-visibility:hidden;perspective:1000px;contain:layout style}
+.game-world-layer{will-change:transform!important;backface-visibility:hidden;perspective:1000px;contain:layout style;overflow:visible}
 .game-island-node{filter:none!important;transition:none!important;contain:layout style;backface-visibility:hidden}
 .game-island-node.selected{filter:none!important}
 .game-island-node.relation-war .island-art,.game-island-node.relation-allied .island-art{filter:none!important}
@@ -877,7 +877,7 @@ button:disabled{cursor:not-allowed}
 .game-stat-chip>div{min-width:0!important}.game-stat-chip b,.game-stat-chip small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* Map compositor and node paint budget. */
-.game-world-layer{will-change:transform;contain:layout style paint;transform-origin:0 0}
+.game-world-layer{will-change:transform;contain:layout style;transform-origin:0 0;overflow:visible}
 .game-island-node{contain:layout paint style;transform:translate3d(-50%,-50%,0);backface-visibility:hidden}
 .game-ocean{overscroll-behavior:none;touch-action:none}
 .game-ocean.dragging .game-island-label{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:rgba(7,42,50,.88)!important}
@@ -1303,3 +1303,28 @@ body{background:radial-gradient(circle at 50% -15%,rgba(30,135,146,.22),transpar
 @media(prefers-reduced-motion:reduce){
   .scene-loading>i{animation:none!important}.world-pulse-item{transition:none!important}
 }
+
+/* v2.1: persistent beginner-island landmark in world radar */
+.map-beginner-shortcut{width:100%;display:flex;align-items:center;gap:10px;margin:8px 0 2px;padding:9px 10px;border:2px solid #6b5b36;border-radius:12px;background:#f4df9b;color:#28443f;text-align:left;box-shadow:0 2px 0 #6b5b36}
+.map-beginner-shortcut>span{font-size:20px}.map-beginner-shortcut>div{display:flex;min-width:0;flex:1;flex-direction:column}.map-beginner-shortcut b{font-size:11px}.map-beginner-shortcut small{font-size:8px;color:#6e6247}.map-beginner-shortcut>i{font-style:normal;font-weight:900}
+
+/* v2.2 map + state membership controls */
+.game-world-layer{overflow:visible!important;contain:layout style!important}
+.sheet-foreign-actions{display:grid;gap:8px}
+.sheet-switch-state{width:100%;margin:8px 0;border:1px solid rgba(119,214,172,.42);border-radius:12px;background:linear-gradient(135deg,rgba(43,126,91,.92),rgba(17,77,69,.96));color:#f0fff7;padding:10px 12px;text-align:left;box-shadow:0 7px 18px rgba(0,38,31,.18)}
+.sheet-switch-state span{display:block;font-size:8px;font-weight:950;letter-spacing:.04em}
+.sheet-switch-state small{display:block;margin-top:4px;color:#bce7d3;font-size:5.9px;line-height:1.4}
+.government-danger-zone{margin-top:12px;padding:11px;border:1px solid rgba(239,105,93,.22);border-radius:13px;background:rgba(91,35,31,.24)}
+.government-danger-zone>small{display:block;color:#e5a39b;font-size:5.7px;letter-spacing:.1em}
+.government-danger-zone>p{margin:5px 0 8px;color:#b9a09c;font-size:6.2px;line-height:1.45}
+.government-danger-zone button{width:100%;border:1px solid rgba(255,143,132,.34);border-radius:10px;background:rgba(138,48,43,.72);color:#ffe4df;padding:8px 10px;font-size:7px;font-weight:900}
+.government-delete-confirm{display:grid;gap:7px}.government-delete-confirm b{font-size:7px;color:#ffd4cf}.government-delete-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}.government-delete-actions .confirm-delete{background:#9a322d;color:white;border-color:#d3635b}
+
+/* v2.3 compact in-app game guide */
+.game-guide-panel{padding:0!important;overflow:hidden!important}
+.game-guide-panel>details>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 14px;cursor:pointer;user-select:none}
+.game-guide-panel>details>summary::-webkit-details-marker,.game-guide-step>summary::-webkit-details-marker{display:none}
+.game-guide-panel>details>summary span{display:grid;gap:2px}.game-guide-panel>details>summary small{font-size:7px;font-weight:950;letter-spacing:.11em;color:rgba(176,221,214,.62)}.game-guide-panel>details>summary strong{font-size:13px;color:#f7f0d1}.game-guide-panel>details>summary em{font-style:normal;font-size:8px;font-weight:900;color:#f1cf70}.game-guide-panel>details[open]>summary em{font-size:0}.game-guide-panel>details[open]>summary em::after{content:"свернуть";font-size:8px}
+.game-guide-intro{margin:0 12px 9px;padding:10px 11px;border-radius:12px;background:rgba(8,48,58,.48);color:#bed3cd;font-size:8px;line-height:1.5}.game-guide-intro b{color:#f0d47e}
+.game-guide-sections{display:grid;gap:6px;padding:0 12px 11px}.game-guide-step{border:1px solid rgba(169,220,212,.13);border-radius:12px;background:rgba(5,34,44,.42);overflow:hidden}.game-guide-step>summary{list-style:none;display:grid;grid-template-columns:24px 1fr auto;align-items:center;gap:7px;padding:9px 10px;cursor:pointer}.game-guide-step>summary i{font-style:normal;font-size:13px}.game-guide-step>summary b{font-size:8.6px;color:#eef3df}.game-guide-step>summary span{font-size:13px;font-weight:500;color:#88afa7;transition:transform .15s ease}.game-guide-step[open]>summary span{transform:rotate(45deg)}.game-guide-step ul{margin:0;padding:0 12px 10px 30px;color:#afc4bf;font-size:7.4px;line-height:1.48}.game-guide-step li+li{margin-top:4px}
+.game-guide-commands{margin:0 12px 12px;padding:10px 11px;border:1px solid rgba(242,207,114,.17);border-radius:12px;background:rgba(67,54,21,.22);display:grid;gap:3px}.game-guide-commands b{font-size:8px;color:#f0d47e}.game-guide-commands span{font-size:7.4px;color:#c5cec0;overflow-wrap:anywhere}

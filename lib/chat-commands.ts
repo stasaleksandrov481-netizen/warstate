@@ -3,12 +3,28 @@ import { getAlliedStateChats, performDiplomacyAction } from "@/lib/diplomacy";
 import { bootstrapGame, tickState } from "@/lib/game";
 import { startWarAction, upgradeBuildingAction } from "@/lib/actions";
 import { addAllianceBattleSupport, completeDailyActivity, surrenderBattle } from "@/lib/strategy";
-import { appointPresident, openGovernmentElection, removePresident, renameState, resolveStateTarget, searchStates, setDeputy, setStateUsername, voteForUsername } from "@/lib/government";
+import { appointPresident, openGovernmentElection, removePresident, renameState, resolveStateMemberByUsername, resolveStateTarget, searchStates, setDeputy, setStateUsername, voteForUsername } from "@/lib/government";
 import { claimDailyMission } from "@/lib/missions";
 import { miniAppLink, telegramApi } from "@/lib/telegram-bot";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import {
+  DUTY_ROLE_LABELS,
+  castStateVote,
+  createStateVote,
+  executeApprovedStateVote,
+  getDueVotesForChat,
+  getOpenStateVote,
+  getVoteSummary,
+  listDutyRoles,
+  maybeFinalizeStateVote,
+  parseDutyRole,
+  resolveSpyQuest,
+  setDutyRole,
+  startSpyQuest,
+} from "@/lib/community";
 import type { BuildingType, WarType } from "@/lib/types";
 import type { TelegramUser } from "@/lib/telegram";
+import { telegramGameGuideText } from "@/lib/game-guide";
 
 const LEADERS = new Set(["president", "minister", "deputy", "curator"]);
 const WAR_LEADERS = new Set(["president", "minister", "deputy"]);
@@ -44,16 +60,122 @@ function telegramUser(from: any): TelegramUser {
   };
 }
 
+const MESSAGE_DIVIDER = "────────────";
+
+function decorateMessage(text: string) {
+  const clean = String(text || "").trim();
+  if (!clean || clean.includes(MESSAGE_DIVIDER)) return clean;
+  const lineBreak = clean.indexOf("\n");
+  if (lineBreak <= 0) return `⚔ WARSTATE\n${MESSAGE_DIVIDER}\n${clean}`;
+  const title = clean.slice(0, lineBreak).trim();
+  const body = clean.slice(lineBreak).replace(/^\s+/, "");
+  if (!title || !body) return clean;
+  return `${title}\n${MESSAGE_DIVIDER}\n${body}`;
+}
+
 async function send(chatId: number, text: string, keyboard?: Array<Array<{ text: string; url?: string; callback_data?: string }>>) {
   await telegramApi("sendMessage", {
     chat_id: chatId,
-    text,
+    text: decorateMessage(text),
+    link_preview_options: { is_disabled: true },
     ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
   });
 }
 
 function typeLabel(type: WarType) {
   return type === "siege" ? "осада" : type === "territory" ? "спор за территорию" : "рейд";
+}
+
+function voteKeyboard(voteId: string) {
+  return [[
+    { text: "✅ За", callback_data: `gw:vote:yes:${voteId}` },
+    { text: "❌ Против", callback_data: `gw:vote:no:${voteId}` },
+  ]];
+}
+
+function voteProgressText(summary: { yes: number; no: number; eligible: number; quorum: number; vote: { ends_at: string } }) {
+  const minutes = Math.max(0, Math.ceil((new Date(summary.vote.ends_at).getTime() - Date.now()) / 60_000));
+  return `✅ ${summary.yes} · ❌ ${summary.no} · граждан ${summary.eligible} · кворум ${summary.quorum} · осталось ~${minutes} мин.`;
+}
+
+async function statePairForVote(vote: { state_id: string; target_state_id: string }) {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("states")
+    .select("id,name,state_username,telegram_chat_id")
+    .in("id", [vote.state_id, vote.target_state_id]);
+  if (error) throw error;
+  const actor = (data || []).find((row: any) => String(row.id) === String(vote.state_id));
+  const target = (data || []).find((row: any) => String(row.id) === String(vote.target_state_id));
+  if (!actor || !target) throw new Error("Государство голосования не найдено.");
+  return { actor, target };
+}
+
+async function announceApprovedVoteExecution(result: any) {
+  if (!result?.executed) return;
+  const { actor, target } = await statePairForVote(result.vote);
+  const actorChatId = Number(actor.telegram_chat_id);
+  const targetChatId = Number(target.telegram_chat_id);
+
+  if (result.kind === "war") {
+    const battle = await getBattleView(String(result.battleId), null);
+    const text = `🚨 ГОЛОСОВАНИЕ ПРИНЯТО · ${typeLabel(result.battleType).toUpperCase()}\n\n${actor.name} атакует ${target.name}.\nСоюзники могут поддержать бой через кнопки или команду !поддержать ${battle.id} defense/attack.`;
+    const sends: Promise<unknown>[] = [];
+    if (Number.isSafeInteger(actorChatId)) sends.push(send(actorChatId, text, [[{ text: "⚔️ Войти в бой", url: miniAppLink(actorChatId) }]]));
+    if (Number.isSafeInteger(targetChatId)) sends.push(send(targetChatId, text, [
+      [{ text: "🛡️ Организовать оборону", url: miniAppLink(targetChatId) }],
+      [{ text: "🤝 Запросить союзную помощь", callback_data: `gw:battle:support:${battle.id}` }],
+      [{ text: "🏳 Сдаться", callback_data: `gw:battle:surrender:${battle.id}` }],
+    ]));
+    const [ourAllies, theirAllies] = await Promise.all([getAlliedStateChats(String(actor.id)), getAlliedStateChats(String(target.id))]);
+    sends.push(
+      ...ourAllies.map((ally) => send(ally.telegramChatId, `🤝 Союзный запрос: ${actor.name} просит помощи в бою против ${target.name}.`, [
+        [{ text: "⚔️ Помочь атакой", callback_data: `gw:support:attacker:${battle.id}` }],
+        [{ text: "Пропустить", callback_data: `gw:support:skip:${battle.id}` }],
+      ])),
+      ...theirAllies.map((ally) => send(ally.telegramChatId, `🤝 Союзный запрос: ${target.name} просит помощи в обороне против ${actor.name}.`, [
+        [{ text: "🛡️ Помочь защитой", callback_data: `gw:support:defender:${battle.id}` }],
+        [{ text: "Пропустить", callback_data: `gw:support:skip:${battle.id}` }],
+      ])),
+    );
+    await Promise.allSettled(sends);
+    return;
+  }
+
+  if (result.action === "accept") {
+    const text = `🤝 ГОЛОСОВАНИЕ ПРИНЯТО\n\n${actor.name} и ${target.name} заключили союз.`;
+    await Promise.allSettled([
+      Number.isSafeInteger(actorChatId) ? send(actorChatId, text) : Promise.resolve(),
+      Number.isSafeInteger(targetChatId) ? send(targetChatId, text) : Promise.resolve(),
+    ]);
+  } else {
+    const actorText = `🤝 ГОЛОСОВАНИЕ ПРИНЯТО\n\nПредложение союза отправлено государству «${target.name}».`;
+    const acceptTarget = actor.state_username ? `@${actor.state_username}` : String(actor.id);
+    const targetText = `🤝 ${actor.name} предлагает союз. Чтобы заключить его, Дипломат или Президент запускает голосование командой:\n!союз принять ${acceptTarget}`;
+    await Promise.allSettled([
+      Number.isSafeInteger(actorChatId) ? send(actorChatId, actorText) : Promise.resolve(),
+      Number.isSafeInteger(targetChatId) ? send(targetChatId, targetText, [[{ text: "🤝 Дипломатия", url: miniAppLink(targetChatId) }]]) : Promise.resolve(),
+    ]);
+  }
+}
+
+export async function processDueGroupVotes(chatId: number) {
+  const due = await getDueVotesForChat(chatId);
+  for (const vote of due) {
+    if (vote.status === "approved" && !vote.executed_at) {
+      const execution = await executeApprovedStateVote(vote.id);
+      await announceApprovedVoteExecution(execution);
+      continue;
+    }
+    const resolved: any = await maybeFinalizeStateVote(vote.id);
+    if (!resolved.finalized) continue;
+    if (resolved.status === "approved") {
+      const execution = await executeApprovedStateVote(vote.id);
+      await announceApprovedVoteExecution(execution);
+    } else {
+      await send(chatId, `🗳 Голосование завершено: решение отклонено. ${voteProgressText(resolved)}`);
+    }
+  }
 }
 
 export async function handleGroupTextCommand(message: any): Promise<boolean> {
@@ -64,28 +186,56 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
   if (!Number.isSafeInteger(chatId) || !from?.id) return false;
 
   const [rawCommand, ...args] = text.slice(1).trim().split(/\s+/);
-  const command = rawCommand.toLowerCase();
+  // Allow both !команда and !команда@botname in supergroups/topics.
+  const command = String(rawCommand || "").split("@")[0].toLocaleLowerCase("ru-RU");
 
   try {
+    if (["играть", "как_играть", "какиграть", "гайд", "guide"].includes(command)) {
+      await send(chatId, telegramGameGuideText(), [[{ text: "🌊 Открыть WARSTATE", url: miniAppLink(chatId) }]]);
+      return true;
+    }
+
     if (["help", "помощь", "команды"].includes(command)) {
       await send(chatId,
-        "🧭 КОМАНДЫ WARSTATE\n\n" +
-        "ИНФОРМАЦИЯ\n" +
-        "!государство · !статус · !ресурсы · !рейтинг · !карта · !альянсы · !профиль\n\n" +
-        "ПОЛИТИКА\n" +
-        "!президент · !замы · !выборы · !голосовать @username\n" +
-        "!назначитьпрезидента @username · !снятьпрезидента\n" +
-        "!назначитьзама @username · !снятьзама @username\n" +
-        "!создатьюз north_empire · !юз new_handle · !название Новое Государство · !найти north\n\n" +
-        "ЭКОНОМИКА\n" +
-        "!казна · !постройки · !улучшить <постройка> · !налоги\n\n" +
-        "ВОЙНА\n" +
-        "!война @state <raid|siege|territory> · !бой · !оборона · !разведка @state · !сдаться\n\n" +
-        "СОЮЗЫ\n" +
-        "!союз @state · !союз принять [@state] · !союз отклонить [@state] · !разорватьсоюз @state\n\n" +
-        "АКТИВНОСТИ\n" +
-        "!активность · !миссия · !награда\n\n" +
-        "Обычное сообщение: +2 XP игроку и +1 вклад государству, максимум раз в минуту. Mini App использует те же игровые обработчики."
+        "🧭 WARSTATE · ПОМОЩЬ\n\n" +
+        "📖 Новичок? !играть — подробная инструкция от первого входа до войн и союзов.\n\n" +
+        "🏛 ГОСУДАРСТВО\n" +
+        "!государство — карточка страны\n" +
+        "!статус — уровень, армия, оборона и прочность\n" +
+        "!ресурсы / !казна / !налоги — экономика и доход\n" +
+        "!карта — карта островов и переход в другое государство\n" +
+        "!государства — список государств · !найти @state — поиск\n" +
+        "!рейтинг — топ по ELO · !профиль — роль, XP и бои\n" +
+        "!вклад — твой вклад в развитие страны\n\n" +
+        "👑 УПРАВЛЕНИЕ\n" +
+        "!президент / !замы — руководство государства\n" +
+        "!назначитьпрезидента @user / !снятьпрезидента\n" +
+        "!назначитьзама @user / !снятьзама @user\n" +
+        "!роли — список специализаций · !роль @user роль — назначить\n" +
+        "!выборы — открыть выборы · !голосовать @user — отдать голос\n" +
+        "!голосование — текущее решение войны/союза\n" +
+        "!название ... / !юз ... — изменить имя и игровой @юз\n\n" +
+        "⚔ ВОЙНА И РАЗВЕДКА\n" +
+        "!война @state raid|siege|territory — вынести атаку на голосование\n" +
+        "!бой — состояние текущего сражения\n" +
+        "!разведка @state — оценка армии и обороны\n" +
+        "!шпион @state — личная спецоперация Шпиона\n" +
+        "!поддержать ID defense|attack — помочь союзнику\n" +
+        "!сдаться — капитуляция в активном бою\n\n" +
+        "🤝 ДИПЛОМАТИЯ\n" +
+        "!альянсы — действующие союзы\n" +
+        "!союз @state — вынести союз на голосование\n" +
+        "!союз принять @state — голосование за принятие\n" +
+        "!союз отклонить @state — отклонить предложение\n" +
+        "!разорватьсоюз @state — завершить союз\n\n" +
+        "🏗 РАЗВИТИЕ\n" +
+        "!постройки — уровни инфраструктуры\n" +
+        "!улучшить шахта — начать улучшение\n" +
+        "!миссия — ежедневные задачи\n" +
+        "!награда — забрать готовую награду\n" +
+        "!активность — доступные операции дня\n\n" +
+        "💬 За общение: +2 XP и +1 вклад не чаще раза в минуту. Каждые 10 обычных сообщений граждан дают государству +1 ко всем ресурсам.\n\n" +
+        "⇄ Смена государства: открой !карта → выбери остров → «Перейти». Бот обязательно проверит, что ты состоишь в Telegram-чате выбранного государства."
       );
       return true;
     }
@@ -118,6 +268,37 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     if (command === "замы") {
       const deputies = snapshot.government.deputies;
       await send(chatId, `🛡 ЗАМЕСТИТЕЛИ · ${deputies.length}/3\n\n${deputies.length ? deputies.map((d, i) => `${i + 1}. ${d.displayName}${d.username ? ` (@${d.username})` : ""}`).join("\n") : "Заместителей пока нет."}`);
+      return true;
+    }
+
+    if (command === "роли" || command === "roles") {
+      const duties = await listDutyRoles(snapshot.state.id);
+      const dutyLines = duties.length
+        ? duties.map((item) => `• ${DUTY_ROLE_LABELS[item.dutyRole]} — ${item.displayName}${item.username ? ` (@${item.username})` : ""}`).join("\n")
+        : "Специализации пока не назначены.";
+      const president = snapshot.government.president;
+      await send(chatId,
+        `🎖 РОЛИ ГОСУДАРСТВА\n\n` +
+        `👑 Президент — ${president ? `${president.displayName}${president.username ? ` (@${president.username})` : ""}` : "не назначен"}\n\n` +
+        `${dutyLines}\n\n` +
+        `⛏ Шахтёр: +8% к стали за каждого, максимум +40%.\n` +
+        `🏗 Рабочий: +4% ко всей добыче за каждого, максимум +20%.`
+      );
+      return true;
+    }
+
+    if (command === "роль" || command === "role") {
+      const targetRaw = String(args[0] || "");
+      const roleRaw = String(args[1] || "");
+      if (!targetRaw || !roleRaw) throw new Error("Формат: !роль @username дипломат|шпион|шахтер|рабочий|снять");
+      const target = await resolveStateMemberByUsername(snapshot.state.id, targetRaw);
+      const clear = ["снять", "none", "clear", "нет"].includes(roleRaw.toLocaleLowerCase("ru-RU"));
+      const dutyRole = clear ? null : parseDutyRole(roleRaw);
+      if (!clear && !dutyRole) throw new Error("Специализация: дипломат, шпион, шахтер или рабочий.");
+      await setDutyRole({ stateId: snapshot.state.id, actorPlayerId: snapshot.player.id, targetPlayerId: target.id, dutyRole });
+      await send(chatId, dutyRole
+        ? `🎖 ${target.display_name}${target.username ? ` (@${target.username})` : ""} получает специализацию «${DUTY_ROLE_LABELS[dutyRole]}».`
+        : `🎖 Специализация ${target.display_name}${target.username ? ` (@${target.username})` : ""} снята.`);
       return true;
     }
 
@@ -188,13 +369,48 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "карта") {
-      await send(chatId, "🗺 Карта государств открывается в Mini App.", [[{ text: "🗺 Открыть карту", url: miniAppLink(chatId) }]]);
+      const beginner = snapshot.islands.find((island) => island.isBeginnerIsland);
+      await send(
+        chatId,
+        `🗺 КАРТА ГОСУДАРСТВ\n\n${beginner ? `🧭 ${beginner.name} · защищённая территория · ${beginner.memberCount} участников\n\n` : ""}Откройте мировую карту в Mini App. Остров новичков закреплён в радаре и доступен для выбора из любой точки мира.`,
+        [
+          ...(beginner ? [[{ text: "🧭 Выбрать Остров новичков", callback_data: `gw:map:island:${beginner.id}` }]] : []),
+          [{ text: "🗺 Открыть карту", url: miniAppLink(chatId) }],
+        ],
+      );
       return true;
     }
 
     if (command === "альянсы") {
       const allies = snapshot.diplomacy.filter((item) => item.status === "allied");
       await send(chatId, `🤝 СОЮЗЫ\n\n${allies.length ? allies.map((item, i) => `${i + 1}. ${item.otherStateName}`).join("\n") : "Активных союзов нет."}`);
+      return true;
+    }
+
+    if (command === "голосование" || command === "vote") {
+      const openVote = await getOpenStateVote(snapshot.state.id);
+      if (!openVote) {
+        await send(chatId, "🗳 Сейчас активных государственных голосований нет.");
+        return true;
+      }
+      if (openVote.status === "approved" && !openVote.executed_at) {
+        const execution = await executeApprovedStateVote(openVote.id);
+        await announceApprovedVoteExecution(execution);
+        if (!execution.executed) await send(chatId, "🗳 Решение уже было исполнено другим запросом.");
+        return true;
+      }
+      if (new Date(openVote.ends_at).getTime() <= Date.now()) {
+        const resolved: any = await maybeFinalizeStateVote(openVote.id);
+        if (resolved.status === "approved") await announceApprovedVoteExecution(await executeApprovedStateVote(openVote.id));
+        else if (resolved.finalized) await send(chatId, `🗳 Голосование завершено: решение отклонено. ${voteProgressText(resolved)}`);
+        return true;
+      }
+      const summary = await getVoteSummary(openVote.id);
+      const { target } = await statePairForVote(openVote);
+      const subject = openVote.vote_kind === "war"
+        ? `объявить ${typeLabel(String(openVote.payload?.battleType || "raid") as WarType)} государству «${target.name}»`
+        : `${String(openVote.payload?.action || "propose") === "accept" ? "принять союз" : "предложить союз"} с «${target.name}»`;
+      await send(chatId, `🗳 ГОЛОСОВАНИЕ\n\nРешение: ${subject}.\n${voteProgressText(summary)}`, voteKeyboard(openVote.id));
       return true;
     }
 
@@ -232,6 +448,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         : ["minister", "deputy"].includes(snapshot.player.role) ? "Заместитель"
         : snapshot.player.role === "curator" ? "Куратор"
         : snapshot.player.role === "general" ? "Генерал" : "Гражданин";
+      const dutyLabel = snapshot.player.dutyRole ? DUTY_ROLE_LABELS[snapshot.player.dutyRole] : null;
       const supabase = getSupabaseAdmin();
       const { data: participations, error: participationError } = await supabase.from("battle_players").select("battle_id,team").eq("player_id", snapshot.player.id);
       if (participationError) throw participationError;
@@ -251,7 +468,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         if ((row as any).team === "defender") defenses += 1;
       }
       await send(chatId,
-        `👤 ${snapshot.player.displayName}\n\nРоль: ${roleLabel}\nУровень: ${snapshot.player.level}\nОпыт: ${snapshot.player.xp.toLocaleString("ru-RU")} XP\nВклад: ${snapshot.player.contribution.toLocaleString("ru-RU")}\nПобеды: ${wins}\nЗащиты: ${defenses}\nГосударство: ${snapshot.state.name}${snapshot.state.stateUsername ? ` (@${snapshot.state.stateUsername})` : ""}`
+        `👤 ${snapshot.player.displayName}\n\nРоль: ${roleLabel}${dutyLabel ? ` · ${dutyLabel}` : ""}\nУровень: ${snapshot.player.level}\nОпыт: ${snapshot.player.xp.toLocaleString("ru-RU")} XP\nВклад: ${snapshot.player.contribution.toLocaleString("ru-RU")}\nПобеды: ${wins}\nЗащиты: ${defenses}\nГосударство: ${snapshot.state.name}${snapshot.state.stateUsername ? ` (@${snapshot.state.stateUsername})` : ""}`
       );
       return true;
     }
@@ -356,7 +573,8 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "союз" || command === "alliance" || command === "разорватьсоюз") {
-      if (!LEADERS.has(snapshot.player.role)) throw new Error("Дипломатией управляет президент или заместитель.");
+      const canDiplomacy = snapshot.player.role === "president" || snapshot.player.dutyRole === "diplomat";
+      if (!canDiplomacy) throw new Error("Союзами управляет Президент или Дипломат.");
       const actionRaw = command === "разорватьсоюз" ? "выйти" : String(args[0] || "").toLowerCase();
       const isAction = ["принять", "accept", "отклонить", "reject", "выйти", "leave"].includes(actionRaw);
       let targetRaw = command === "разорватьсоюз" ? args[0] : (isAction ? args[1] : args[0]);
@@ -375,20 +593,34 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         if (!targetRaw) throw new Error("Укажите @юз государства. Например: !союз @north_empire");
         target = await resolveStateTarget(String(targetRaw));
       }
-      if (["принять", "accept"].includes(actionRaw)) {
-        await performDiplomacyAction(snapshot.state.id, target.id, "accept_alliance");
-        await send(chatId, `🤝 Союз с «${target.name}» заключён.`);
-      } else if (["отклонить", "reject"].includes(actionRaw)) {
+
+      if (["отклонить", "reject"].includes(actionRaw)) {
         await performDiplomacyAction(snapshot.state.id, target.id, "reject_alliance");
         await send(chatId, `Предложение «${target.name}» отклонено.`);
-      } else if (["выйти", "leave"].includes(actionRaw)) {
+        return true;
+      }
+      if (["выйти", "leave"].includes(actionRaw)) {
         await performDiplomacyAction(snapshot.state.id, target.id, "break_alliance");
         await send(chatId, `Союз с «${target.name}» разорван.`);
-      } else {
-        await performDiplomacyAction(snapshot.state.id, target.id, "propose_alliance");
-        await send(chatId, `🤝 Предложение союза отправлено государству «${target.name}».`);
-        if (target.telegram_chat_id) await send(Number(target.telegram_chat_id), `🤝 ${snapshot.state.name} предлагает союз. Команда: !союз принять @${snapshot.state.stateUsername || "ваш_союзник"}`, [[{ text: "🤝 Дипломатия", url: miniAppLink(Number(target.telegram_chat_id)) }]]);
+        return true;
       }
+
+      const accepting = ["принять", "accept"].includes(actionRaw);
+      if (accepting) {
+        const pending = snapshot.diplomacy.find((item) => item.otherStateId === target.id && item.status === "alliance_pending" && item.requestedByStateId !== snapshot.state.id);
+        if (!pending) throw new Error("Нет входящего предложения союза от этого государства.");
+      }
+      const vote = await createStateVote({
+        stateId: snapshot.state.id,
+        createdByPlayerId: snapshot.player.id,
+        kind: "alliance",
+        targetStateId: target.id,
+        payload: { action: accepting ? "accept" : "propose" },
+      });
+      await send(chatId,
+        `🗳 ГОЛОСОВАНИЕ О СОЮЗЕ\n\n${accepting ? "Заключить" : "Предложить"} союз с «${target.name}»?\nГолосуют граждане государства. Срок: 10 минут.`,
+        voteKeyboard(vote.id),
+      );
       return true;
     }
 
@@ -402,38 +634,38 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       return true;
     }
 
+    if (command === "шпион" || command === "spy") {
+      if (snapshot.player.dutyRole !== "spy") throw new Error("Команда доступна только участнику со специализацией «Шпион».");
+      const target = await resolveStateTarget(String(args[0] || ""));
+      if (target.id === snapshot.state.id) throw new Error("Укажите вражеское или нейтральное государство.");
+      await send(chatId,
+        `🕵️ ШПИОНСКИЙ КВЕСТ\n\nЦель: «${target.name}». Выберите операцию. Один шпионский выход доступен раз в 6 часов.`,
+        [[
+          { text: "🔭 Разведать", callback_data: `gw:spy:start:${target.id}:recon` },
+          { text: "💰 Украсть казну", callback_data: `gw:spy:start:${target.id}:treasury` },
+        ]],
+      );
+      return true;
+    }
+
     if (command === "война" || command === "war") {
-      if (!WAR_LEADERS.has(snapshot.player.role)) throw new Error("Начинать войну может только президент или заместитель.");
+      if (snapshot.player.role !== "president") throw new Error("Голосование о начале войны запускает Президент.");
       const targetRaw = String(args[0] || "");
       if (!targetRaw) throw new Error("Формат: !война @north_empire raid");
       const battleType = WAR_TYPES[String(args[1] || "raid").toLowerCase()];
       if (!battleType) throw new Error("Тип войны: raid, siege или territory.");
       const target = await resolveStateTarget(targetRaw);
-      const battleId = await startWarAction({ actorRole: snapshot.player.role, attackerStateId: snapshot.state.id, defenderStateId: target.id, battleType, attackerIsFreeport: snapshot.state.isFreeport });
-      const battle = await getBattleView(battleId, snapshot.player.id);
-      const text = `🚨 ${typeLabel(battleType).toUpperCase()}\n\n${snapshot.state.name} атакует ${target.name}.\nРазмер, оборонительный буфер, усталость и случайный фактор уже зафиксированы. Союзники могут поддержать бой командой !поддержать ${battleId} defense/attack.`;
-      await Promise.all([
-        send(chatId, text, [[{ text: "⚔️ Войти в бой", url: miniAppLink(chatId) }]]),
-        send(Number(target.telegram_chat_id), text, [
-          [{ text: "🛡️ Организовать оборону", url: miniAppLink(Number(target.telegram_chat_id)) }],
-          [{ text: "🤝 Запросить союзную помощь", callback_data: `gw:battle:support:${battleId}` }],
-          [{ text: "🏳 Сдаться", callback_data: `gw:battle:surrender:${battleId}` }],
-        ]),
-      ]);
-      const [ourAllies, theirAllies] = await Promise.all([getAlliedStateChats(snapshot.state.id), getAlliedStateChats(target.id)]);
-      await Promise.all([
-        ...ourAllies.map((ally: { id: string; name: string; telegramChatId: number }) => send(ally.telegramChatId, `🤝 Союзный запрос: ${snapshot.state.name} просит помощи в бою против ${target.name}.\nВыберите действие:`, [
-          [{ text: "⚔️ Помочь атакой", callback_data: `gw:support:attacker:${battleId}` }],
-          [{ text: "Пропустить", callback_data: `gw:support:skip:${battleId}` }],
-          [{ text: "Открыть бой", url: miniAppLink(ally.telegramChatId) }],
-        ])),
-        ...theirAllies.map((ally: { id: string; name: string; telegramChatId: number }) => send(ally.telegramChatId, `🤝 Союзный запрос: ${target.name} просит помощи в бою против ${snapshot.state.name}.\nВыберите действие:`, [
-          [{ text: "🛡️ Помочь защитой", callback_data: `gw:support:defender:${battleId}` }],
-          [{ text: "Пропустить", callback_data: `gw:support:skip:${battleId}` }],
-          [{ text: "Открыть бой", url: miniAppLink(ally.telegramChatId) }],
-        ])),
-      ]);
-      void battle;
+      const vote = await createStateVote({
+        stateId: snapshot.state.id,
+        createdByPlayerId: snapshot.player.id,
+        kind: "war",
+        targetStateId: target.id,
+        payload: { battleType },
+      });
+      await send(chatId,
+        `🗳 ГОЛОСОВАНИЕ О ВОЙНЕ\n\nНачать ${typeLabel(battleType)} против «${target.name}»?\nГолосуют граждане государства. Срок: 10 минут. При абсолютном большинстве решение исполняется досрочно.`,
+        voteKeyboard(vote.id),
+      );
       return true;
     }
 
@@ -459,35 +691,127 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       return true;
     }
 
-    await send(chatId, "Неизвестная команда. Напишите !помощь.");
+    await send(chatId, "❔ КОМАНДА НЕ НАЙДЕНА\n\nПроверьте написание или откройте список команд: !помощь");
     return true;
   } catch (error) {
     const messageText = error instanceof Error ? error.message : "Команда не выполнена.";
-    await send(chatId, `⛔ ${messageText}`);
+    await send(chatId, `⛔ КОМАНДА НЕ ВЫПОЛНЕНА\n\n${messageText}\n\nПодсказка: !помощь`);
     return true;
   }
 }
 
 export async function handleGroupCallback(query: any): Promise<boolean> {
   const data = String(query?.data || "");
-  if (!data.startsWith("gw:battle:") && !data.startsWith("gw:support:")) return false;
+  if (!["gw:battle:", "gw:support:", "gw:vote:", "gw:spy:", "gw:map:"].some((prefix) => data.startsWith(prefix))) return false;
   const chatId = Number(query?.message?.chat?.id);
   const from = query?.from;
   if (!Number.isSafeInteger(chatId) || !from?.id) return false;
 
-  const [, scope, action, battleId] = data.split(":");
-  if (!scope || !action || !battleId) return false;
-
   const answer = async (text: string, showAlert = false) => {
     try {
-      await telegramApi("answerCallbackQuery", { callback_query_id: query.id, text, show_alert: showAlert });
+      await telegramApi("answerCallbackQuery", { callback_query_id: query.id, text: text.slice(0, 190), show_alert: showAlert });
     } catch {
-      // The action itself is authoritative; an expired Telegram callback must not roll it back.
+      // The authoritative game action must survive an expired Telegram callback.
+    }
+  };
+
+  const sendPrivateOrGroup = async (text: string, keyboard?: Array<Array<{ text: string; url?: string; callback_data?: string }>>) => {
+    try {
+      await send(Number(from.id), text, keyboard);
+      if (Number(from.id) !== chatId) await send(chatId, `🕵️ ${String(from.first_name || "Игрок")}, продолжение задания отправлено в личный чат.`);
+    } catch {
+      await send(chatId, `${text}\n\nЧтобы получать шпионские задания лично, сначала откройте диалог с ботом и нажмите /start.`, keyboard);
     }
   };
 
   try {
-    const snapshot = await bootstrapGame(telegramUser(from), chatId);
+    const parts = data.split(":");
+    const scope = parts[1];
+    const action = parts[2];
+    const callbackChatType = String(query?.message?.chat?.type || "");
+    const stateChatId = ["group", "supergroup"].includes(callbackChatType) ? chatId : null;
+    const snapshot = await bootstrapGame(telegramUser(from), stateChatId);
+
+    if (scope === "vote") {
+      const voteId = String(parts[3] || "");
+      if (!voteId || !["yes", "no"].includes(action)) return false;
+      const result: any = await castStateVote(voteId, snapshot.player.id, action === "yes");
+      await answer(voteProgressText(result));
+      if (result.finalized) {
+        if (result.status === "approved") {
+          const execution = await executeApprovedStateVote(voteId);
+          await announceApprovedVoteExecution(execution);
+        } else {
+          await send(chatId, `🗳 Голосование завершено: решение отклонено. ${voteProgressText(result)}`);
+        }
+      }
+      return true;
+    }
+
+    if (scope === "spy") {
+      if (action === "start") {
+        const targetStateId = String(parts[3] || "");
+        const kind = String(parts[4] || "") as "recon" | "treasury";
+        if (!targetStateId || !["recon", "treasury"].includes(kind)) return false;
+        const quest: any = await startSpyQuest({ playerId: snapshot.player.id, stateId: snapshot.state.id, targetStateId, kind });
+        await answer("Шпион вышел на задание");
+        if (kind === "recon") {
+          await sendPrivateOrGroup(
+            "🕵️ ЭТАП 2/2 · РАЗВЕДКА\n\nКак агент будет собирать сведения?",
+            [[
+              { text: "🌫 Тихое наблюдение", callback_data: `gw:spy:resolve:${quest.id}:silent` },
+              { text: "🎭 Рискованный контакт", callback_data: `gw:spy:resolve:${quest.id}:contact` },
+            ]],
+          );
+        } else {
+          await sendPrivateOrGroup(
+            "🕵️ ЭТАП 2/2 · КАЗНА\n\nВыберите способ проникновения. Подкуп безопаснее, поддельная накладная даёт больший куш.",
+            [[
+              { text: "🤝 Подкупить клерка", callback_data: `gw:spy:resolve:${quest.id}:bribe` },
+              { text: "📜 Подделать накладную", callback_data: `gw:spy:resolve:${quest.id}:invoice` },
+            ]],
+          );
+        }
+        return true;
+      }
+
+      if (action === "resolve") {
+        const questId = String(parts[3] || "");
+        const option = String(parts[4] || "");
+        if (!questId || !option) return false;
+        const result: any = await resolveSpyQuest(questId, snapshot.player.id, option);
+        await answer(result?.success ? "Операция успешна" : "Операция сорвалась");
+        if (result?.kind === "recon") {
+          await sendPrivateOrGroup(
+            `${result.success ? "✅" : "⚠️"} РАЗВЕДКА ЗАВЕРШЕНА\n\n` +
+            `⚔️ Армия: ${Number(result.army || 0)}\n🛡 Оборона: ${Number(result.defense || 0)}\n👥 Активных: ${Number(result.activePlayers || 0)}\n🏝 Прочность: ${Number(result.integrity || 0)}%` +
+            `${result.credits !== null && result.credits !== undefined ? `\n💰 Казна: ${Number(result.credits).toLocaleString("ru-RU")}` : "\n💰 Казна: данные скрыты"}`,
+          );
+        } else {
+          await sendPrivateOrGroup(result.success
+            ? `✅ КАЗНА ВСКРЫТА\n\nВ государственную казну доставлено ${Number(result.stolen || 0).toLocaleString("ru-RU")} кредитов. Вклад шпиона увеличен.`
+            : `⚠️ ОПЕРАЦИЯ ПРОВАЛЕНА\n\nКонтрразведка сорвала план. Потеряно ${Number(result.penalty || 0).toLocaleString("ru-RU")} кредитов и немного репутации.`);
+        }
+        return true;
+      }
+      return false;
+    }
+
+    if (scope === "map") {
+      if (action !== "island") return false;
+      const stateId = String(parts[3] || "");
+      const island = snapshot.islands.find((item) => item.id === stateId);
+      if (!island) throw new Error("Остров сейчас не найден на карте.");
+      await answer(island.name);
+      await send(chatId,
+        `🧭 ${island.name}\n\nУр. ${island.level}/${island.maxLevel} · ${island.rating} ELO\n👥 ${island.memberCount.toLocaleString("ru-RU")} участников · активных ${island.activePlayers}\n🛡 Прочность ${island.integrity}%\n\nОстров закреплён в радаре Mini App и доступен для выбора независимо от расстояния.`,
+        [[{ text: "🗺 Открыть карту", url: miniAppLink(chatId) }]],
+      );
+      return true;
+    }
+
+    const battleId = String(parts[3] || "");
+    if (!battleId) return false;
     if (!LEADERS.has(snapshot.player.role)) throw new Error("Это действие доступно только президенту, заместителю или куратору Острова новичков.");
 
     if (scope === "support") {
@@ -523,8 +847,7 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
       const enemy: any = isAttacker ? battle.defender : battle.attacker;
       await Promise.all(allies.map((ally: { id: string; name: string; telegramChatId: number }) => send(
         ally.telegramChatId,
-        `🤝 Союзный запрос: ${snapshot.state.name} просит помощи в бою против ${String(enemy?.name || "противника")}.
-Поддержите ${requestedSide === "attacker" ? "атаку" : "оборону"}:`,
+        `🤝 Союзный запрос: ${snapshot.state.name} просит помощи в бою против ${String(enemy?.name || "противника")}.\nПоддержите ${requestedSide === "attacker" ? "атаку" : "оборону"}:`,
         [
           [requestedSide === "attacker"
             ? { text: "⚔️ Помочь атакой", callback_data: `gw:support:attacker:${battleId}` }
@@ -533,7 +856,7 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
           [{ text: "Открыть бой", url: miniAppLink(ally.telegramChatId) }],
         ],
       )));
-      await answer(allies.length ? `Запрос отправлен союзникам: ${allies.length} · рекомендуемая сторона: ${requestedSide === "attacker" ? "атака" : "оборона"}` : "Активных союзников нет", !allies.length);
+      await answer(allies.length ? `Запрос отправлен союзникам: ${allies.length}` : "Активных союзников нет", !allies.length);
       return true;
     }
 
@@ -548,7 +871,8 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
 
     return false;
   } catch (error) {
-    await answer(error instanceof Error ? error.message.slice(0, 180) : "Действие не выполнено.", true);
+    await answer(error instanceof Error ? error.message : "Действие не выполнено.", true);
     return true;
   }
 }
+

@@ -30,7 +30,7 @@ function attackReason(snapshot: GameSnapshot, island: IslandView, now: number) {
   if (snapshot.state.isBeginnerIsland) return "С Острова новичков нельзя начинать войны";
   if (island.isFreeport) return "Freeport — нейтральная территория";
   if (island.isBeginnerIsland) return "Остров новичков находится под защитой";
-  if (!["president", "minister", "deputy"].includes(snapshot.player.role)) return "Атаку запускает президент или заместитель";
+  if (snapshot.player.role !== "president") return "Голосование о войне запускает только Президент";
   if (snapshot.activeBattle) return "Ваш флот уже участвует в битве";
   if (snapshot.state.destroyedUntil && new Date(snapshot.state.destroyedUntil).getTime() > now) return "Ваш остров восстанавливается";
   if (island.destroyedUntil && new Date(island.destroyedUntil).getTime() > now) return "Остров уже в руинах";
@@ -63,6 +63,7 @@ type Props = {
   selected: IslandView | null;
   onSelect: (island: IslandView | null) => void;
   onAttack: (island: IslandView, battleType: WarType) => void;
+  onSwitchState: (island: IslandView) => void;
   onExplore?: (x: number, y: number, radius: number) => void;
   onOpenBattle?: () => void;
   onOpenIsland?: () => void;
@@ -121,7 +122,7 @@ const IslandNode = memo(function IslandNode({
   );
 });
 
-function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onOpenBattle, onOpenIsland }: Props) {
+function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState, onExplore, onOpenBattle, onOpenIsland }: Props) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const worldLayerRef = useRef<HTMLDivElement>(null);
   const pointersRef = useRef(new Map<number, PointerPoint>());
@@ -437,6 +438,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
     ally: snapshot.islands.filter((island) => island.relation === "allied").length,
     neutral: snapshot.islands.filter((island) => !island.relation && !island.isMine).length,
   }), [snapshot.islands]);
+  const beginnerIsland = useMemo(() => snapshot.islands.find((island) => island.isBeginnerIsland) || null, [snapshot.islands]);
 
   const sortedIslands = useMemo(() => [...snapshot.islands].sort((a, b) => islandSize(a.memberCount, a.isFreeport) - islandSize(b.memberCount, b.isFreeport)), [snapshot.islands]);
   const visibleIslands = useMemo(() => {
@@ -541,6 +543,11 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
                 ["neutral", "Нейтр.", mapCounts.neutral],
               ] as Array<[MapFilter, string, number]>).map(([key, label, count]) => <button key={key} type="button" className={mapFilter === key ? "active" : ""} onClick={() => setMapFilter(key)}><b>{label}</b><small>{count}</small></button>)}
             </div>
+            {beginnerIsland && (
+              <button className="map-beginner-shortcut" type="button" onClick={() => focusIsland(beginnerIsland)}>
+                <span>🧭</span><div><b>Остров новичков</b><small>Защищённая территория · выбрать на карте</small></div><i>›</i>
+              </button>
+            )}
             {normalizedQuery && <div className="map-search-results">{searchResults.length ? searchResults.map((island) => <button type="button" key={island.id} onClick={() => focusIsland(island)}><span style={{ background: island.color }}>{island.emblem || island.name.slice(0, 1)}</span><div><b>{island.name}</b><small>{island.memberCount.toLocaleString("ru-RU")} участников · {island.rating} ELO</small></div><i>›</i></button>) : <p>Ничего не найдено</p>}</div>}
             <div className="map-radar-foot"><span><i />{visibleIslands.length} на экране</span><span>масштаб {Math.round(camera.zoom * 100)}%</span></div>
           </aside>
@@ -610,6 +617,12 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
             {selected.relation === "truce" && <span className="sheet-status truce">◌ ПЕРЕМИРИЕ</span>}
             {selected.shieldUntil && timeLeft(selected.shieldUntil, now) && <span className="sheet-status shield">◈ ЩИТ {timeLeft(selected.shieldUntil, now)}</span>}
           </div>
+          {!selected.isMine && !selected.isFreeport && (
+            <button className="sheet-switch-state" type="button" onClick={() => onSwitchState(selected)}>
+              <span>⇄ ПЕРЕЙТИ В «{selected.name.toLocaleUpperCase("ru-RU")}»</span>
+              <small>Только для участников Telegram-чата этого государства</small>
+            </button>
+          )}
           {selected.isFreeport && !selected.isMine ? (
             <div className="sheet-freeport">⚓ Freeport нельзя атаковать. Это нейтральный хаб свободных игроков.</div>
           ) : selected.destroyedUntil && timeLeft(selected.destroyedUntil, now) ? (
@@ -619,14 +632,16 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
               <span>⌂ МОЙ ОСТРОВ</span><small>Инфраструктура, ремонт и развитие</small>
             </button>
           ) : (
-            <div className="sheet-war-box">
+            <div className="sheet-foreign-actions">
+              <div className="sheet-war-box">
               <div className="sheet-war-types" aria-label="Тип операции">
                 {(["raid", "siege", "territory"] as WarType[]).map((type) => <button key={type} type="button" className={warType === type ? "active" : ""} onClick={() => setWarType(type)} disabled={Boolean(selectedReason)}>{type === "raid" ? "Рейд" : type === "siege" ? "Осада" : "Территория"}</button>)}
               </div>
               <button className="sheet-attack" type="button" disabled={Boolean(selectedReason)} onClick={() => onAttack(selected, warType)}>
-                <span>⚔ АТАКОВАТЬ · {warType === "raid" ? "РЕЙД" : warType === "siege" ? "ОСАДА" : "ТЕРРИТОРИЯ"}</span>
-                <small>{selectedReason || `120 топлива · 80 еды · ${warType === "raid" ? "15 мин" : warType === "territory" ? "20 мин" : "30 мин"} · ELO +${selectedElo?.win || 0} / −${selectedElo?.lose || 0}`}</small>
+                <span>🗳 НА ГОЛОСОВАНИЕ · {warType === "raid" ? "РЕЙД" : warType === "siege" ? "ОСАДА" : "ТЕРРИТОРИЯ"}</span>
+                <small>{selectedReason || `Голосование 10 мин · после одобрения: 120 топлива · 80 еды · бой ${warType === "raid" ? "15 мин" : warType === "territory" ? "20 мин" : "30 мин"}`}</small>
               </button>
+              </div>
             </div>
           )}
         </section>

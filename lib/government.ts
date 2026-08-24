@@ -228,6 +228,19 @@ export async function renameState(stateId: string, founderPlayerId: string, name
   return data;
 }
 
+export async function deleteState(stateId: string, founderPlayerId: string) {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase.rpc("gw_delete_state", {
+    p_state_id: stateId,
+    p_actor_player_id: founderPlayerId,
+  });
+  if (error) {
+    if (error.code === "PGRST202") throw new Error("Не применена миграция 018_state_switch_delete_ui.sql.");
+    throw error;
+  }
+  return data;
+}
+
 export async function recordChatActivity(chatId: number, telegramId: number) {
   const supabase = getSupabaseAdmin();
   const { data: state, error: stateError } = await supabase.from("states").select("id").eq("telegram_chat_id", chatId).maybeSingle();

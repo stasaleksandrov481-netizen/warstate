@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useMemo, useState } from "react";
 import type { GameSnapshot, StateView } from "@/lib/types";
+import { GAME_GUIDE_SECTIONS } from "@/lib/game-guide";
 
 type Props = {
   snapshot: GameSnapshot;
@@ -30,6 +31,25 @@ function remaining(iso: string, now: number) {
   return days > 0 ? `${days}д ${hours}ч` : `${hours}ч ${minutes}м`;
 }
 
+function GameGuidePanel() {
+  return <div className="panel game-guide-panel">
+    <details>
+      <summary>
+        <span><small>СПРАВОЧНИК</small><strong>Как играть в WARSTATE</strong></span>
+        <em>открыть</em>
+      </summary>
+      <div className="game-guide-intro">От первого входа до войн, союзов и шпионских операций. В чате этот же гайд доступен по команде <b>!играть</b>.</div>
+      <div className="game-guide-sections">
+        {GAME_GUIDE_SECTIONS.map((section) => <details key={section.title} className="game-guide-step">
+          <summary><i>{section.icon}</i><b>{section.title}</b><span>+</span></summary>
+          <ul>{section.lines.map((line) => <li key={line}>{line}</li>)}</ul>
+        </details>)}
+      </div>
+      <div className="game-guide-commands"><b>Быстрый старт</b><span>!помощь · !карта · !статус · !миссия · !ресурсы</span></div>
+    </details>
+  </div>;
+}
+
 function PlayerProgress({ snapshot }: { snapshot: GameSnapshot }) {
   const currentFloor = 180 * Math.pow(Math.max(0, snapshot.player.level - 1), 2);
   const nextFloor = 180 * Math.pow(snapshot.player.level, 2);
@@ -48,6 +68,7 @@ function GovernmentPanel({ snapshot, onGovernment }: Pick<Props, "snapshot" | "o
   const [voteTarget, setVoteTarget] = useState("");
   const [handle, setHandle] = useState(snapshot.state.stateUsername || "");
   const [stateName, setStateName] = useState(snapshot.state.name);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
   const founderName = gov.founder ? `${gov.founder.displayName}${gov.founder.username ? ` (@${gov.founder.username})` : ""}` : "не подтверждён";
   const presidentName = gov.president ? `${gov.president.displayName}${gov.president.username ? ` (@${gov.president.username})` : ""}` : "не назначен";
   return <div className="panel government-panel">
@@ -72,6 +93,19 @@ function GovernmentPanel({ snapshot, onGovernment }: Pick<Props, "snapshot" | "o
         <button type="button" onClick={() => onGovernment("remove_president")}>Снять президента</button>
         <button type="button" onClick={() => onGovernment("appoint_deputy", { username: target })}>Назначить зама</button>
         <button type="button" onClick={() => onGovernment("remove_deputy", { username: target })}>Снять зама</button>
+      </div>
+      <div className="government-danger-zone">
+        <small>ОПАСНАЯ ЗОНА · ТОЛЬКО ВЛАДЕЛЕЦ ЧАТА</small>
+        {!deleteConfirm ? <>
+          <p>Удаление необратимо. Граждане будут переведены во Freeport, а остров исчезнет с карты.</p>
+          <button type="button" onClick={() => setDeleteConfirm(true)}>Удалить государство</button>
+        </> : <div className="government-delete-confirm">
+          <b>Точно удалить «{snapshot.state.name}»?</b>
+          <div className="government-delete-actions">
+            <button type="button" onClick={() => setDeleteConfirm(false)}>Отмена</button>
+            <button type="button" className="confirm-delete" onClick={() => onGovernment("delete_state")}>Да, удалить</button>
+          </div>
+        </div>}
       </div>
     </div>}
   </div>;
@@ -126,6 +160,7 @@ function StateViewInner({ snapshot, onClaim, onPolitics, onGovernment, onCustomi
     <div className="hero-state identity-hero"><div className="state-emblem">{snapshot.state.emblem}</div><div className="flag"><span /></div><small>{snapshot.state.isFreeport ? "НЕЙТРАЛЬНАЯ ГАВАНЬ" : "ГОСУДАРСТВО"}</small><h2>{snapshot.state.name}</h2>{snapshot.state.stateUsername && <div className="state-handle">@{snapshot.state.stateUsername}</div>}<p className="state-motto">«{snapshot.state.motto}»</p></div>
     {!snapshot.state.isFreeport && snapshot.season && <div className="season-strip"><div><small>СЕЗОН {snapshot.season.number}</small><strong>{snapshot.season.name}</strong></div><div className="season-progress"><i><em style={{ width: `${seasonProgress}%` }} /></i><span>осталось {remaining(snapshot.season.endsAt, now)}</span></div><b>#{snapshot.state.seasonRank}</b></div>}
     <div className="stats-grid"><Stat label={snapshot.state.isFreeport ? "Уровень" : "Рейтинг"} value={snapshot.state.isFreeport ? String(snapshot.player.level) : snapshot.state.rating.toLocaleString("ru-RU")} /><Stat label={snapshot.state.isFreeport ? "Опыт" : "Место"} value={snapshot.state.isFreeport ? `${snapshot.player.xp} XP` : `#${snapshot.state.seasonRank}`} /><Stat label={snapshot.state.isFreeport ? "Свободные игроки" : "Граждане"} value={String(snapshot.state.memberCount)} /><Stat label={snapshot.state.isFreeport ? "Статус" : "Победы"} value={snapshot.state.isFreeport ? "FREE" : String(snapshot.state.islandWins)} /></div>
+    <GameGuidePanel />
     {!snapshot.state.isFreeport && <GovernmentPanel snapshot={snapshot} onGovernment={onGovernment} />}
     {!snapshot.state.isFreeport && <ElectionPanel snapshot={snapshot} onPolitics={onPolitics} now={now} />}
     {!snapshot.state.isFreeport && <IdentityEditor snapshot={snapshot} onCustomize={onCustomize} />}

@@ -1,6 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { validateTelegramInitData } from "@/lib/telegram";
-import { getChatMember } from "@/lib/telegram-bot";
+import { assertTelegramChatMembership, TelegramMembershipRequiredError } from "@/lib/telegram-bot";
 import { requireData } from "@/lib/invariants";
 
 export function sessionFromRequest(request: Request) {
@@ -34,8 +34,7 @@ export async function authorizeStateAction(
     const maxAgeMs = Math.max(15_000, options.membershipMaxAgeMs ?? 5 * 60_000);
     const verifiedAt = memberRow.membership_verified_at ? new Date(memberRow.membership_verified_at).getTime() : 0;
     if (!verifiedAt || !Number.isFinite(verifiedAt) || Date.now() - verifiedAt > maxAgeMs) {
-      const telegramMember = await getChatMember(Number(stateRow.telegram_chat_id), session.user.id);
-      if (["left", "kicked"].includes(telegramMember.status)) throw new Error("Вы больше не состоите в Telegram-группе этого государства.");
+      await assertTelegramChatMembership(Number(stateRow.telegram_chat_id), session.user.id, session.user.first_name || "Игрок");
       const nextVerifiedAt = new Date().toISOString();
       const { error: verifyError } = await supabase
         .from("state_members")
@@ -59,7 +58,7 @@ export function jsonError(error: unknown, status?: number) {
     lower.includes("уже выполняется") || lower.includes("уже идёт") || lower.includes("уже идет") || lower.includes("already") ? 409 :
     lower.includes("не настроен") || lower.includes("not configured") || lower.includes("unavailable") ? 503 : 400
   );
-  return Response.json({ error: message }, {
+  return Response.json({ error: message, ...(error instanceof TelegramMembershipRequiredError ? { inviteLink: error.inviteLink } : {}) }, {
     status: inferred,
     headers: inferred === 429 ? { "retry-after": "5" } : undefined,
   });
@@ -88,8 +87,7 @@ export async function authorizeBattleAction(request: Request, battleId: string) 
   const verifiedAt = memberRow.membership_verified_at ? new Date(memberRow.membership_verified_at).getTime() : 0;
   if (!stateRow.is_freeport && (!verifiedAt || Date.now() - verifiedAt > 60_000)) {
     if (!stateRow.telegram_chat_id) throw new Error("У государства отсутствует Telegram-привязка.");
-    const telegramMember = await getChatMember(Number(stateRow.telegram_chat_id), session.user.id);
-    if (["left", "kicked"].includes(telegramMember.status)) throw new Error("Вы больше не состоите в Telegram-группе этого государства.");
+    await assertTelegramChatMembership(Number(stateRow.telegram_chat_id), session.user.id, session.user.first_name || "Игрок");
     const nextVerifiedAt = new Date().toISOString();
     const { error: verifyError } = await supabase.from("state_members").update({ membership_verified_at: nextVerifiedAt }).eq("id", memberRow.id);
     if (verifyError) throw verifyError;

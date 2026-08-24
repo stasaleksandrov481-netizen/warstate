@@ -243,9 +243,6 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null): 
     state = await syncStateChatMeta(state.id, chatId);
 
     const home = await existingHomeState(player.id);
-    if (home && !home.is_freeport && home.id !== state.id && !home.is_beginner_island && !state.is_beginner_island) {
-      throw new Error(`Вы уже состоите в государстве «${home.name}». Чтобы сменить гражданство, откройте карту WARSTATE, выберите остров нужного государства и нажмите «Перейти».`);
-    }
 
     const { data: existingMember, error: existingMemberError } = await supabase
       .from("state_members")

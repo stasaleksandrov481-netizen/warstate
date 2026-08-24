@@ -132,7 +132,7 @@ function ElectionPanel({ snapshot, onPolitics, now }: Pick<Props, "snapshot" | "
   const totalVotes = election?.candidates.reduce((sum, candidate) => sum + candidate.votes, 0) || 0;
   const ended = election ? new Date(election.endsAt).getTime() <= now : false;
 
-  if (!election) return <div className="panel election-panel empty-election"><div><small>ПОЛИТИКА</small><h3>Президентские выборы</h3><p>Основатель открывает 30-минутное голосование. Каждый гражданин получает один голос и может поменять его до закрытия урн.</p></div>{canOpen && <button className="primary" onClick={() => onPolitics("open")}>Открыть выборы</button>}</div>;
+  if (!election) return <div className="panel election-panel empty-election"><div><small>ПОЛИТИКА</small><h3>Президентские выборы</h3><p>Запускайте голосование кнопкой ниже. После старта сообщение автоматически появится в Telegram-группе государства.</p></div>{canOpen && <button className="primary" onClick={() => onPolitics("open")}>Открыть выборы</button>}</div>;
 
   return <div className="panel election-panel">
     <div className="election-head"><div><small>ВЫБОРЫ ПРЕЗИДЕНТА</small><h3>{election.status === "open" ? ended ? "Голосование завершено" : `До закрытия ${remaining(election.endsAt, now)}` : election.status === "resolved" ? "Результаты утверждены" : "Выборы отменены"}</h3></div><b>{totalVotes}<span>голосов</span></b></div>

@@ -21,10 +21,10 @@ export async function telegramApi<T>(method: string, payload: Record<string, unk
   return json.result as T;
 }
 
-export function miniAppLink(chatId?: number | string | null) {
+export function miniAppLink(chatId?: number | string | null, stateId?: string | null) {
   const username = process.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, "");
   const shortName = process.env.TELEGRAM_MINI_APP_SHORT_NAME;
-  const start = chatId === undefined || chatId === null ? null : `gw_${chatId}`;
+  const start = stateId ? `state_${stateId}` : (chatId === undefined || chatId === null ? null : `gw_${chatId}`);
   if (!username || !shortName) {
     throw new Error("TELEGRAM_BOT_USERNAME and TELEGRAM_MINI_APP_SHORT_NAME must be configured for the live Mini App.");
   }

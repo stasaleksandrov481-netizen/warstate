@@ -56,7 +56,7 @@ function FreeportHome({ snapshot, onRecruitment }: { snapshot: GameSnapshot; onR
 
       <section className="freeport-guide">
         <article><b>1</b><div><strong>Развивай профиль</strong><small>Ежедневные задания и участие в событиях дают XP.</small></div></article>
-        <article><b>2</b><div><strong>Выбери государство</strong><small>Открытые острова публикуют набор прямо в Freeport.</small></div></article>
+        <article><b>2</b><div><strong>Выбери государство</strong><small>Открытые острова публикуют набор прямо в Freeport. Вступление доступно через одну кнопку, без поиска острова.</small></div></article>
         <article><b>3</b><div><strong>Вступи в Telegram-группу</strong><small>После принятия получишь одноразовую ссылку от бота.</small></div></article>
       </section>
 

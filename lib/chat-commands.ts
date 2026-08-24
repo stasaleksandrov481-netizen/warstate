@@ -25,6 +25,7 @@ import {
 import type { BuildingType, WarType } from "@/lib/types";
 import type { TelegramUser } from "@/lib/telegram";
 import { telegramGameGuideText } from "@/lib/game-guide";
+import { publishStateEvent } from "@/lib/state-events";
 
 const LEADERS = new Set(["president", "minister", "deputy", "curator"]);
 const WAR_LEADERS = new Set(["president", "minister", "deputy"]);
@@ -254,7 +255,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         `${resourceLine(snapshot)}\n` +
         `⚔️ Армия ${snapshot.state.armyPower} · 🛡 Оборона ${snapshot.state.defensePower}\n` +
         `🤝 Альянс: ${allies.length ? allies.join(", ") : "нет"}`,
-        [[{ text: "🏛 Открыть государство", url: miniAppLink(chatId) }]],
+        [[{ text: "🏛 Открыть государство", url: miniAppLink(chatId, snapshot.state.id) }]],
       );
       return true;
     }
@@ -305,6 +306,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     if (command === "выборы") {
       if (!snapshot.government.canFounderManage) throw new Error("Внеочередные выборы запускает только Основатель.");
       const electionId = await openGovernmentElection(snapshot.state.id, snapshot.player.id);
+      await publishStateEvent(snapshot.state.id, "🗳 ВЫБОРЫ ПРЕЗИДЕНТА", "Началось голосование за нового президента государства.");
       await send(chatId, `🗳 ВЫБОРЫ ПРЕЗИДЕНТА\n\nГолосование открыто на 30 минут.\nКоманда: !голосовать @username\n\nИтог будет подведён автоматически при следующей активности государства.`);
       return true;
     }
@@ -335,6 +337,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       if (!snapshot.government.canFounderManage) throw new Error("Заместителей назначает и снимает только Основатель.");
       const enabled = command === "назначитьзама";
       const target = await setDeputy(snapshot.state.id, snapshot.player.id, String(args[0] || ""), enabled);
+      await publishStateEvent(snapshot.state.id, enabled ? "🛡 НАЗНАЧЕН ЗАМЕСТИТЕЛЬ" : "🛡 ЗАМЕСТИТЕЛЬ СНЯТ", `${target.displayName}${target.username ? ` (@${target.username})` : ""}`);
       await send(chatId, `${enabled ? "🛡 Назначен заместитель" : "🛡 Заместитель снят"}: ${target.display_name}${target.username ? ` (@${target.username})` : ""}.`);
       return true;
     }

@@ -3,6 +3,7 @@ import { castVote, finalizeElection, nominateCandidate } from "@/lib/politics";
 import { openGovernmentElection } from "@/lib/government";
 import { getGameSnapshot } from "@/lib/game";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { telegramApi } from "@/lib/telegram-bot";
 
 export const runtime = "nodejs";
 
@@ -29,6 +30,12 @@ export async function POST(request: Request) {
     if (action === "open") {
       if (auth.member.role !== "founder") throw new Error("Внеочередные выборы запускает только Основатель.");
       await openGovernmentElection(stateId, auth.player.id);
+      try {
+        const stateChatId = Number((auth.state as any).telegram_chat_id);
+        if (Number.isFinite(stateChatId) && stateChatId) {
+          await telegramApi("sendMessage", { chat_id: stateChatId, text: "🗳 Начались выборы президента! Откройте WARSTATE и выберите кандидата." });
+        }
+      } catch {}
     } else if (action === "nominate") {
       if (!body.electionId) throw new Error("electionId is required");
       await nominateCandidate(String(body.electionId), auth.player.id, String(body.statement || ""));

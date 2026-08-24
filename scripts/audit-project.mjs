@@ -115,9 +115,15 @@ for (const marker of ["duty_role", "state_votes", "state_vote_ballots", "spy_que
   if (!communityMigration.includes(marker)) failures.push(`Migration 016 is missing community mechanic: ${marker}`);
 }
 if (!webhookSource.includes('["group", "supergroup"].includes(message.chat.type)')) failures.push("Telegram webhook must handle both group and supergroup chats");
+if (/РЕСУРСЫ ЗА АКТИВНОСТЬ|Чат нафармил|10 сообщений граждан/.test(webhookSource)) failures.push("Chat activity resource notification must stay silent");
 if (!webhookSource.includes("handleGroupTextCommand(message)")) failures.push("Telegram group command handler is not wired into webhook");
+const gameSource = fs.readFileSync(path.join(root, "lib/game.ts"), "utf8");
+const communitySource = fs.readFileSync(path.join(root, "lib/community.ts"), "utf8");
+if (!gameSource.includes("getPlayerMemberSnapshot") || !gameSource.includes("isMissingDutyRoleError")) failures.push("Mini App bootstrap lacks duty-role migration compatibility");
+if (!communitySource.includes("if (error && isMissingDutyRoleError(error)) return rates")) failures.push("Workforce production must tolerate a rolling duty_role migration");
 const islandSource = fs.readFileSync(path.join(root, "lib/islands.ts"), "utf8");
 if (!islandSource.includes('.eq("is_beginner_island", true)')) failures.push("Beginner island is not force-included in world map data");
+if (!islandSource.includes("direct state query is a safe read-only fallback") || !islandSource.includes('String(row.id) === String(stateId)')) failures.push("Island world lacks RPC fallback or own-island injection");
 const telegramBotSource = fs.readFileSync(path.join(root, "lib/telegram-bot.ts"), "utf8");
 if (!telegramBotSource.includes('getChatMember') || !telegramBotSource.includes('createStateJoinLink')) failures.push("Telegram membership gate or invite-link fallback is missing");
 if (!telegramBotSource.includes('assertTelegramChatOwner')) failures.push("Telegram owner gate for state deletion is missing");

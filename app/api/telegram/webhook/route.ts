@@ -224,7 +224,6 @@ export async function POST(request: Request) {
       if (message.from?.id && !message.from?.is_bot && !String(message.text || "").trim().startsWith("!")) {
         try {
           const first = await recordChatActivity(Number(message.chat.id), Number(message.from.id));
-          let activity = first;
           if (!first?.applied && ["state_missing", "player_missing", "not_member"].includes(String(first?.reason || ""))) {
             await bootstrapGame({
               id: Number(message.from.id),
@@ -232,15 +231,11 @@ export async function POST(request: Request) {
               last_name: message.from.last_name ? String(message.from.last_name) : undefined,
               username: message.from.username ? String(message.from.username) : undefined,
             }, Number(message.chat.id));
-            activity = await recordChatActivity(Number(message.chat.id), Number(message.from.id));
+            await recordChatActivity(Number(message.chat.id), Number(message.from.id));
           }
-          const bundles = Number(activity?.resourceBundles || 0);
-          if (bundles > 0) {
-            await telegramApi("sendMessage", {
-              chat_id: Number(message.chat.id),
-              text: `📦 РЕСУРСЫ ЗА АКТИВНОСТЬ\n────────────\n10 сообщений граждан → +${bundles} ко всем ресурсам государства.`,
-            });
-          }
+          // Resource bundles are credited in SQL, but ordinary chat activity is
+          // intentionally silent. Busy state chats should not receive a bot message
+          // every ten human messages.
         } catch (activityError) {
           console.warn("WARSTATE chat activity reward skipped", activityError);
         }

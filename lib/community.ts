@@ -66,9 +66,22 @@ export async function listDutyRoles(stateId: string): Promise<Array<{ playerId: 
   }));
 }
 
+export function isMissingDutyRoleError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const row = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+  const code = String(row.code || "");
+  const text = [row.message, row.details, row.hint].filter(Boolean).join(" ").toLocaleLowerCase("ru-RU");
+  return text.includes("duty_role") && ["42703", "PGRST204", "PGRST205"].includes(code);
+}
+
 export async function applyWorkforceBonus<T extends Record<string, number>>(stateId: string, rates: T): Promise<T> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase.from("state_members").select("duty_role").eq("state_id", stateId).in("duty_role", ["miner", "worker"]);
+  // Rolling-deploy compatibility: duty roles were introduced after the core game.
+  // A stale PostgREST schema cache or a not-yet-applied migration must not make
+  // the whole Mini App unavailable. Production continues at base rates until the
+  // column is visible, then bonuses start applying automatically.
+  if (error && isMissingDutyRoleError(error)) return rates;
   if (error) throw error;
   const miners = (data || []).filter((row: any) => row.duty_role === "miner").length;
   const workers = (data || []).filter((row: any) => row.duty_role === "worker").length;

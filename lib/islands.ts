@@ -57,10 +57,36 @@ export async function getIslandWorld(
     p_radius: radius,
     p_limit: 120,
   });
-  if (error) throw error;
 
   const relationByState = new Map(diplomacy.map((item) => [item.otherStateId, item.status]));
-  const islandRows = [...(data || [])] as any[];
+  let islandRows: any[] = [];
+  if (!error) {
+    islandRows = [...(data || [])] as any[];
+  } else {
+    // If the world RPC is temporarily missing from PostgREST's schema cache, do
+    // not render an empty ocean. A direct state query is a safe read-only fallback
+    // and keeps the Mini App usable during rolling database updates.
+    const { data: fallbackRows, error: fallbackError } = await supabase
+      .from("states")
+      .select("id,name,color,emblem,world_x,world_y,telegram_member_count,rating,island_wins,island_losses,island_integrity,win_streak,last_battle_at,destroyed_until,shield_until,chat_avatar_file_id,is_freeport,is_beginner_island,game_level,max_level,influence,reputation,army_power,defense_power,active_player_count,state_size")
+      .eq("is_freeport", false)
+      .order("rating", { ascending: false })
+      .limit(120);
+    if (fallbackError) throw fallbackError;
+    islandRows = (fallbackRows || []).map((row: any) => ({ ...row, rank: 0 }));
+  }
+
+  // The player's own island must always exist on the map even if it fell outside
+  // the radius or outside the fallback top-120 list.
+  if (!islandRows.some((row: any) => String(row.id) === String(stateId))) {
+    const { data: ownRow, error: ownError } = await supabase
+      .from("states")
+      .select("id,name,color,emblem,world_x,world_y,telegram_member_count,rating,island_wins,island_losses,island_integrity,win_streak,last_battle_at,destroyed_until,shield_until,chat_avatar_file_id,is_freeport,is_beginner_island,game_level,max_level,influence,reputation,army_power,defense_power,active_player_count,state_size")
+      .eq("id", stateId)
+      .maybeSingle();
+    if (ownError) throw ownError;
+    if (ownRow && !ownRow.is_freeport) islandRows.unshift({ ...ownRow, rank: 0 });
+  }
   // The protected beginner island is a global landmark. Radius-based world RPCs
   // used to omit it whenever it lived far from the current camera, which made
   // the island effectively invisible to free players. Always inject configured

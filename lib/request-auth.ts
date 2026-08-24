@@ -47,8 +47,18 @@ export async function authorizeStateAction(
   return { session, player: playerRow, member: memberRow, state: stateRow };
 }
 
+function readableErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = String((error as { message?: unknown }).message || "").trim();
+    if (message) return message;
+  }
+  if (typeof error === "string" && error.trim()) return error.trim();
+  return "Не удалось выполнить действие.";
+}
+
 export function jsonError(error: unknown, status?: number) {
-  const message = error instanceof Error ? error.message : "Не удалось выполнить действие.";
+  const message = readableErrorMessage(error);
   const lower = message.toLocaleLowerCase("ru-RU");
   const inferred = status ?? (
     lower.includes("подп") || lower.includes("initdata") || lower.includes("в браузере live-версия") || lower.includes("внутри telegram") || lower.includes("истёк") || lower.includes("expired") ? 401 :

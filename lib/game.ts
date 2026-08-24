@@ -12,7 +12,7 @@ import { getRecruitmentHub } from "@/lib/recruitment";
 import { getStrategyView } from "@/lib/strategy";
 import { getGovernmentView, registerTelegramState } from "@/lib/government";
 import { reconcileStateRuntime } from "@/lib/maintenance";
-import { applyWorkforceBonus } from "@/lib/community";
+import { applyWorkforceBonus, isMissingDutyRoleError } from "@/lib/community";
 
 const BUILDING_META: Record<BuildingType, { label: string; description: string; x: number; y: number }> = {
   hq: { label: "Казначейство и штаб", description: "Бюджет, управление, оборона и уровень государства", x: 50, y: 36 },
@@ -24,6 +24,47 @@ const BUILDING_META: Record<BuildingType, { label: string; description: string; 
   outpost: { label: "Застава", description: "Усиливает оборону и Defensive Buffer", x: 15, y: 47 },
   trade_chamber: { label: "Торговая палата", description: "Усиливает бюджет, торговлю и дипломатическое влияние", x: 84, y: 47 },
 };
+
+function warnOptionalSnapshotPart(label: string, error: unknown) {
+  const message = error instanceof Error
+    ? error.message
+    : error && typeof error === "object" && "message" in error
+      ? String((error as { message?: unknown }).message || "unknown error")
+      : String(error || "unknown error");
+  console.warn(`WARSTATE snapshot optional part skipped: ${label}: ${message}`);
+}
+
+async function optionalSnapshotPart<T>(label: string, fallback: T, task: () => Promise<T>): Promise<T> {
+  try {
+    return await task();
+  } catch (error) {
+    warnOptionalSnapshotPart(label, error);
+    return fallback;
+  }
+}
+
+function emptyStrategy(role: string, beginnerIsland: boolean) {
+  return {
+    activities: [],
+    completedToday: 0,
+    contributionEvents: [],
+    supportableBattles: [],
+    canManage: ["president", "minister", "deputy", "curator"].includes(role),
+    canCommand: ["president", "minister", "deputy", "curator"].includes(role),
+    rules: {
+      maxDailyActivities: beginnerIsland ? 3 : 4,
+      maxAttackSizePenalty: 0.30,
+      maxUnderdogBonus: 0.25,
+      maxAggressionPenalty: 0.15,
+      maxAllianceSupport: 0.35,
+      raidLootBudgetPct: 0.20,
+      raidLootInfluencePct: 0.15,
+    },
+  };
+}
+
+const EMPTY_RECRUITMENT = { post: null, listings: [], myRequests: [], incoming: [], freeAgents: [] };
+const EMPTY_GOVERNMENT = { stateUsername: null, telegramChatTitle: null, founder: null, president: null, deputies: [], canFounderManage: false };
 
 const BASE_COSTS: Record<BuildingType, Partial<Record<"credits" | "steel" | "fuel" | "food" | "tech", number>>> = {
   hq: { credits: 1800, steel: 500, tech: 30 },
@@ -164,6 +205,29 @@ async function existingHomeState(playerId: string) {
   return state || null;
 }
 
+async function getPlayerMemberSnapshot(stateId: string, playerId: string) {
+  const supabase = getSupabaseAdmin();
+  const rich = await supabase
+    .from("state_members")
+    .select("contribution,duty_role")
+    .eq("state_id", stateId)
+    .eq("player_id", playerId)
+    .single();
+  if (!rich.error) return { contribution: Number(rich.data?.contribution || 0), dutyRole: rich.data?.duty_role || null };
+  if (!isMissingDutyRoleError(rich.error)) throw rich.error;
+
+  // Backward-compatible bootstrap for rolling database migrations. The Mini App
+  // stays usable and simply shows no duty specialization until duty_role exists.
+  const fallback = await supabase
+    .from("state_members")
+    .select("contribution")
+    .eq("state_id", stateId)
+    .eq("player_id", playerId)
+    .single();
+  if (fallback.error) throw fallback.error;
+  return { contribution: Number(fallback.data?.contribution || 0), dutyRole: null };
+}
+
 export async function bootstrapGame(user: TelegramUser, chatId: number | null): Promise<GameSnapshot> {
   const supabase = getSupabaseAdmin();
   const player = await upsertPlayer(user);
@@ -255,7 +319,7 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null): 
     await reconcileStateRuntime(state.id);
     state = await tickState(state.id);
   }
-  await recordMissionProgress(player.id, state.id, "check_in");
+  await recordMissionProgress(player.id, state.id, "check_in").catch((error) => warnOptionalSnapshotPart("mission check-in", error));
   return getGameSnapshot(player.id, state.id, user.id, role);
 }
 
@@ -299,17 +363,18 @@ export async function getGameSnapshot(
 ): Promise<GameSnapshot> {
   const supabase = getSupabaseAdmin();
   const { error: finishUpgradeError } = await supabase.rpc("gw_finish_building_upgrades", { p_state_id: stateId });
-  if (finishUpgradeError) throw finishUpgradeError;
+  if (finishUpgradeError && finishUpgradeError.code !== "PGRST202") throw finishUpgradeError;
+  if (finishUpgradeError) warnOptionalSnapshotPart("finish building upgrades", finishUpgradeError);
   const { error: strategyRefreshError } = await supabase.rpc("gw_refresh_state_strategy", { p_state_id: stateId });
   if (strategyRefreshError && strategyRefreshError.code !== "PGRST202") throw strategyRefreshError;
-  const [playerRes, stateRes, buildingsRes, membersRes, myMemberRes] = await Promise.all([
+  const [playerRes, stateRes, buildingsRes, membersRes, myMember] = await Promise.all([
     supabase.from("players").select("id,display_name,username,level,xp,energy").eq("id", playerId).single(),
     supabase.from("states").select("id,name,state_username,telegram_chat_title,color,motto,emblem,theme,telegram_chat_id,credits,steel,fuel,food,tech,rating,rating_peak,telegram_member_count,world_x,world_y,island_wins,island_losses,destroyed_until,chat_avatar_file_id,shield_until,next_attack_at,island_integrity,win_streak,best_win_streak,last_battle_at,is_freeport,is_beginner_island,game_level,max_level,influence,reputation,army_power,defense_power,active_player_count,state_size").eq("id", stateId).single(),
     supabase.from("buildings").select("building_type,level,upgrade_target_level,upgrade_started_at,upgrade_finishes_at,upgrade_cooldown_until").eq("state_id", stateId).order("building_type"),
     supabase.from("state_members").select("id", { count: "exact", head: true }).eq("state_id", stateId),
-    supabase.from("state_members").select("contribution,duty_role").eq("state_id", stateId).eq("player_id", playerId).single(),
+    getPlayerMemberSnapshot(stateId, playerId),
   ]);
-  for (const response of [playerRes, stateRes, buildingsRes, membersRes, myMemberRes]) {
+  for (const response of [playerRes, stateRes, buildingsRes, membersRes]) {
     if (response.error) throw response.error;
   }
 
@@ -330,26 +395,27 @@ export async function getGameSnapshot(
     : supabase.from("states").select("id", { count: "exact", head: true }).eq("is_freeport", false).gt("rating", state.rating);
   const electionPromise = state.is_freeport ? null : getElection(stateId, playerId);
 
-  const [rankRes, diplomacy, worldFeed, leaderboard, dailyMissions, activeBattle, season, election, recruitment, recentWars, strategy, government] = await Promise.all([
+  const diplomacy = await optionalSnapshotPart("diplomacy", [], () => getDiplomacyForState(stateId));
+  const [rankRes, worldFeed, leaderboard, dailyMissions, activeBattle, season, election, recruitment, recentWars, strategy, government] = await Promise.all([
     rankPromise,
-    getDiplomacyForState(stateId),
-    getWorldFeed(24),
-    getLeaderboard(10),
-    getDailyMissions(playerId, stateId, Boolean(state.is_freeport)),
-    findActiveBattleForState(stateId, playerId),
-    getActiveSeason(),
-    electionPromise,
-    getRecruitmentHub(playerId, stateId, Boolean(state.is_freeport), role),
-    state.is_freeport ? Promise.resolve([] as WarView[]) : getRecentIslandWars(stateId),
-    getStrategyView(playerId, stateId, role, Boolean(state.is_beginner_island)),
-    getGovernmentView(stateId, playerId),
+    optionalSnapshotPart("world feed", [], () => getWorldFeed(24)),
+    optionalSnapshotPart("leaderboard", [], () => getLeaderboard(10)),
+    optionalSnapshotPart("daily missions", [], () => getDailyMissions(playerId, stateId, Boolean(state.is_freeport))),
+    optionalSnapshotPart("active battle", null, () => findActiveBattleForState(stateId, playerId)),
+    optionalSnapshotPart("season", null, () => getActiveSeason()),
+    electionPromise ? optionalSnapshotPart("election", null, () => electionPromise) : Promise.resolve(null),
+    optionalSnapshotPart("recruitment", EMPTY_RECRUITMENT, () => getRecruitmentHub(playerId, stateId, Boolean(state.is_freeport), role)),
+    state.is_freeport ? Promise.resolve([] as WarView[]) : optionalSnapshotPart("recent wars", [] as WarView[], () => getRecentIslandWars(stateId)),
+    optionalSnapshotPart("strategy", emptyStrategy(role, Boolean(state.is_beginner_island)), () => getStrategyView(playerId, stateId, role, Boolean(state.is_beginner_island))),
+    optionalSnapshotPart("government", EMPTY_GOVERNMENT, () => getGovernmentView(stateId, playerId)),
   ]);
-  const islands = await getIslandWorld(stateId, diplomacy, { x: Number(state.world_x || 0), y: Number(state.world_y || 0) });
-  if (rankRes?.error) throw rankRes.error;
+  const islands = await optionalSnapshotPart("island world", [], () => getIslandWorld(stateId, diplomacy, { x: Number(state.world_x || 0), y: Number(state.world_y || 0) }));
+  if (rankRes?.error) warnOptionalSnapshotPart("season rank", rankRes.error);
   if (!state.is_freeport) {
-    await ensureMilestoneBadges(stateId, season?.id || null, state.rating, wins, state.best_win_streak || 0);
+    await ensureMilestoneBadges(stateId, season?.id || null, state.rating, wins, state.best_win_streak || 0)
+      .catch((error) => warnOptionalSnapshotPart("milestone badges", error));
   }
-  const badges = state.is_freeport ? [] : await getStateBadges(stateId);
+  const badges = state.is_freeport ? [] : await optionalSnapshotPart("state badges", [], () => getStateBadges(stateId));
 
   const buildings: BuildingView[] = buildingsRaw.map((b) => ({
     type: b.building_type,
@@ -371,9 +437,9 @@ export async function getGameSnapshot(
       level: player.level,
       xp: player.xp,
       energy: player.energy,
-      contribution: myMemberRes.data?.contribution || 0,
+      contribution: myMember.contribution,
       role,
-      dutyRole: myMemberRes.data?.duty_role || null,
+      dutyRole: myMember.dutyRole,
     },
     state: {
       id: state.id,

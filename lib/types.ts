@@ -66,6 +66,8 @@ export interface PlayerView {
 export interface StateView {
   id: string;
   name: string;
+  stateUsername?: string | null;
+  telegramChatTitle?: string | null;
   color: string;
   motto: string;
   emblem: string;
@@ -221,6 +223,7 @@ export interface DiplomacyRelationView {
   id: string;
   otherStateId: string;
   otherStateName: string;
+  otherStateUsername?: string | null;
   otherStateColor: string;
   status: DiplomacyStatus;
   requestedByStateId?: string | null;
@@ -245,6 +248,7 @@ export interface WorldEventView {
 export interface LeaderboardStateView {
   id: string;
   name: string;
+  stateUsername?: string | null;
   color: string;
   rating: number;
   rank: number;
@@ -255,6 +259,7 @@ export interface LeaderboardStateView {
 export interface IslandView {
   id: string;
   name: string;
+  stateUsername?: string | null;
   color: string;
   emblem: string;
   worldX: number;
@@ -378,6 +383,23 @@ export interface RecruitmentHubView {
   freeAgents: FreeAgentView[];
 }
 
+
+export interface GovernmentMemberView {
+  playerId: string;
+  displayName: string;
+  username?: string | null;
+  role: string;
+}
+
+export interface GovernmentView {
+  stateUsername?: string | null;
+  telegramChatTitle?: string | null;
+  founder: GovernmentMemberView | null;
+  president: GovernmentMemberView | null;
+  deputies: GovernmentMemberView[];
+  canFounderManage: boolean;
+}
+
 export interface GameSnapshot {
   player: PlayerView;
   state: StateView;
@@ -394,5 +416,6 @@ export interface GameSnapshot {
   activeBattle?: BattleView | null;
   recruitment: RecruitmentHubView;
   strategy: StrategyView;
+  government: GovernmentView;
   startParam?: string | null;
 }

@@ -22,7 +22,7 @@ async function api(method, body) {
 await api("setWebhook", {
   url: `${appUrl.replace(/\/$/, "")}/api/telegram/webhook`,
   secret_token: secret,
-  allowed_updates: ["message", "my_chat_member", "pre_checkout_query"],
+  allowed_updates: ["message", "my_chat_member", "callback_query", "pre_checkout_query"],
 });
 
 await api("setMyCommands", {

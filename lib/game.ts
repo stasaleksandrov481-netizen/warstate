@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { getChat, getChatMember, getChatMemberCount } from "@/lib/telegram-bot";
+import { getChatMember } from "@/lib/telegram-bot";
 import { findActiveBattleForState } from "@/lib/battle";
 import { getDiplomacyForState, getLeaderboard, getWorldFeed, recordWorldEvent } from "@/lib/diplomacy";
 import { getDailyMissions, recordMissionProgress } from "@/lib/missions";
@@ -10,6 +10,7 @@ import type { TelegramUser } from "@/lib/telegram";
 import { requireData } from "@/lib/invariants";
 import { getRecruitmentHub } from "@/lib/recruitment";
 import { getStrategyView } from "@/lib/strategy";
+import { getGovernmentView, registerTelegramState } from "@/lib/government";
 
 const BUILDING_META: Record<BuildingType, { label: string; description: string; x: number; y: number }> = {
   hq: { label: "Казначейство и штаб", description: "Бюджет, управление, оборона и уровень государства", x: 50, y: 36 },
@@ -115,73 +116,32 @@ function isConfiguredBeginnerChat(chatId: number) {
   return configured.length > 0 && Number(configured) === chatId;
 }
 
-async function ensureStateForChat(chatId: number, playerId: string, telegramUserId: number) {
+async function ensureStateForChat(chatId: number, _playerId: string, _telegramUserId: number) {
   const supabase = getSupabaseAdmin();
   const { data: existing, error: selectError } = await supabase.from("states").select("*").eq("telegram_chat_id", chatId).maybeSingle();
   if (selectError) throw selectError;
-  if (existing) {
-    let current = existing;
-    if (isConfiguredBeginnerChat(chatId) && !existing.is_beginner_island) {
-      const { data: protectedState, error: protectError } = await supabase
-        .from("states")
-        .update({ is_beginner_island: true, max_level: 5, owner_player_id: null })
-        .eq("id", existing.id)
-        .select("*")
-        .single();
-      if (protectError) throw protectError;
-      current = requireData(protectedState, "Не удалось включить Остров новичков.");
-    }
-    await ensureStateBuildings(current.id);
-    return current;
+
+  let current = existing;
+  // v1.9: a state is registered from the real Telegram chat owner, not from
+  // whichever administrator happens to open Mini App first. Legacy states are
+  // also owner-verified the first time they are opened after migration 014.
+  if (!current || !current.founder_player_id || !current.telegram_chat_title) {
+    current = await registerTelegramState(chatId);
   }
 
-  const member = await getChatMember(chatId, telegramUserId);
-  if (member.status !== "administrator" && member.status !== "creator") {
-    throw new Error("Государство ещё не создано. Первый запуск должен сделать администратор Telegram-группы.");
+  if (isConfiguredBeginnerChat(chatId) && !current.is_beginner_island) {
+    const { data: protectedState, error: protectError } = await supabase
+      .from("states")
+      .update({ is_beginner_island: true, max_level: 5, owner_player_id: null })
+      .eq("id", current.id)
+      .select("*")
+      .single();
+    if (protectError) throw protectError;
+    current = requireData(protectedState, "Не удалось включить Остров новичков.");
   }
 
-  const [chat, memberCount] = await Promise.all([getChat(chatId), getChatMemberCount(chatId)]);
-  const color = `hsl(${Math.abs(chatId) % 360} 78% 56%)`;
-  const { data: created, error } = await supabase
-    .from("states")
-    .insert({
-      telegram_chat_id: chatId,
-      name: chat.title || `State ${Math.abs(chatId)}`,
-      owner_player_id: isConfiguredBeginnerChat(chatId) ? null : playerId,
-      is_beginner_island: isConfiguredBeginnerChat(chatId),
-      max_level: isConfiguredBeginnerChat(chatId) ? 5 : 50,
-      color,
-      telegram_member_count: Math.max(1, memberCount || 1),
-      chat_avatar_file_id: chat.photo?.big_file_id || chat.photo?.small_file_id || null,
-      chat_meta_synced_at: new Date().toISOString(),
-      shield_until: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
-    })
-    .select("*")
-    .single();
-  if (error) {
-    if (error.code === "23505") {
-      const { data, error: refetchError } = await supabase.from("states").select("*").eq("telegram_chat_id", chatId).single();
-      if (refetchError) throw refetchError;
-      return requireData(data, "Государство не найдено после параллельного создания.");
-    }
-    throw error;
-  }
-
-  const createdState = requireData(created, "Не удалось создать государство.");
-
-  await ensureStateBuildings(createdState.id);
-
-  await recordWorldEvent({
-    eventType: "state_founded",
-    title: "Новое государство",
-    body: `${createdState.name} появилось на мировой карте.`,
-    actorStateId: createdState.id,
-  });
-
-  // v0.9+: a chat owns one island directly. The legacy hex map is no longer allocated.
-
-
-  return createdState;
+  await ensureStateBuildings(current.id);
+  return current;
 }
 
 async function ensureFreeport() {
@@ -216,26 +176,6 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null): 
     state = await ensureStateForChat(chatId, player.id, user.id);
     state = await syncStateChatMeta(state.id, chatId);
 
-    // Migration 011 releases legacy ghost owners. The first real Telegram admin
-    // who opens an ownerless state becomes its president using a conditional
-    // update, so concurrent admin launches cannot create two owners.
-    if (!state.is_beginner_island && !state.owner_player_id && (membership.status === "administrator" || membership.status === "creator")) {
-      const { data: claimed, error: claimError } = await supabase
-        .from("states")
-        .update({ owner_player_id: player.id })
-        .eq("id", state.id)
-        .is("owner_player_id", null)
-        .select("*")
-        .maybeSingle();
-      if (claimError) throw claimError;
-      if (claimed) state = claimed;
-      else {
-        const { data: currentState, error: currentStateError } = await supabase.from("states").select("*").eq("id", state.id).single();
-        if (currentStateError) throw currentStateError;
-        state = requireData(currentState, "Государство не найдено после назначения президента.");
-      }
-    }
-
     const home = await existingHomeState(player.id);
     if (home && !home.is_freeport && home.id !== state.id && !home.is_beginner_island && !state.is_beginner_island) {
       throw new Error(`Вы уже состоите в государстве «${home.name}». Прямой переход между обычными государствами запрещён: сначала используйте предусмотренный игровой маршрут через Остров новичков.`);
@@ -250,13 +190,7 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null): 
     if (existingMemberError) throw existingMemberError;
     role = state.is_beginner_island
       ? (existingMember?.role === "curator" ? "curator" : "citizen")
-      : state.owner_player_id === player.id
-        ? "president"
-        : membership.status === "administrator" || membership.status === "creator"
-          ? (existingMember?.role === "general" ? "general" : existingMember?.role === "deputy" ? "deputy" : "minister")
-          : existingMember?.role === "general" || existingMember?.role === "deputy"
-            ? existingMember.role
-            : "citizen";
+      : existingMember?.role || (state.founder_player_id === player.id ? "founder" : "citizen");
     membershipVerifiedAt = new Date().toISOString();
 
   } else {
@@ -286,7 +220,7 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null): 
   const { data: membershipId, error: memberError } = await supabase.rpc("gw_set_player_home_state", {
     p_player_id: player.id,
     p_state_id: state.id,
-    p_role: role,
+    p_role: role === "founder" ? "citizen" : role,
     p_membership_verified_at: membershipVerifiedAt,
   });
   if (memberError) {
@@ -296,6 +230,10 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null): 
     throw memberError;
   }
   if (!membershipId) throw new Error("Не удалось сохранить гражданство игрока.");
+  if (role === "founder") {
+    const { error: restoreFounderError } = await supabase.from("state_members").update({ role: "founder" }).eq("state_id", state.id).eq("player_id", player.id);
+    if (restoreFounderError) throw restoreFounderError;
+  }
   if (state.is_beginner_island) {
     const { error: curatorError } = await supabase.rpc("gw_refresh_beginner_curator", { p_state_id: state.id });
     if (curatorError && curatorError.code !== "PGRST202") throw curatorError;
@@ -358,7 +296,7 @@ export async function getGameSnapshot(
   if (strategyRefreshError && strategyRefreshError.code !== "PGRST202") throw strategyRefreshError;
   const [playerRes, stateRes, buildingsRes, membersRes, myMemberRes] = await Promise.all([
     supabase.from("players").select("id,display_name,username,level,xp,energy").eq("id", playerId).single(),
-    supabase.from("states").select("id,name,color,motto,emblem,theme,telegram_chat_id,credits,steel,fuel,food,tech,rating,rating_peak,telegram_member_count,world_x,world_y,island_wins,island_losses,destroyed_until,chat_avatar_file_id,shield_until,next_attack_at,island_integrity,win_streak,best_win_streak,last_battle_at,is_freeport,is_beginner_island,game_level,max_level,influence,reputation,army_power,defense_power,active_player_count,state_size").eq("id", stateId).single(),
+    supabase.from("states").select("id,name,state_username,telegram_chat_title,color,motto,emblem,theme,telegram_chat_id,credits,steel,fuel,food,tech,rating,rating_peak,telegram_member_count,world_x,world_y,island_wins,island_losses,destroyed_until,chat_avatar_file_id,shield_until,next_attack_at,island_integrity,win_streak,best_win_streak,last_battle_at,is_freeport,is_beginner_island,game_level,max_level,influence,reputation,army_power,defense_power,active_player_count,state_size").eq("id", stateId).single(),
     supabase.from("buildings").select("building_type,level,upgrade_target_level,upgrade_started_at,upgrade_finishes_at,upgrade_cooldown_until").eq("state_id", stateId).order("building_type"),
     supabase.from("state_members").select("id", { count: "exact", head: true }).eq("state_id", stateId),
     supabase.from("state_members").select("contribution").eq("state_id", stateId).eq("player_id", playerId).single(),
@@ -383,7 +321,7 @@ export async function getGameSnapshot(
     : supabase.from("states").select("id", { count: "exact", head: true }).eq("is_freeport", false).gt("rating", state.rating);
   const electionPromise = state.is_freeport ? null : getElection(stateId, playerId);
 
-  const [rankRes, diplomacy, worldFeed, leaderboard, dailyMissions, activeBattle, season, election, recruitment, recentWars, strategy] = await Promise.all([
+  const [rankRes, diplomacy, worldFeed, leaderboard, dailyMissions, activeBattle, season, election, recruitment, recentWars, strategy, government] = await Promise.all([
     rankPromise,
     getDiplomacyForState(stateId),
     getWorldFeed(24),
@@ -395,6 +333,7 @@ export async function getGameSnapshot(
     getRecruitmentHub(playerId, stateId, Boolean(state.is_freeport), role),
     state.is_freeport ? Promise.resolve([] as WarView[]) : getRecentIslandWars(stateId),
     getStrategyView(playerId, stateId, role, Boolean(state.is_beginner_island)),
+    getGovernmentView(stateId, playerId),
   ]);
   const islands = await getIslandWorld(stateId, diplomacy, { x: Number(state.world_x || 0), y: Number(state.world_y || 0) });
   if (rankRes?.error) throw rankRes.error;
@@ -429,6 +368,8 @@ export async function getGameSnapshot(
     state: {
       id: state.id,
       name: state.name,
+      stateUsername: state.state_username || null,
+      telegramChatTitle: state.telegram_chat_title || null,
       color: state.color,
       motto: state.motto || "Сила в единстве",
       emblem: state.emblem || "◆",
@@ -482,6 +423,7 @@ export async function getGameSnapshot(
     activeBattle,
     recruitment,
     strategy,
+    government,
   };
 }
 

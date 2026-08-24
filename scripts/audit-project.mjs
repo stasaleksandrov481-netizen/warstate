@@ -59,7 +59,17 @@ for (const forbidden of [".env", ".env.local", ".next", "node_modules", ".vercel
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 if (packageJson.name !== "warstate") failures.push(`Unexpected package name: ${packageJson.name}`);
-if (!String(packageJson.version || "").startsWith("1.8.")) failures.push(`Expected v1.8.x package version, found ${packageJson.version}`);
+
+const requiredV19 = [
+  "supabase/migrations/014_government_chat_control.sql",
+  "lib/government.ts",
+  "lib/actions.ts",
+  "app/api/game/government/route.ts",
+  "app/api/cron/elections/route.ts",
+];
+for (const rel of requiredV19) if (!fs.existsSync(path.join(root, rel))) failures.push(`Missing v1.9 file: ${rel}`);
+
+if (!String(packageJson.version || "").startsWith("1.9.")) failures.push(`Expected v1.9.x package version, found ${packageJson.version}`);
 
 const routes = walk("app/api").filter((file) => file.endsWith("route.ts"));
 notes.push(`${sourceFiles.length} source files scanned`);

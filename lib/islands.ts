@@ -26,7 +26,7 @@ export async function syncStateChatMeta(stateId: string, chatId: number, force =
   if (!chat.title) throw new Error("Telegram не вернул название группы.");
   const patch: Record<string, unknown> = {
     chat_meta_synced_at: new Date().toISOString(),
-    name: chat.title,
+    telegram_chat_title: chat.title,
     telegram_member_count: Math.max(1, memberCount),
     chat_avatar_file_id: chat.photo?.big_file_id || chat.photo?.small_file_id || null,
   };
@@ -60,9 +60,18 @@ export async function getIslandWorld(
   if (error) throw error;
 
   const relationByState = new Map(diplomacy.map((item) => [item.otherStateId, item.status]));
-  return (data || []).map((row: any) => ({
+  const islandRows = data || [];
+  const ids = islandRows.map((row: any) => String(row.id)).filter(Boolean);
+  const handles = new Map<string, string>();
+  if (ids.length) {
+    const { data: handleRows, error: handleError } = await supabase.from("states").select("id,state_username").in("id", ids);
+    if (handleError) throw handleError;
+    for (const row of handleRows || []) if (row.state_username) handles.set(String(row.id), String(row.state_username));
+  }
+  return islandRows.map((row: any) => ({
     id: row.id,
     name: row.name,
+    stateUsername: handles.get(String(row.id)) || null,
     color: row.color,
     emblem: row.emblem || "◆",
     worldX: safeNumber(row.world_x),

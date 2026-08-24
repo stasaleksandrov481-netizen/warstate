@@ -1,4 +1,31 @@
-# WARSTATE v1.8.0 — Gameworld Update
+# WARSTATE v1.9.0 — Government & Chat Control
+
+## v1.9.0: государство, правительство и текстовое управление
+
+- Telegram-чат автоматически регистрируется как государство при добавлении бота. Реальный `creator` Telegram фиксируется как **Основатель**.
+- Старт нового государства: уровень 1, бюджет 1000, влияние 100, технологии 50, репутация 100, армия 100, оборона 120.
+- Роли: Основатель, Президент, до 3 Заместителей и Граждане. Роли проверяются сервером при каждом действии.
+- Президентские выборы длятся 30 минут. Голосование доступно из чата через `!голосовать @username` и из Mini App через тот же government layer.
+- Государства получили уникальные юзы `@state_username` длиной 4–32 символа. Война, союз, разведка и поиск принимают юз вместо Telegram Chat ID. Смена юза Основателем ограничена 30 днями.
+- Публичное название государства отделено от названия Telegram-чата, поэтому синхронизация метаданных Telegram больше не перезаписывает игровое имя.
+- Каждое обычное сообщение гражданина даёт +2 XP и +1 вклад не чаще одного раза в минуту.
+- Mini App и чат используют общие action-функции для войны и улучшений, а правительство использует единый `lib/government.ts`.
+- Добавлены `/api/game/government` и `/api/cron/elections`; Vercel завершает истёкшие выборы автоматически.
+- Webhook подписан на `callback_query`, `my_chat_member`, `message`, `pre_checkout_query`.
+
+### Новая миграция
+
+Для существующей базы после `013_full_state_wars_spec.sql` обязательно применить:
+
+```text
+supabase/migrations/014_government_chat_control.sql
+```
+
+На свежей базе применяются миграции `001` → `014` по порядку.
+
+---
+
+# WARSTATE v1.8.0 — Gameworld Update (история версии)
 
 Telegram-native strategy where every real Telegram group becomes an island-state in one persistent ocean world.
 
@@ -188,7 +215,7 @@ Mini App является удобной панелью, а не отдельн�
 
 ## Supabase migrations
 
-Fresh database: run `001` through `013` in order.
+Fresh database: run `001` through `014` in order.
 
 Existing project already on `012`: run only:
 
@@ -266,7 +293,7 @@ npm run typecheck
 npm run build
 ```
 
-Then apply migration `013`, configure Upstash Redis + `CRON_SECRET`, deploy so Vercel registers `/api/cron/battles`, and configure the Telegram webhook:
+Then apply migrations `013` and `014`, configure Upstash Redis + `CRON_SECRET`, deploy so Vercel registers `/api/cron/battles`, and configure the Telegram webhook:
 
 ```bash
 npm run telegram:configure

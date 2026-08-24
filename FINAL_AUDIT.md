@@ -1,86 +1,47 @@
-# WARSTATE v1.8.0 — FINAL AUDIT
+# WARSTATE v1.9.0 — Final Audit
 
-WARSTATE v1.8.0 **Gameworld Update** is a full-project UI/world polish pass based on v1.7.0 World Command. It retains the v1.5 strategic/state-war layer and the v1.7 map/network UX work.
+## Scope
 
-## Main v1.8 changes
+Final packaging audit for the Government & Chat Control update.
 
-### Close button fix
+### Implemented in v1.9
 
-The island inspector close glyph no longer depends on a font `×` or SVG stroke rendering. `CloseIcon` renders a neutral span and CSS draws two identical centered bars with the same origin, dimensions and opposite ±45° rotations. The button itself is a 34×34 grid-centered control. This removes the asymmetric-looking X that appeared under Telegram WebView scaling.
+- Automatic Telegram group registration through `my_chat_member` and self-healing registration on activity.
+- Telegram chat creator is verified and stored as the permanent Founder.
+- Explicit government roles: Founder, President, up to 3 Deputies, Citizen.
+- 30-minute presidential elections with chat and Mini App voting by `@username`.
+- Founder controls for president/deputies, state name and unique state username.
+- Unique state usernames (`@north_empire`) usable for war, alliance, reconnaissance and search.
+- Telegram chat title separated from the public in-game state name.
+- Group-message activity reward: +2 player XP and +1 state contribution at most once per minute.
+- Shared action layer for chat/Mini App war and building upgrades.
+- Government Mini App API plus automatic election cron.
+- Telegram webhook now subscribes to `callback_query` in addition to messages and membership changes.
+- New state identity is displayed across state, map, ranking and diplomacy UI.
 
-### Motion and navigation
+## Static checks
 
-- Two-phase main-page transitions: leaving -> entering.
-- Staggered card entrance for the new screen.
-- Island inspector has independent open and close animations.
-- Strategy tabs animate on selection.
-- World pan keeps a short decaying inertia after finger release.
-- Own island, radar result and mini-map navigation use smooth camera fly-to rather than snapping.
-- Tactile press states are applied to game controls.
-- Ambient world layer adds lightweight currents, gulls, sails and boat movement.
-- `prefers-reduced-motion` disables optional animation for accessibility / weaker devices.
+- `npm run audit:project`: PASS
+- TypeScript/TSX syntax transpile: PASS (59/59 files)
+- Local import resolution: PASS (covered by project audit)
+- Environment variables: all referenced variables are documented in `.env.example`
+- Application RPC calls: PASS (28/28 referenced RPCs exist in SQL migrations)
+- Requested v1.9 chat command set: PASS (33/33 requested commands recognized)
+- JSON configuration files: parse successfully
+- Forbidden build/runtime folders and secret `.env` files: absent from release tree
 
-### Procedural island renderer
+## SQL migration
 
-The near-detail island pass was substantially rebuilt while keeping deterministic state-ID generation and LOD limits:
+New migration:
 
-- houses: individual wall/roof geometry, doors, windows, roof highlights and ground shadows;
-- roads: shadow/underlay, surface and bright center marking;
-- vegetation: tree shadows, trunks, multi-layer crowns and highlights;
-- micro-detail: rocks, shrubs, individual grass strokes, flowers and palms;
-- development detail: field rows and fences when the state reaches the relevant population range;
-- coastline: stronger land contour / inner depth treatment;
-- port: deeper pier geometry, lighting detail and animated boat.
+`supabase/migrations/014_government_chat_control.sql`
 
-The richer geometry is only enabled for near LOD. Far/mid map LODs remain reduced so a world containing many states does not attempt to render every grass blade simultaneously.
+It must be applied after migration `013_full_state_wars_spec.sql` on an existing database. A fresh database should apply migrations in numeric order through `014`.
 
-### Global game UI pass
+## Build status
 
-The map and internal scenes share one updated dark tropical-command visual language. The pass touches:
+A full `npm install` / `next build` could not be completed in this container because DNS access to `registry.npmjs.org` returned `EAI_AGAIN`. No successful production build is claimed. Static TypeScript syntax checks and project-level consistency checks were run instead.
 
-- header/HUD and resource chips;
-- bottom command dock;
-- world controls, minimap and radar;
-- island labels and selected-island inspector;
-- My Island / Freeport scene;
-- Strategy HQ tabs/cards;
-- ranking / podium / league list;
-- diplomacy and incoming proposals;
-- profile and politics surfaces;
-- battle HUD, event feed and actions;
-- toast/loading/error states.
+## Release hygiene
 
-The heavy beige inspector is replaced by a darker semi-transparent game surface with clearer hierarchy and stronger action states.
-
-## Audit performed on working tree
-
-- `npm run audit:project`: **PASS**.
-- Source files scanned by project audit: **58**.
-- API routes found: **21**.
-- Environment variables referenced/documented: **15**.
-- TypeScript/TSX syntax transpile check: **55/55 PASS** using TypeScript transpile diagnostics.
-- CSS parser check: `app/globals.css` **0 errors**, `app/game-theme.css` **0 errors**.
-- Application RPC references: **20/20 found in Supabase migrations**.
-- Missing local imports: **0** through the built-in project audit.
-- Forbidden/legacy private paths checked by the audit.
-- Secret-like literal scan outside SQL/docs: **no application credentials found**.
-- Old v1.7 UI audit and local TypeScript build-info removed before packaging.
-
-## Diff from v1.7
-
-Source/docs package comparison for this pass: approximately **530 added / 141 removed lines** across the world renderer, island generator, app shell/navigation, strategy UI, motion CSS, audit script and documentation.
-
-## Build verification note
-
-A dependency-resolved `npm run typecheck` / `npm run build` cannot be truthfully marked as passed in this container because project `node_modules` are not available and npm package installation could not complete through the registry during the session. This is why the report distinguishes dependency-free syntax/import/RPC/CSS/integrity checks from a real Next.js build.
-
-On a machine with npm registry access run:
-
-```bash
-npm install
-npm run audit:project
-npm run typecheck
-npm run build
-```
-
-For an existing database already on migration 012, v1.8 still requires the v1.5 strategic migration `supabase/migrations/013_full_state_wars_spec.sql` if it has not already been applied.
+The final ZIP is created without `.env`, `.git`, `.next`, `node_modules`, `.vercel`, caches or temporary logs. The ZIP is then extracted into a clean verification directory and audited again before delivery.

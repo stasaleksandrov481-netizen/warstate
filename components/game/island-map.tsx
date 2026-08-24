@@ -108,7 +108,7 @@ const IslandNode = memo(function IslandNode({
               <em>{island.isMine ? "МОЙ ОСТРОВ" : island.isBeginnerIsland ? "ОСТРОВ НОВИЧКОВ" : island.isFreeport ? "FREEPORT" : league.label.toUpperCase()}</em>
               {island.rank > 0 && <b>#{island.rank}</b>}
             </span>
-            <strong>{island.name}</strong>
+            <strong>{island.name}</strong>{island.stateUsername && <em className="game-island-handle">@{island.stateUsername}</em>}
             <small><span>👥 {COMPACT_NUMBER.format(island.memberCount)}</span><span>{league.icon} {island.rating} ELO</span></small>
           </span>
           {relationLabel && <em className={`relation-tag ${island.isBeginnerIsland ? "tag-beginner" : `tag-${island.relation}`}`}>{relationLabel}</em>}
@@ -586,7 +586,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
             </span>
             <div className="sheet-title-copy">
               <small>{selectedLeague?.icon} {selectedLeague?.label}{selected.rank > 0 ? ` · место #${selected.rank}` : ""}</small>
-              <h3>{selected.name}</h3>
+              <h3>{selected.name}</h3>{selected.stateUsername && <em className="sheet-state-handle">@{selected.stateUsername}</em>}
               <p><b>{selected.memberCount.toLocaleString("ru-RU")}</b> участников <i>•</i> <b>{selected.rating}</b> ELO</p>
             </div>
             <span className={`sheet-relation-orb ${selected.relation || "neutral"}`} aria-hidden="true" />

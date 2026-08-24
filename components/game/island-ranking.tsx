@@ -11,7 +11,7 @@ function IslandRankingInner({ snapshot }: { snapshot: GameSnapshot }) {
   const mineRow = rows.find((row) => row.id === snapshot.state.id);
   const top = rows.slice(0, 3);
   const normalized = query.trim().toLocaleLowerCase("ru-RU");
-  const filtered = useMemo(() => normalized ? rows.filter((row) => row.name.toLocaleLowerCase("ru-RU").includes(normalized)) : rows, [rows, normalized]);
+  const filtered = useMemo(() => normalized ? rows.filter((row) => row.name.toLocaleLowerCase("ru-RU").includes(normalized) || (row.stateUsername || "").toLocaleLowerCase("ru-RU").includes(normalized.replace(/^@/, ""))) : rows, [rows, normalized]);
   const podium = top.length === 3 ? [top[1], top[0], top[2]] : top;
 
   return (
@@ -21,7 +21,7 @@ function IslandRankingInner({ snapshot }: { snapshot: GameSnapshot }) {
         <span className="ranking-my-rank"><small>МОЁ МЕСТО</small><b>#{mineRow?.rank || snapshot.state.seasonRank}</b><em>{snapshot.state.rating} ELO</em></span>
       </section>
 
-      {podium.length > 0 && <section className="ranking-podium">{podium.map((row) => { const league = eloLeague(row.rating); return <article key={row.id} className={`podium-${row.rank} ${row.id === snapshot.state.id ? "mine" : ""}`}><i>{row.rank}</i><span style={{ background: row.color }}>{row.name.slice(0, 1)}</span><b>{row.name}</b><strong>{row.rating}</strong><small>{league.label}</small></article>; })}</section>}
+      {podium.length > 0 && <section className="ranking-podium">{podium.map((row) => { const league = eloLeague(row.rating); return <article key={row.id} className={`podium-${row.rank} ${row.id === snapshot.state.id ? "mine" : ""}`}><i>{row.rank}</i><span style={{ background: row.color }}>{row.name.slice(0, 1)}</span><b>{row.name}</b>{row.stateUsername && <em>@{row.stateUsername}</em>}<strong>{row.rating}</strong><small>{league.label}</small></article>; })}</section>}
 
       <div className="league-strip league-strip-v2">
         {[1000, 1200, 1500, 1800, 2100, 2450].map((rating) => {
@@ -39,7 +39,7 @@ function IslandRankingInner({ snapshot }: { snapshot: GameSnapshot }) {
             <article key={row.id} className={row.id === snapshot.state.id ? "mine" : ""}>
               <span className="ranking-pos">#{row.rank}</span>
               <span className="ranking-emblem" style={{ background: row.color }}>{row.name.slice(0,1)}</span>
-              <div><b>{row.name}</b><small>{league.icon} {league.label} · {row.memberCount.toLocaleString("ru-RU")} участников</small></div>
+              <div><b>{row.name}</b>{row.stateUsername && <em className="state-inline-handle">@{row.stateUsername}</em>}<small>{league.icon} {league.label} · {row.memberCount.toLocaleString("ru-RU")} участников</small></div>
               <strong>{row.rating}<small>ELO</small></strong>
             </article>
           );

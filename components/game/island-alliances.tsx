@@ -40,7 +40,7 @@ function IslandAlliancesInner({ snapshot, onDiplomacy }: { snapshot: GameSnapsho
         <span className="pending"><small>ВХОДЯЩИЕ</small><b>{incoming.length}</b><em>решений</em></span>
       </section>
 
-      {incoming.length > 0 && <section className="diplomacy-inbox"><div className="section-row"><div><small>ТРЕБУЮТ РЕШЕНИЯ</small><h3>Входящие предложения</h3></div><span>{incoming.length}</span></div>{incoming.map((rel) => <article key={rel.id} className={relationTone(rel.status)}><span className="relation-mark" style={{ background: rel.otherStateColor }}>{rel.otherStateName.slice(0, 1)}</span><div><b>{rel.otherStateName}</b><small>{label(rel.status)}</small></div><div className="relation-actions">{rel.status === "alliance_pending" && <button onClick={() => onDiplomacy(rel.otherStateId, "accept_alliance")}>Принять союз</button>}{rel.status === "truce_pending" && <button onClick={() => onDiplomacy(rel.otherStateId, "accept_truce")}>Принять мир</button>}</div></article>)}</section>}
+      {incoming.length > 0 && <section className="diplomacy-inbox"><div className="section-row"><div><small>ТРЕБУЮТ РЕШЕНИЯ</small><h3>Входящие предложения</h3></div><span>{incoming.length}</span></div>{incoming.map((rel) => <article key={rel.id} className={relationTone(rel.status)}><span className="relation-mark" style={{ background: rel.otherStateColor }}>{rel.otherStateName.slice(0, 1)}</span><div><b>{rel.otherStateName}</b>{rel.otherStateUsername && <em className="state-inline-handle">@{rel.otherStateUsername}</em>}<small>{label(rel.status)}</small></div><div className="relation-actions">{rel.status === "alliance_pending" && <button onClick={() => onDiplomacy(rel.otherStateId, "accept_alliance")}>Принять союз</button>}{rel.status === "truce_pending" && <button onClick={() => onDiplomacy(rel.otherStateId, "accept_truce")}>Принять мир</button>}</div></article>)}</section>}
 
       <section className="diplomacy-book">
         <div className="section-row"><div><small>КНИГА ОТНОШЕНИЙ</small><h3>Все государства</h3></div><span>{diplomacy.length}</span></div>
@@ -48,7 +48,7 @@ function IslandAlliancesInner({ snapshot, onDiplomacy }: { snapshot: GameSnapsho
           {diplomacy.length === 0 ? <div className="empty-state diplomacy-empty"><i>◇</i><b>Пока нейтрально</b><span>У государства ещё нет официальных дипломатических отношений.</span></div> : diplomacy.map((rel) => (
             <article key={rel.id} className={relationTone(rel.status)}>
               <span className="relation-mark" style={{ background: rel.otherStateColor }}>{rel.otherStateName.slice(0, 1)}</span>
-              <div><b>{rel.otherStateName}</b><small>{label(rel.status)}</small>{rel.truceUntil && rel.status === "truce" && <em>до {new Date(rel.truceUntil).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</em>}</div>
+              <div><b>{rel.otherStateName}</b>{rel.otherStateUsername && <em className="state-inline-handle">@{rel.otherStateUsername}</em>}<small>{label(rel.status)}</small>{rel.truceUntil && rel.status === "truce" && <em>до {new Date(rel.truceUntil).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</em>}</div>
               <div className="relation-actions">
                 {rel.status === "allied" && <button onClick={() => onDiplomacy(rel.otherStateId, "break_alliance")}>Разорвать</button>}
                 {rel.status === "war" && <button onClick={() => onDiplomacy(rel.otherStateId, "offer_truce")}>Предложить мир</button>}

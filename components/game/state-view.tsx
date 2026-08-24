@@ -7,6 +7,7 @@ type Props = {
   snapshot: GameSnapshot;
   onClaim: (missionId: string) => void;
   onPolitics: (action: string, payload?: Record<string, string>) => void;
+  onGovernment: (action: string, payload?: Record<string, string>) => void;
   onCustomize: (patch: Partial<Pick<StateView, "motto" | "emblem" | "theme" | "color">>) => void;
 };
 
@@ -16,7 +17,7 @@ const THEMES = [
 ] as const;
 
 function roleLabel(role: string) {
-  return ({ president: "Президент", minister: "Заместитель", deputy: "Заместитель", curator: "Куратор", general: "Генерал", citizen: "Гражданин", member: "Участник" } as Record<string, string>)[role] || role;
+  return ({ founder: "Основатель", president: "Президент", minister: "Заместитель", deputy: "Заместитель", curator: "Куратор", general: "Генерал", citizen: "Гражданин", member: "Участник" } as Record<string, string>)[role] || role;
 }
 function Stat({ label, value }: { label: string; value: string }) {
   return <div className="stat"><small>{label}</small><strong>{value}</strong></div>;
@@ -41,6 +42,41 @@ function PlayerProgress({ snapshot }: { snapshot: GameSnapshot }) {
   </div>;
 }
 
+function GovernmentPanel({ snapshot, onGovernment }: Pick<Props, "snapshot" | "onGovernment">) {
+  const gov = snapshot.government;
+  const [target, setTarget] = useState("");
+  const [voteTarget, setVoteTarget] = useState("");
+  const [handle, setHandle] = useState(snapshot.state.stateUsername || "");
+  const [stateName, setStateName] = useState(snapshot.state.name);
+  const founderName = gov.founder ? `${gov.founder.displayName}${gov.founder.username ? ` (@${gov.founder.username})` : ""}` : "не подтверждён";
+  const presidentName = gov.president ? `${gov.president.displayName}${gov.president.username ? ` (@${gov.president.username})` : ""}` : "не назначен";
+  return <div className="panel government-panel">
+    <div className="panel-head"><div><small>ПРАВИТЕЛЬСТВО</small><h3>Управление государством</h3></div><span>{snapshot.state.stateUsername ? `@${snapshot.state.stateUsername}` : "без юза"}</span></div>
+    <div className="government-roster">
+      <article><small>ОСНОВАТЕЛЬ</small><b>{founderName}</b></article>
+      <article><small>ПРЕЗИДЕНТ</small><b>{presidentName}</b></article>
+      <article><small>ЗАМЕСТИТЕЛИ · {gov.deputies.length}/3</small><b>{gov.deputies.length ? gov.deputies.map((d) => d.username ? `@${d.username}` : d.displayName).join(", ") : "нет"}</b></article>
+    </div>
+    {snapshot.election?.status === "open" && new Date(snapshot.election.endsAt).getTime() > Date.now() && <div className="government-vote">
+      <label>Голосование по @username</label>
+      <div><input placeholder="@username" value={voteTarget} onChange={(e) => setVoteTarget(e.target.value)} /><button type="button" className="primary" onClick={() => onGovernment("vote_username", { username: voteTarget })}>Голосовать</button></div>
+      <small>Один голос на гражданина. Голос можно изменить до закрытия выборов.</small>
+    </div>}
+    {gov.canFounderManage && <div className="government-console">
+      <div className="government-field"><label>Название государства</label><div><input maxLength={64} value={stateName} onChange={(e) => setStateName(e.target.value)} /><button type="button" onClick={() => onGovernment("rename_state", { name: stateName })}>Сохранить</button></div></div>
+      <div className="government-field"><label>Уникальный юз</label><div><input maxLength={32} placeholder="north_empire" value={handle} onChange={(e) => setHandle(e.target.value.replace(/^@/, ""))} /><button type="button" onClick={() => onGovernment("set_username", { username: handle })}>@ Юз</button></div></div>
+      <div className="government-field"><label>Гражданин по @username</label><input placeholder="@username" value={target} onChange={(e) => setTarget(e.target.value)} /></div>
+      <div className="government-actions">
+        <button type="button" className="primary" onClick={() => onGovernment("open_election")}>Выборы · 30 мин</button>
+        <button type="button" onClick={() => onGovernment("appoint_president", { username: target })}>Назначить президента</button>
+        <button type="button" onClick={() => onGovernment("remove_president")}>Снять президента</button>
+        <button type="button" onClick={() => onGovernment("appoint_deputy", { username: target })}>Назначить зама</button>
+        <button type="button" onClick={() => onGovernment("remove_deputy", { username: target })}>Снять зама</button>
+      </div>
+    </div>}
+  </div>;
+}
+
 function IdentityEditor({ snapshot, onCustomize }: Pick<Props, "snapshot" | "onCustomize">) {
   const [motto, setMotto] = useState(snapshot.state.motto);
   const canEdit = ["president","minister","deputy","curator"].includes(snapshot.player.role);
@@ -57,12 +93,12 @@ function IdentityEditor({ snapshot, onCustomize }: Pick<Props, "snapshot" | "onC
 function ElectionPanel({ snapshot, onPolitics, now }: Pick<Props, "snapshot" | "onPolitics"> & { now: number }) {
   const [statement, setStatement] = useState("Развивать остров, укреплять флот и поднимать рейтинг.");
   const election = snapshot.election;
-  const canOpen = snapshot.player.role === "president";
+  const canOpen = snapshot.player.role === "founder";
   const myCandidate = election?.candidates.find((candidate) => candidate.isMe);
   const totalVotes = election?.candidates.reduce((sum, candidate) => sum + candidate.votes, 0) || 0;
   const ended = election ? new Date(election.endsAt).getTime() <= now : false;
 
-  if (!election) return <div className="panel election-panel empty-election"><div><small>ПОЛИТИКА</small><h3>Президентские выборы</h3><p>Откройте 24-часовое голосование. Каждый гражданин получает один голос и может поменять его до закрытия урн.</p></div>{canOpen && <button className="primary" onClick={() => onPolitics("open")}>Открыть выборы</button>}</div>;
+  if (!election) return <div className="panel election-panel empty-election"><div><small>ПОЛИТИКА</small><h3>Президентские выборы</h3><p>Основатель открывает 30-минутное голосование. Каждый гражданин получает один голос и может поменять его до закрытия урн.</p></div>{canOpen && <button className="primary" onClick={() => onPolitics("open")}>Открыть выборы</button>}</div>;
 
   return <div className="panel election-panel">
     <div className="election-head"><div><small>ВЫБОРЫ ПРЕЗИДЕНТА</small><h3>{election.status === "open" ? ended ? "Голосование завершено" : `До закрытия ${remaining(election.endsAt, now)}` : election.status === "resolved" ? "Результаты утверждены" : "Выборы отменены"}</h3></div><b>{totalVotes}<span>голосов</span></b></div>
@@ -77,7 +113,7 @@ function ElectionPanel({ snapshot, onPolitics, now }: Pick<Props, "snapshot" | "
   </div>;
 }
 
-function StateViewInner({ snapshot, onClaim, onPolitics, onCustomize }: Props) {
+function StateViewInner({ snapshot, onClaim, onPolitics, onGovernment, onCustomize }: Props) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(timer); }, []);
   const seasonProgress = useMemo(() => {
@@ -87,9 +123,10 @@ function StateViewInner({ snapshot, onClaim, onPolitics, onCustomize }: Props) {
     return Math.max(0, Math.min(100, (now - start) / Math.max(1, end - start) * 100));
   }, [snapshot.season, now]);
   return <div className={`state-screen game-scene state-theme-${snapshot.state.theme} ${snapshot.state.isFreeport ? "freeport-profile" : ""}`} style={{ ["--state-color" as any]: snapshot.state.color }}>
-    <div className="hero-state identity-hero"><div className="state-emblem">{snapshot.state.emblem}</div><div className="flag"><span /></div><small>{snapshot.state.isFreeport ? "НЕЙТРАЛЬНАЯ ГАВАНЬ" : "ГОСУДАРСТВО"}</small><h2>{snapshot.state.name}</h2><p className="state-motto">«{snapshot.state.motto}»</p></div>
+    <div className="hero-state identity-hero"><div className="state-emblem">{snapshot.state.emblem}</div><div className="flag"><span /></div><small>{snapshot.state.isFreeport ? "НЕЙТРАЛЬНАЯ ГАВАНЬ" : "ГОСУДАРСТВО"}</small><h2>{snapshot.state.name}</h2>{snapshot.state.stateUsername && <div className="state-handle">@{snapshot.state.stateUsername}</div>}<p className="state-motto">«{snapshot.state.motto}»</p></div>
     {!snapshot.state.isFreeport && snapshot.season && <div className="season-strip"><div><small>СЕЗОН {snapshot.season.number}</small><strong>{snapshot.season.name}</strong></div><div className="season-progress"><i><em style={{ width: `${seasonProgress}%` }} /></i><span>осталось {remaining(snapshot.season.endsAt, now)}</span></div><b>#{snapshot.state.seasonRank}</b></div>}
     <div className="stats-grid"><Stat label={snapshot.state.isFreeport ? "Уровень" : "Рейтинг"} value={snapshot.state.isFreeport ? String(snapshot.player.level) : snapshot.state.rating.toLocaleString("ru-RU")} /><Stat label={snapshot.state.isFreeport ? "Опыт" : "Место"} value={snapshot.state.isFreeport ? `${snapshot.player.xp} XP` : `#${snapshot.state.seasonRank}`} /><Stat label={snapshot.state.isFreeport ? "Свободные игроки" : "Граждане"} value={String(snapshot.state.memberCount)} /><Stat label={snapshot.state.isFreeport ? "Статус" : "Победы"} value={snapshot.state.isFreeport ? "FREE" : String(snapshot.state.islandWins)} /></div>
+    {!snapshot.state.isFreeport && <GovernmentPanel snapshot={snapshot} onGovernment={onGovernment} />}
     {!snapshot.state.isFreeport && <ElectionPanel snapshot={snapshot} onPolitics={onPolitics} now={now} />}
     {!snapshot.state.isFreeport && <IdentityEditor snapshot={snapshot} onCustomize={onCustomize} />}
     {!snapshot.state.isFreeport && <div className="panel badge-panel"><div className="panel-head"><div><small>ЛЕТОПИСЬ</small><h3>Награды государства</h3></div><span>{snapshot.badges.length} получено</span></div>{snapshot.badges.length ? <div className="badge-grid">{snapshot.badges.map((badge) => <div className="state-badge" key={badge.id}><b>{badge.icon}</b><strong>{badge.title}</strong><span>{badge.description}</span></div>)}</div> : <p>Первая награда появится за рейтинг, серию или победы.</p>}</div>}

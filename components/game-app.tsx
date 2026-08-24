@@ -454,6 +454,16 @@ export default function GameApp() {
     } catch (e) { notify(e instanceof Error ? e.message : "Политическое действие не удалось", "error"); }
   }
 
+
+  async function government(action: string, payload: Record<string, string> = {}) {
+    if (!snapshot) return;
+    try {
+      const fresh = await api<GameSnapshot>("/api/game/government", initData, { method: "POST", body: JSON.stringify({ stateId: snapshot.state.id, action, ...payload }) });
+      acceptSnapshot(fresh);
+      notify("Правительство обновлено", "success");
+    } catch (e) { notify(e instanceof Error ? e.message : "Действие правительства не удалось", "error"); }
+  }
+
   async function customizeState(patch: Partial<Pick<StateView, "motto" | "emblem" | "theme" | "color">>) {
     if (!snapshot) return;
     try {
@@ -504,7 +514,7 @@ export default function GameApp() {
         {view === "rating" && <IslandRanking snapshot={snapshot} />}
         {view === "alliances" && <IslandAlliances snapshot={snapshot} onDiplomacy={diplomacy} />}
         {view === "strategy" && <StrategyPanel snapshot={snapshot} onActivity={completeActivity} onSupport={supportAlly} onSurrender={surrenderCurrentBattle} />}
-        {view === "profile" && <StateViewPanel snapshot={snapshot} onClaim={claimMission} onPolitics={politics} onCustomize={customizeState} />}
+        {view === "profile" && <StateViewPanel snapshot={snapshot} onClaim={claimMission} onPolitics={politics} onGovernment={government} onCustomize={customizeState} />}
         </div>
       </section>
 
@@ -526,14 +536,14 @@ function Splash({ text, action, onAction }: { text: string; action?: string; onA
 
 const MobileHeader = memo(function MobileHeader({ snapshot, online, lastSyncAt, syncing, onSync }: { snapshot: GameSnapshot; online: boolean; lastSyncAt: number; syncing: boolean; onSync: () => void }) {
   const state = snapshot.state;
-  const role = state.isFreeport ? "Свободный игрок" : snapshot.player.role === "president" ? "Президент" : snapshot.player.role === "minister" || snapshot.player.role === "deputy" ? "Заместитель" : snapshot.player.role === "curator" ? "Куратор" : "Участник";
+  const role = state.isFreeport ? "Свободный игрок" : snapshot.player.role === "founder" ? "Основатель" : snapshot.player.role === "president" ? "Президент" : snapshot.player.role === "minister" || snapshot.player.role === "deputy" ? "Заместитель" : snapshot.player.role === "curator" ? "Куратор" : "Участник";
   const compact = (value: number) => COMPACT_FORMATTER.format(value);
   return (
     <header className="island-mobile-header game-mobile-header">
       <div className="game-header-identity">
         <span className="game-brand-rune" aria-hidden="true">GW</span>
         <span className="header-avatar game-header-avatar" style={{ background: state.color }}>{state.avatarUrl ? <Image src={state.avatarUrl} alt="" width={42} height={42} unoptimized /> : state.emblem}</span>
-        <div className="header-state-name game-header-name"><b>{state.name}</b><small>{role}{state.isFreeport ? " · нейтральная гавань" : ` · #${state.seasonRank}`}</small></div>
+        <div className="header-state-name game-header-name"><b>{state.name}</b>{state.stateUsername && !state.isFreeport ? <em>@{state.stateUsername}</em> : null}<small>{role}{state.isFreeport ? " · нейтральная гавань" : ` · #${state.seasonRank}`}</small></div>
         <button type="button" className={`game-sync ${online ? "online" : "offline"} ${syncing ? "syncing" : ""}`} onClick={onSync} disabled={!online || syncing} aria-label="Синхронизировать данные" title={online ? `Последняя синхронизация · ${new Date(lastSyncAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Нет соединения"}><i />{syncing ? "SYNC" : online ? "LIVE" : "OFF"}</button>
       </div>
       <div className="game-header-stats">

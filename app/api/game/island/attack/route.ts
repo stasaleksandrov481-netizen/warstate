@@ -1,5 +1,5 @@
 import { getBattleView } from "@/lib/battle";
-import { createIslandBattle } from "@/lib/islands";
+import { startWarAction } from "@/lib/actions";
 import { getGameSnapshot } from "@/lib/game";
 import { authorizeStateAction, jsonError } from "@/lib/request-auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -18,12 +18,7 @@ export async function POST(request: Request) {
     if (!stateId || !targetStateId) throw new Error("stateId and targetStateId are required");
 
     const { player, member, session, state: authState } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
-    if (authState.is_freeport) throw new Error("Freeport — нейтральная территория. Сначала вступите в государство.");
-    if (!["president", "minister", "deputy"].includes(member.role)) {
-      throw new Error("Морскую атаку может начать президент или заместитель.");
-    }
-
-    const battleId = await createIslandBattle(stateId, targetStateId, battleType);
+    const battleId = await startWarAction({ actorRole: member.role, attackerStateId: stateId, defenderStateId: targetStateId, battleType, attackerIsFreeport: Boolean(authState.is_freeport) });
     const battle = await getBattleView(battleId, player.id);
     const supabase = getSupabaseAdmin();
     const { data: states, error: statesError } = await supabase

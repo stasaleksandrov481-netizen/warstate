@@ -71,3 +71,10 @@ export async function createSingleUseInviteLink(chatId: number, name: string) {
     member_limit: 1,
   });
 }
+
+export async function getChatAdministrators(chatId: number) {
+  return telegramApi<Array<{
+    status: ChatMemberStatus;
+    user: { id: number; first_name?: string; last_name?: string; username?: string; is_bot?: boolean };
+  }>>("getChatAdministrators", { chat_id: chatId });
+}

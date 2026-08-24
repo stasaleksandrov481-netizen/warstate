@@ -1,5 +1,6 @@
 import { authorizeStateAction, jsonError } from "@/lib/request-auth";
-import { castVote, finalizeElection, nominateCandidate, openElection } from "@/lib/politics";
+import { castVote, finalizeElection, nominateCandidate } from "@/lib/politics";
+import { openGovernmentElection } from "@/lib/government";
 import { getGameSnapshot } from "@/lib/game";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -26,8 +27,8 @@ export async function POST(request: Request) {
     }
 
     if (action === "open") {
-      if (auth.member.role !== "president") throw new Error("Открыть выборы может только президент.");
-      await openElection(stateId, auth.player.id);
+      if (auth.member.role !== "founder") throw new Error("Внеочередные выборы запускает только Основатель.");
+      await openGovernmentElection(stateId, auth.player.id);
     } else if (action === "nominate") {
       if (!body.electionId) throw new Error("electionId is required");
       await nominateCandidate(String(body.electionId), auth.player.id, String(body.statement || ""));

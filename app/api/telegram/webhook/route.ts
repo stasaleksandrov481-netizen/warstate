@@ -2,6 +2,8 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { miniAppLink, telegramApi } from "@/lib/telegram-bot";
 import { getProduct } from "@/lib/products";
 import { handleGroupCallback, handleGroupTextCommand } from "@/lib/chat-commands";
+import { recordChatActivity, registerTelegramState } from "@/lib/government";
+import { bootstrapGame } from "@/lib/game";
 
 export const runtime = "nodejs";
 
@@ -156,6 +158,7 @@ export async function POST(request: Request) {
     if (membership?.chat?.id && ["group", "supergroup"].includes(membership.chat.type)) {
       const status = membership.new_chat_member?.status;
       if (["member", "administrator"].includes(status)) {
+        await registerTelegramState(Number(membership.chat.id));
         await sendLaunchMessage(membership.chat.id, membership.chat.title);
       }
       return Response.json({ ok: true });
@@ -174,7 +177,29 @@ export async function POST(request: Request) {
       if (await handleGroupTextCommand(message)) return Response.json({ ok: true });
       const text = String(message.text || "").split("@")[0].trim();
       if (["/groupwars", "/gw", "/war"].includes(text)) {
+        await registerTelegramState(Number(message.chat.id));
         await sendLaunchMessage(message.chat.id, message.chat.title);
+        return Response.json({ ok: true });
+      }
+
+      // Every ordinary group message can award +2 XP and +1 state contribution,
+      // but SQL enforces a strict one-minute cooldown per player. If this is a
+      // legacy chat/player, self-heal registration/citizenship once and retry.
+      if (message.from?.id && !String(message.text || "").trim().startsWith("!")) {
+        try {
+          const first = await recordChatActivity(Number(message.chat.id), Number(message.from.id));
+          if (!first?.applied && ["state_missing", "player_missing", "not_member"].includes(String(first?.reason || ""))) {
+            await bootstrapGame({
+              id: Number(message.from.id),
+              first_name: String(message.from.first_name || "Игрок"),
+              last_name: message.from.last_name ? String(message.from.last_name) : undefined,
+              username: message.from.username ? String(message.from.username) : undefined,
+            }, Number(message.chat.id));
+            await recordChatActivity(Number(message.chat.id), Number(message.from.id));
+          }
+        } catch (activityError) {
+          console.warn("WARSTATE chat activity reward skipped", activityError);
+        }
       }
     }
   } catch (error) {

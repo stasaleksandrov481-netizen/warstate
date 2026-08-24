@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/battles",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/elections",
+      "schedule": "* * * * *"
     }
   ]
 }

@@ -1176,3 +1176,73 @@ body{background:radial-gradient(circle at 50% -15%,rgba(30,135,146,.22),transpar
 @keyframes wsCardRise{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:none}}
 @media(prefers-reduced-motion:reduce){.ws-view-entering :is(.game-scene,.island-home-screen)>*{animation:none!important}}
 .strategy-tab-stage{animation:strategyTabIn .24s cubic-bezier(.18,.9,.28,1.08) both;transform-origin:50% 0}.strategy-tab-stage>*:first-child{margin-top:0}@keyframes strategyTabIn{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){.strategy-tab-stage{animation:none!important}}
+
+/* v1.9 government & state identity */
+.game-header-name em,
+.state-handle,
+.game-island-handle,
+.sheet-state-handle {
+  display: block;
+  color: rgba(130, 225, 238, .92);
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  line-height: 1.2;
+}
+.game-header-name em { margin-top: 1px; }
+.state-handle { margin: 4px 0 2px; font-size: 12px; }
+.game-island-handle { margin-top: 1px; font-size: 9px; }
+.sheet-state-handle { margin-top: 3px; font-size: 12px; }
+
+.government-panel { overflow: hidden; }
+.government-roster {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.government-roster article {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(151, 226, 231, .14);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(7, 43, 54, .54), rgba(8, 28, 40, .28));
+}
+.government-roster small,
+.government-field label { color: rgba(210, 239, 239, .56); font-size: 9px; font-weight: 900; letter-spacing: .09em; }
+.government-roster b { display: block; margin-top: 5px; color: #f5f0d2; font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+.government-console {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(240, 196, 92, .24);
+  background: linear-gradient(180deg, rgba(53, 45, 20, .22), rgba(3, 28, 38, .24));
+}
+.government-field { display: grid; gap: 6px; margin-bottom: 9px; }
+.government-field > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+.government-field input {
+  width: 100%; min-width: 0; height: 40px; padding: 0 11px;
+  border: 1px solid rgba(160, 224, 226, .18); border-radius: 12px;
+  background: rgba(2, 23, 32, .58); color: #f8f4dc; outline: none;
+}
+.government-field input:focus { border-color: rgba(244, 198, 86, .58); box-shadow: 0 0 0 3px rgba(244, 198, 86, .08); }
+.government-field button,
+.government-actions button {
+  min-height: 40px; border-radius: 12px; border: 1px solid rgba(160, 224, 226, .16);
+  background: rgba(11, 54, 66, .72); color: #ecf4e9; font-weight: 800;
+}
+.government-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
+.government-actions .primary { grid-column: 1 / -1; color: #31240c; background: linear-gradient(180deg, #f2d375, #d9a743); border-color: rgba(255, 229, 145, .58); }
+@media (max-width: 420px) {
+  .government-roster { grid-template-columns: 1fr; }
+  .government-actions { grid-template-columns: 1fr; }
+  .government-actions .primary { grid-column: auto; }
+}
+
+/* v1.9 state identity */
+.state-inline-handle{display:block;margin-top:2px;color:rgba(125,230,244,.82);font-style:normal;font-size:11px;font-weight:800;letter-spacing:.02em}
+.ranking-podium article>em{font-style:normal;font-size:10px;color:rgba(139,225,238,.78);max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.government-vote{margin-top:12px;padding:12px;border:1px solid rgba(103,221,235,.18);border-radius:16px;background:linear-gradient(135deg,rgba(17,72,82,.38),rgba(8,37,48,.22))}
+.government-vote>label{display:block;font-size:11px;font-weight:900;letter-spacing:.08em;color:rgba(220,248,250,.74);margin-bottom:7px}
+.government-vote>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.government-vote input{min-width:0}.government-vote>small{display:block;margin-top:7px;color:rgba(205,231,233,.62);font-size:10px;line-height:1.35}

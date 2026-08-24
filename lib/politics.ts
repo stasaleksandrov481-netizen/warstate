@@ -79,7 +79,7 @@ export async function openElection(stateId: string, playerId: string) {
   const { data, error } = await supabase.from("state_elections").insert({
     state_id: stateId,
     season_id: season?.id || null,
-    ends_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    ends_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
     created_by_player_id: playerId,
   }).select("id").single();
   if (error) {
@@ -101,9 +101,10 @@ export async function nominateCandidate(electionId: string, playerId: string, st
   if (electionError) throw electionError;
   const electionRow = requireData(election, "Выборы не найдены.");
   if (electionRow.status !== "open" || new Date(electionRow.ends_at).getTime() <= Date.now()) throw new Error("Выборы уже закрыты.");
-  const { data: member, error: memberError } = await supabase.from("state_members").select("id").eq("state_id", electionRow.state_id).eq("player_id", playerId).maybeSingle();
+  const { data: member, error: memberError } = await supabase.from("state_members").select("id,role").eq("state_id", electionRow.state_id).eq("player_id", playerId).maybeSingle();
   if (memberError) throw memberError;
   if (!member) throw new Error("Только граждане могут выдвигаться.");
+  if (["founder", "curator"].includes(String(member.role))) throw new Error("Основатель и куратор не участвуют в выборах президента как кандидаты.");
   const { error } = await supabase.from("election_candidates").upsert({
     election_id: electionId,
     player_id: playerId,

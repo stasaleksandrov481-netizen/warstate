@@ -36,7 +36,7 @@ export async function getDiplomacyForState(stateId: string): Promise<DiplomacyRe
   if (error) throw error;
   const otherIds = [...new Set((rows || []).map((r: any) => r.state_a_id === stateId ? r.state_b_id : r.state_a_id))];
   if (!otherIds.length) return [];
-  const { data: states, error: statesError } = await supabase.from("states").select("id,name,color").in("id", otherIds);
+  const { data: states, error: statesError } = await supabase.from("states").select("id,name,state_username,color").in("id", otherIds);
   if (statesError) throw statesError;
   const byId = new Map((states || []).map((s: any) => [s.id, s]));
   return (rows || []).map((row: any) => {
@@ -46,6 +46,7 @@ export async function getDiplomacyForState(stateId: string): Promise<DiplomacyRe
       id: row.id,
       otherStateId: otherId,
       otherStateName: other?.name || "Unknown state",
+      otherStateUsername: other?.state_username || null,
       otherStateColor: other?.color || "#6f7684",
       status: row.status as DiplomacyStatus,
       requestedByStateId: row.requested_by_state_id,
@@ -115,7 +116,7 @@ export async function getLeaderboard(limit = 10): Promise<LeaderboardStateView[]
   const supabase = getSupabaseAdmin();
   const { data: states, error } = await supabase
     .from("states")
-    .select("id,name,color,rating,telegram_member_count,is_freeport")
+    .select("id,name,state_username,color,rating,telegram_member_count,is_freeport")
     .eq("is_freeport", false)
     .order("rating", { ascending: false })
     .order("created_at", { ascending: true })
@@ -124,6 +125,7 @@ export async function getLeaderboard(limit = 10): Promise<LeaderboardStateView[]
   return (states || []).map((state: any, index: number) => ({
     id: state.id,
     name: state.name,
+    stateUsername: state.state_username || null,
     color: state.color,
     rating: state.rating,
     rank: index + 1,

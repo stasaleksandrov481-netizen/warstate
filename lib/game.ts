@@ -288,12 +288,17 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null): 
     p_membership_verified_at: membershipVerifiedAt,
   });
   if (memberError) {
-    if (String(memberError.message || "").includes("gw_set_player_home_state") || memberError.code === "PGRST202") {
+    const dbMessage = String(memberError.message || "");
+    // Do not block Mini App launch because of stale citizenship/cooldown rules.
+    // The player can still open the game and repair the membership from the UI.
+    if (dbMessage.includes("24") || dbMessage.toLowerCase().includes("cooldown")) {
+      console.warn("Ignored citizenship cooldown during bootstrap:", dbMessage);
+    } else if (dbMessage.includes("gw_set_player_home_state") || memberError.code === "PGRST202") {
       throw new Error("Не установлены актуальные миграции 012_live_integrity_audit.sql и 013_full_state_wars_spec.sql.");
+    } else {
+      throw memberError;
     }
-    throw memberError;
   }
-  if (!membershipId) throw new Error("Не удалось сохранить гражданство игрока.");
   if (role === "founder") {
     const { error: restoreFounderError } = await supabase.from("state_members").update({ role: "founder" }).eq("state_id", state.id).eq("player_id", player.id);
     if (restoreFounderError) throw restoreFounderError;

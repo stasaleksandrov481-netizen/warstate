@@ -1,47 +1,66 @@
-# WARSTATE v1.9.0 — Final Audit
+# WARSTATE v2.0.0 — Final Audit
 
-## Scope
+## Release focus
 
-Final packaging audit for the Government & Chat Control update.
+v2.0 replaces the normal gameplay dependency on Vercel Cron with an event-driven runtime and performs a broader reliability/UI pass on top of v1.9 Government.
 
-### Implemented in v1.9
+## Major completed changes
 
-- Automatic Telegram group registration through `my_chat_member` and self-healing registration on activity.
-- Telegram chat creator is verified and stored as the permanent Founder.
-- Explicit government roles: Founder, President, up to 3 Deputies, Citizen.
-- 30-minute presidential elections with chat and Mini App voting by `@username`.
-- Founder controls for president/deputies, state name and unique state username.
-- Unique state usernames (`@north_empire`) usable for war, alliance, reconnaissance and search.
-- Telegram chat title separated from the public in-game state name.
-- Group-message activity reward: +2 player XP and +1 state contribution at most once per minute.
-- Shared action layer for chat/Mini App war and building upgrades.
-- Government Mini App API plus automatic election cron.
-- Telegram webhook now subscribes to `callback_query` in addition to messages and membership changes.
-- New state identity is displayed across state, map, ranking and diplomacy UI.
+- Removed scheduled jobs from `vercel.json`.
+- Added migration `015_event_driven_runtime.sql`.
+- Added PostgreSQL state-scoped maintenance leases.
+- Battles, expired elections, finished construction and strategic refreshes reconcile through live Mini App / Telegram activity.
+- Group commands reconcile state before command execution, so text UI and Mini App observe the same current world state.
+- New wars/building actions reconcile stale runtime before validating conflicts.
+- Fixed a race where strategy could refresh before a just-finished building upgrade was applied.
+- Added an 8-second local burst throttle before the authoritative PostgreSQL maintenance lease for busy Telegram chats.
+- Upstash Redis is no longer a hard availability dependency; short rate limits/locks degrade to an in-process fallback while PostgreSQL remains authoritative.
+- Redis REST calls now have a short network timeout.
+- Added PostgreSQL-backed Telegram webhook update idempotency for ordinary updates/callbacks.
+- Added opportunistic cleanup of old Telegram update receipts without a scheduled task.
+- Preserved separate payment idempotency by Telegram charge id, allowing failed payment writes to retry.
+- Added authenticated `/api/game/runtime` diagnostics.
+- Added baseline production security headers and disabled `X-Powered-By`.
+- Corrected API status inference for rate limiting (`429`) and action conflicts (`409`).
+- Added a live event ribbon for battles, construction, elections and ready rewards.
+- Added contextual bottom-navigation attention indicators.
+- Improved shared focus/loading/surface polish and reduced unnecessary background full-state polling.
+- Removed raw Telegram chat IDs from public state listings and internal election UUIDs from launch messages.
+- Expanded `audit:project` to validate RPCs, commands, webhook idempotency, security headers and absence of Vercel Cron schedules.
 
-## Static checks
+## Static verification
 
 - `npm run audit:project`: PASS
-- TypeScript/TSX syntax transpile: PASS (59/59 files)
-- Local import resolution: PASS (covered by project audit)
-- Environment variables: all referenced variables are documented in `.env.example`
-- Application RPC calls: PASS (28/28 referenced RPCs exist in SQL migrations)
-- Requested v1.9 chat command set: PASS (33/33 requested commands recognized)
-- JSON configuration files: parse successfully
-- Forbidden build/runtime folders and secret `.env` files: absent from release tree
-
-## SQL migration
-
-New migration:
-
-`supabase/migrations/014_government_chat_control.sql`
-
-It must be applied after migration `013_full_state_wars_spec.sql` on an existing database. A fresh database should apply migrations in numeric order through `014`.
+- Source files scanned by project audit: 64
+- API routes: 24
+- Environment variables referenced/documented: 15
+- Referenced RPCs found in SQL migrations: 31/31
+- Required Telegram commands: 33/33
+- TS/TSX syntax transpile check: 61/61
+- `app/globals.css` structural check: PASS
+- `app/game-theme.css` structural check: PASS
+- Migration `015` dollar-quote structure: PASS
+- TODO/FIXME/HACK/XXX scan: clean
+- Obvious secret-assignment scan: clean
+- Trailing-whitespace scan: clean
+- `vercel.json`: no scheduled crons
 
 ## Build status
 
-A full `npm install` / `next build` could not be completed in this container because DNS access to `registry.npmjs.org` returned `EAI_AGAIN`. No successful production build is claimed. Static TypeScript syntax checks and project-level consistency checks were run instead.
+A real dependency install / `next build` could not be completed in this environment. `npm install` fails at the network layer with:
 
-## Release hygiene
+```text
+EAI_AGAIN registry.npmjs.org
+```
 
-The final ZIP is created without `.env`, `.git`, `.next`, `node_modules`, `.vercel`, caches or temporary logs. The ZIP is then extracted into a clean verification directory and audited again before delivery.
+Therefore this audit does **not** claim a successful production Next.js build. The release was checked with dependency-independent static/transpile/import/RPC/CSS/security/project audits instead.
+
+## Required deployment step
+
+For an existing v1.9 database, apply:
+
+```text
+supabase/migrations/015_event_driven_runtime.sql
+```
+
+Then deploy normally. Vercel Cron is not required for v2.0 gameplay.

@@ -1,6 +1,6 @@
 {
   "name": "warstate",
-  "version": "1.9.0",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "clean:legacy": "node scripts/clean-legacy.mjs",

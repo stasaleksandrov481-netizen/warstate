@@ -1,43 +1,51 @@
-# Supabase setup
+# WARSTATE Supabase setup
 
-1. Create a Supabase project.
-2. Open **SQL Editor** and run migrations strictly in order:
+Apply migrations strictly in numeric order:
 
 ```text
-migrations/001_init.sql
-migrations/002_realtime_battles.sql
-migrations/003_commanders_squads.sql
-migrations/004_diplomacy_world_feed.sql
-migrations/005_daily_ops_guardrails.sql
-migrations/006_atomic_battle_actions.sql
-migrations/007_seasons_politics_identity.sql
-migrations/008_island_world_elo.sql
-migrations/009_island_integrity_campaigns.sql
-migrations/010_island_world_polish.sql
-migrations/011_freeport_live_recruitment.sql
-migrations/012_live_integrity_audit.sql
+001_init.sql
+002_realtime_battles.sql
+003_commanders_squads.sql
+004_diplomacy_world_feed.sql
+005_daily_ops_guardrails.sql
+006_atomic_battle_actions.sql
+007_seasons_politics_identity.sql
+008_island_world_elo.sql
+009_island_integrity_campaigns.sql
+010_island_world_polish.sql
+011_freeport_live_recruitment.sql
+012_live_integrity_audit.sql
+013_full_state_wars_spec.sql
+014_government_chat_control.sql
+015_event_driven_runtime.sql
 ```
 
-For v1.4.1, if your existing project is already on `010`, run `011_freeport_live_recruitment.sql` and then `012_live_integrity_audit.sql`. If `011` is already applied, run only `012_live_integrity_audit.sql`.
+For an existing v1.9 installation that already has `014`, apply only:
 
-3. In Project Settings/API copy:
-   - Project URL -> `NEXT_PUBLIC_SUPABASE_URL`
-   - Publishable key (or legacy anon key) -> `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - Server secret/service-role key -> `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY`
-4. Never expose the secret/service-role key as a `NEXT_PUBLIC_*` variable.
+```text
+015_event_driven_runtime.sql
+```
 
-Writes are intentionally performed only from Vercel server routes after Telegram `initData` validation. Sensitive state actions additionally re-check current Telegram group membership. RLS exposes only the public game-state reads required by the map/realtime UI.
+`015` removes the normal gameplay dependency on Vercel Cron. It adds a state-scoped PostgreSQL maintenance lease plus due-event indexes. Mini App activity and Telegram group activity safely reconcile battles, elections, construction and strategy state.
 
-## Migration notes
+The same migration also adds PostgreSQL-backed Telegram update receipts. Ordinary webhook commands/callbacks are claimed exactly once, so Telegram redelivery cannot duplicate a war, election, upgrade or diplomacy action. Old receipts are pruned opportunistically without a scheduled task.
 
-- `002_realtime_battles.sql` — realtime battle sessions, participants and combat events.
-- `003_commanders_squads.sql` — squads and commander orders.
-- `004_diplomacy_world_feed.sql` — diplomacy, global world feed and Realtime publication.
-- `005_daily_ops_guardrails.sql` — daily missions, rookie shield, attack cooldown and atomic economy/battle RPCs.
-- `006_atomic_battle_actions.sql` — atomic realtime combat actions and membership verification timestamps.
-- `007_seasons_politics_identity.sql` — state identity, elections, voting, badges and Realtime publication.
-- `008_island_world_elo.sql` — infinite island placement, Telegram group metadata, viewport query, island battles and ELO.
-- `009_island_integrity_campaigns.sql` — integrity, multi-battle destruction, ruins, repair and streaks.
-- `010_island_world_polish.sql` — map-query indexes/limits, cheaper island viewport reads and idempotent battle rewards.
-- `011_freeport_live_recruitment.sql` — real Freeport onboarding, recruitment, neutral-island guardrails, battle size modifiers and wider procedural island placement.
-- `012_live_integrity_audit.sql` — deduplicates old citizenship rows, enforces one active state per player, adds atomic citizenship changes and reasserts service-role-only battle RPC access.
+## Keys
+
+Server routes need one server-side Supabase credential:
+
+```text
+SUPABASE_SECRET_KEY
+```
+
+or the legacy alias:
+
+```text
+SUPABASE_SERVICE_ROLE_KEY
+```
+
+The browser uses the publishable key (or legacy anon key). Never expose a service-role/secret key with a `NEXT_PUBLIC_*` prefix.
+
+## Source of truth
+
+All balances, memberships, state roles, activity cooldowns, battle finalization and government mutations are authoritative in PostgreSQL. Realtime and Redis are acceleration/coordination layers only.

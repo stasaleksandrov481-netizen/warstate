@@ -1,13 +1,3 @@
 {
-  "framework": "nextjs",
-  "crons": [
-    {
-      "path": "/api/cron/battles",
-      "schedule": "0 0 * * *"
-    },
-    {
-      "path": "/api/cron/elections",
-      "schedule": "0 0 * * *"
-    }
-  ]
+  "framework": "nextjs"
 }

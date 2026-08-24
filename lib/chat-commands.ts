@@ -30,6 +30,11 @@ const WAR_TYPES: Record<string, WarType> = {
   territory: "territory", территория: "territory",
 };
 
+function resourceLine(snapshot: { state: { treasury: { credits: number; steel: number; fuel: number; food: number; tech: number } } }): string {
+  const t = snapshot.state.treasury;
+  return `💰 ${t.credits.toLocaleString("ru-RU")} · ⚙️ ${t.steel.toLocaleString("ru-RU")} · ⛽ ${t.fuel.toLocaleString("ru-RU")} · 🌾 ${t.food.toLocaleString("ru-RU")} · 🔬 ${t.tech.toLocaleString("ru-RU")}`;
+}
+
 function telegramUser(from: any): TelegramUser {
   return {
     id: Number(from.id),

@@ -99,6 +99,7 @@ const NAV: Array<{ key: View; label: string }> = [
 
 export default function GameApp() {
   const [view, setView] = useState<View>("map");
+  const [viewPhase, setViewPhase] = useState<"idle" | "leaving" | "entering">("idle");
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [selectedIsland, setSelectedIsland] = useState<IslandView | null>(null);
   const [loading, setLoading] = useState(true);
@@ -115,6 +116,8 @@ export default function GameApp() {
   const refreshLiveInFlightRef = useRef(false);
   const refreshBattleInFlightRef = useRef(false);
   const lastExploreRef = useRef<{ x: number; y: number; radius: number; at: number } | null>(null);
+  const navigationTimerRef = useRef<number | null>(null);
+  const navigationEnterTimerRef = useRef<number | null>(null);
   const telegram = typeof window !== "undefined" ? tg() : null;
   const initData = telegram?.initData || "";
 
@@ -124,6 +127,20 @@ export default function GameApp() {
       islands: mergeIslandLists(current?.islands || [], fresh.islands || []),
     }));
   }, []);
+
+  const navigate = useCallback((next: View) => {
+    if (next === view) return;
+    tg()?.HapticFeedback?.impactOccurred?.("light");
+    if (navigationTimerRef.current) window.clearTimeout(navigationTimerRef.current);
+    if (navigationEnterTimerRef.current) window.clearTimeout(navigationEnterTimerRef.current);
+    setViewPhase("leaving");
+    navigationTimerRef.current = window.setTimeout(() => {
+      if (next !== "map") setSelectedIsland(null);
+      setView(next);
+      setViewPhase("entering");
+      navigationEnterTimerRef.current = window.setTimeout(() => setViewPhase("idle"), 280);
+    }, 145);
+  }, [view]);
 
   const notify = useCallback((message: string, tone: "info" | "success" | "error" = "info") => {
     setToast({ message, tone });
@@ -165,6 +182,8 @@ export default function GameApp() {
     if (refreshLiveTimer.current) window.clearTimeout(refreshLiveTimer.current);
     if (refreshBattleTimer.current) window.clearTimeout(refreshBattleTimer.current);
     if (exploreTimer.current) window.clearTimeout(exploreTimer.current);
+    if (navigationTimerRef.current) window.clearTimeout(navigationTimerRef.current);
+    if (navigationEnterTimerRef.current) window.clearTimeout(navigationEnterTimerRef.current);
     exploreAbortRef.current?.abort();
   }, []);
 
@@ -174,13 +193,13 @@ export default function GameApp() {
     if (!back) return;
     const handleBack = () => {
       if (selectedIsland) { setSelectedIsland(null); return; }
-      if (view === "strategy") { setView("island"); return; }
-      if (view !== "map") setView("map");
+      if (view === "strategy") { navigate("island"); return; }
+      if (view !== "map") navigate("map");
     };
     if (view === "map" && !selectedIsland) back.hide?.(); else back.show?.();
     back.onClick?.(handleBack);
     return () => back.offClick?.(handleBack);
-  }, [view, selectedIsland?.id]);
+  }, [view, selectedIsland?.id, navigate]);
 
 
   useEffect(() => {
@@ -348,7 +367,7 @@ export default function GameApp() {
       });
       acceptSnapshot({ ...result.snapshot, activeBattle: result.battle });
       setSelectedIsland(null);
-      setView("battle");
+      navigate("battle");
       notify("Атака началась. Зови людей из чата.", "success");
     } catch (e) { notify(e instanceof Error ? e.message : "Атака не удалась", "error"); }
   }
@@ -458,12 +477,6 @@ export default function GameApp() {
     }
   }
 
-  const navigate = useCallback((next: View) => {
-    tg()?.HapticFeedback?.impactOccurred?.("light");
-    if (next !== "map") setSelectedIsland(null);
-    setView(next);
-  }, []);
-
   if (loading) return <Splash text="Открываем мировой океан…" />;
   if (error || !snapshot) return <Splash text={error || "Ошибка"} action="Повторить" onAction={bootstrap} />;
 
@@ -473,7 +486,8 @@ export default function GameApp() {
     <main className="app-shell island-app-shell">
       <MobileHeader snapshot={snapshot} online={isOnline} lastSyncAt={lastSyncAt} syncing={syncing} onSync={syncNow} />
 
-      <section className="viewport island-viewport" data-view={view}>
+      <section className={`viewport island-viewport ws-view-${viewPhase}`} data-view={view}>
+        <div className="ws-view-stage" key={view}>
         {view === "map" && (
           <IslandMap
             snapshot={snapshot}
@@ -491,6 +505,7 @@ export default function GameApp() {
         {view === "alliances" && <IslandAlliances snapshot={snapshot} onDiplomacy={diplomacy} />}
         {view === "strategy" && <StrategyPanel snapshot={snapshot} onActivity={completeActivity} onSupport={supportAlly} onSurrender={surrenderCurrentBattle} />}
         {view === "profile" && <StateViewPanel snapshot={snapshot} onClaim={claimMission} onPolitics={politics} onCustomize={customizeState} />}
+        </div>
       </section>
 
       <nav className="bottom-nav island-bottom-nav">

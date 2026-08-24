@@ -44,12 +44,7 @@ function attackReason(snapshot: GameSnapshot, island: IslandView, now: number) {
 
 
 function CloseIcon() {
-  return (
-    <svg className="ui-close-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M6 6L18 18" />
-      <path d="M18 6L6 18" />
-    </svg>
-  );
+  return <span className="ui-close-icon" aria-hidden="true" />;
 }
 
 type Camera = { x: number; y: number; zoom: number };
@@ -141,6 +136,9 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
   const interactingRef = useRef(false);
   const viewportSizeRef = useRef({ width: 390, height: 620 });
   const movedRef = useRef(false);
+  const velocityRef = useRef({ x: 0, y: 0, at: 0 });
+  const inertiaRafRef = useRef<number | null>(null);
+  const cameraTweenRafRef = useRef<number | null>(null);
   const cameraRef = useRef<Camera>({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: snapshot.state.isFreeport ? 0.72 : 0.88 });
   const [camera, setCamera] = useState<Camera>(cameraRef.current);
   const [viewport, setViewport] = useState({ width: 390, height: 620 });
@@ -150,6 +148,8 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
   const [radarOpen, setRadarOpen] = useState(false);
   const [mapFilter, setMapFilter] = useState<MapFilter>("all");
   const [query, setQuery] = useState("");
+  const [sheetClosing, setSheetClosing] = useState(false);
+  const sheetCloseTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const node = viewportRef.current;
@@ -189,6 +189,9 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
   useEffect(() => () => {
     if (exploreKickRef.current) window.clearTimeout(exploreKickRef.current);
     if (cameraRafRef.current) window.cancelAnimationFrame(cameraRafRef.current);
+    if (inertiaRafRef.current) window.cancelAnimationFrame(inertiaRafRef.current);
+    if (cameraTweenRafRef.current) window.cancelAnimationFrame(cameraTweenRafRef.current);
+    if (sheetCloseTimerRef.current) window.clearTimeout(sheetCloseTimerRef.current);
     if (cameraCommitTimerRef.current) window.clearTimeout(cameraCommitTimerRef.current);
   }, []);
 
@@ -241,7 +244,35 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
     if (explore) kickExplore(120);
   }, [commitCameraState, kickExplore]);
 
+  const animateCameraTo = useCallback((target: Camera, duration = 420) => {
+    if (cameraTweenRafRef.current) window.cancelAnimationFrame(cameraTweenRafRef.current);
+    if (inertiaRafRef.current) { window.cancelAnimationFrame(inertiaRafRef.current); inertiaRafRef.current = null; }
+    const from = { ...cameraRef.current };
+    const normalized = { ...target, zoom: Math.max(.30, Math.min(1.60, target.zoom)) };
+    const started = performance.now();
+    interactingRef.current = true;
+    const frame = (at: number) => {
+      const t = Math.min(1, (at - started) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      updateCamera({
+        x: from.x + (normalized.x - from.x) * eased,
+        y: from.y + (normalized.y - from.y) * eased,
+        zoom: from.zoom + (normalized.zoom - from.zoom) * eased,
+      }, false, t >= 1);
+      if (t < 1) cameraTweenRafRef.current = window.requestAnimationFrame(frame);
+      else {
+        cameraTweenRafRef.current = null;
+        interactingRef.current = false;
+        kickExplore(60);
+      }
+    };
+    cameraTweenRafRef.current = window.requestAnimationFrame(frame);
+  }, [kickExplore, updateCamera]);
+
   const zoomAt = useCallback((nextZoom: number, screenX = viewport.width / 2, screenY = viewport.height / 2, explore = true) => {
+    if (inertiaRafRef.current) { window.cancelAnimationFrame(inertiaRafRef.current); inertiaRafRef.current = null; }
+    if (cameraTweenRafRef.current) { window.cancelAnimationFrame(cameraTweenRafRef.current); cameraTweenRafRef.current = null; }
+    interactingRef.current = false;
     const old = cameraRef.current;
     const zoom = Math.max(0.30, Math.min(1.60, nextZoom));
     const worldX = old.x + (screenX - viewport.width / 2) / old.zoom;
@@ -254,14 +285,14 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
   }, [updateCamera, viewport.height, viewport.width]);
 
   const centerMine = useCallback(() => {
-    updateCamera({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: Math.max(snapshot.state.isFreeport ? 0.76 : 0.98, cameraRef.current.zoom) }, true, true);
-  }, [snapshot.state.isFreeport, snapshot.state.worldX, snapshot.state.worldY, updateCamera]);
+    animateCameraTo({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: Math.max(snapshot.state.isFreeport ? 0.76 : 0.98, cameraRef.current.zoom) });
+  }, [animateCameraTo, snapshot.state.isFreeport, snapshot.state.worldX, snapshot.state.worldY]);
 
   const focusIsland = useCallback((island: IslandView) => {
-    updateCamera({ x: island.worldX, y: island.worldY, zoom: Math.max(.96, cameraRef.current.zoom) }, true, true);
+    animateCameraTo({ x: island.worldX, y: island.worldY, zoom: Math.max(.96, cameraRef.current.zoom) });
     onSelect(island);
     setRadarOpen(false);
-  }, [onSelect, updateCamera]);
+  }, [animateCameraTo, onSelect]);
 
   const localPoint = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const rect = viewportRectRef.current || event.currentTarget.getBoundingClientRect();
@@ -288,6 +319,9 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
   const pointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if ((event.target as HTMLElement).closest("button")) return;
     movedRef.current = false;
+    if (inertiaRafRef.current) { window.cancelAnimationFrame(inertiaRafRef.current); inertiaRafRef.current = null; }
+    if (cameraTweenRafRef.current) { window.cancelAnimationFrame(cameraTweenRafRef.current); cameraTweenRafRef.current = null; }
+    velocityRef.current = { x: 0, y: 0, at: performance.now() };
     viewportRectRef.current = event.currentTarget.getBoundingClientRect();
     const point = localPoint(event);
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -304,6 +338,17 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
     const point = localPoint(event);
     const previous = pointersRef.current.get(event.pointerId);
     if (previous && Math.hypot(point.x - previous.x, point.y - previous.y) > 2) movedRef.current = true;
+    if (previous && pointersRef.current.size === 1) {
+      const at = performance.now();
+      const dt = Math.max(8, at - (velocityRef.current.at || at - 16));
+      const instantX = -(point.x - previous.x) / cameraRef.current.zoom / dt;
+      const instantY = -(point.y - previous.y) / cameraRef.current.zoom / dt;
+      velocityRef.current = {
+        x: velocityRef.current.x * .58 + instantX * .42,
+        y: velocityRef.current.y * .58 + instantY * .42,
+        at,
+      };
+    }
     pointersRef.current.set(event.pointerId, point);
 
     if (pointersRef.current.size >= 2 && pinchRef.current) {
@@ -326,6 +371,36 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
     });
   }, [localPoint, updateCamera, viewport.height, viewport.width]);
 
+  const startInertia = useCallback(() => {
+    if (!movedRef.current) return false;
+    let vx = velocityRef.current.x;
+    let vy = velocityRef.current.y;
+    const speed = Math.hypot(vx, vy);
+    if (speed < .045) return false;
+    const maxSpeed = 1.65;
+    const clamp = Math.min(1, maxSpeed / Math.max(.001, speed));
+    vx *= clamp; vy *= clamp;
+    let previousAt = performance.now();
+    interactingRef.current = true;
+    const frame = (at: number) => {
+      const dt = Math.min(32, Math.max(8, at - previousAt));
+      previousAt = at;
+      const decay = Math.pow(.91, dt / 16.67);
+      vx *= decay; vy *= decay;
+      const current = cameraRef.current;
+      updateCamera({ ...current, x: current.x + vx * dt, y: current.y + vy * dt });
+      if (Math.hypot(vx, vy) > .018) inertiaRafRef.current = window.requestAnimationFrame(frame);
+      else {
+        inertiaRafRef.current = null;
+        interactingRef.current = false;
+        commitCameraState(true);
+        kickExplore(70);
+      }
+    };
+    inertiaRafRef.current = window.requestAnimationFrame(frame);
+    return true;
+  }, [commitCameraState, kickExplore, updateCamera]);
+
   const finishPointer = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     pointersRef.current.delete(event.pointerId);
     if (pointersRef.current.size >= 2) { beginPinch(); return; }
@@ -337,11 +412,14 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
     }
     dragRef.current = null;
     viewportRectRef.current = null;
-    interactingRef.current = false;
     setDragging(false);
-    commitCameraState(true);
-    kickExplore(90);
-  }, [beginPinch, commitCameraState, kickExplore]);
+    const inertial = startInertia();
+    if (!inertial) {
+      interactingRef.current = false;
+      commitCameraState(true);
+      kickExplore(90);
+    }
+  }, [beginPinch, commitCameraState, kickExplore, startInertia]);
 
   const wheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -401,8 +479,27 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
     const rect = event.currentTarget.getBoundingClientRect();
     const dx = ((event.clientX - rect.left) / rect.width - .5) * minimapRange * 2;
     const dy = ((event.clientY - rect.top) / rect.height - .5) * minimapRange * 2;
-    updateCamera({ ...cameraRef.current, x: cameraRef.current.x + dx, y: cameraRef.current.y + dy }, true, true);
-  }, [updateCamera]);
+    animateCameraTo({ ...cameraRef.current, x: cameraRef.current.x + dx, y: cameraRef.current.y + dy }, 360);
+  }, [animateCameraTo]);
+
+  useEffect(() => {
+    setSheetClosing(false);
+    if (sheetCloseTimerRef.current) {
+      window.clearTimeout(sheetCloseTimerRef.current);
+      sheetCloseTimerRef.current = null;
+    }
+  }, [selected?.id]);
+
+  const closeSelectedSheet = useCallback(() => {
+    if (!selected || sheetClosing) return;
+    setSheetClosing(true);
+    try { navigator.vibrate?.(8); } catch { /* optional tactile hint */ }
+    sheetCloseTimerRef.current = window.setTimeout(() => {
+      onSelect(null);
+      setSheetClosing(false);
+      sheetCloseTimerRef.current = null;
+    }, 210);
+  }, [selected?.id, sheetClosing, onSelect]);
 
   return (
     <div className="island-map-screen game-map-screen">
@@ -422,10 +519,15 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
         onPointerUp={finishPointer}
         onPointerCancel={finishPointer}
         onWheel={wheel}
-        onClick={() => { if (!movedRef.current) onSelect(null); }}
+        onClick={() => { if (!movedRef.current && selected) closeSelectedSheet(); }}
       >
         <OceanCanvas cameraRef={cameraRef} interactingRef={interactingRef} viewport={viewport} reduced={detail === "far"} />
         <div className="ocean-depth-vignette" />
+        <div className="world-ambient" aria-hidden="true">
+          <i className="ambient-gull gull-a">⌁</i><i className="ambient-gull gull-b">⌁</i><i className="ambient-gull gull-c">⌁</i>
+          <span className="ambient-current current-a"/><span className="ambient-current current-b"/>
+          <span className="ambient-sail sail-a"><b/></span><span className="ambient-sail sail-b"><b/></span>
+        </div>
 
         {radarOpen && (
           <aside className="map-radar-panel" onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
@@ -476,8 +578,8 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onExplore, onO
       </div>
 
       {selected && (
-        <section className="game-island-sheet" style={{ ["--sheet-color" as any]: selected.color }}>
-          <button className="sheet-close" type="button" onClick={() => onSelect(null)} aria-label="Закрыть"><CloseIcon /></button>
+        <section className={`game-island-sheet ${sheetClosing ? "is-closing" : "is-opening"}`} style={{ ["--sheet-color" as any]: selected.color }}>
+          <button className="sheet-close" type="button" onClick={closeSelectedSheet} aria-label="Закрыть"><CloseIcon /></button>
           <div className="sheet-island-id">
             <span className="sheet-avatar" style={{ background: selected.color }}>
               {selected.avatarUrl ? <Image src={selected.avatarUrl} alt="" width={52} height={52} unoptimized /> : selected.emblem}

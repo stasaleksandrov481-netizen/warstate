@@ -63,6 +63,7 @@ function StrategyPanelInner({ snapshot, onActivity, onSupport, onSurrender }: Pr
         ] as Array<[StrategyTab, string]>).map(([key, label]) => <button type="button" key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}>{label}</button>)}
       </nav>
 
+      <div className="strategy-tab-stage" key={tab}>
       {tab === "overview" && (
         <>
           <section className="strategy-stat-grid strategy-stat-grid-v2">
@@ -169,6 +170,7 @@ function StrategyPanelInner({ snapshot, onActivity, onSupport, onSurrender }: Pr
           <div className="contribution-feed contribution-feed-v2">{strategy.contributionEvents.length ? strategy.contributionEvents.map((event) => <span key={event.id}><b>+{event.amount}</b><small>{SOURCE_LABEL[event.source] || event.source}</small></span>) : <p>Вклад появится после первой активности, боя или помощи союзнику.</p>}</div>
         </section>
       )}
+      </div>
     </div>
   );
 }

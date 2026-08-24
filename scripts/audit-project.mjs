@@ -59,7 +59,7 @@ for (const forbidden of [".env", ".env.local", ".next", "node_modules", ".vercel
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 if (packageJson.name !== "warstate") failures.push(`Unexpected package name: ${packageJson.name}`);
-if (!String(packageJson.version || "").startsWith("1.7.")) failures.push(`Expected v1.7.x package version, found ${packageJson.version}`);
+if (!String(packageJson.version || "").startsWith("1.8.")) failures.push(`Expected v1.8.x package version, found ${packageJson.version}`);
 
 const routes = walk("app/api").filter((file) => file.endsWith("route.ts"));
 notes.push(`${sourceFiles.length} source files scanned`);

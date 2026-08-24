@@ -983,3 +983,196 @@ button:disabled{cursor:not-allowed}
 .game-sync.syncing { min-width:58px; }
 @keyframes ws-sync-pulse { from { transform:scale(.72); opacity:.45 } to { transform:scale(1.18); opacity:1 } }
 @media (prefers-reduced-motion: reduce) { .game-sync.syncing i { animation:none; } }
+
+/* =====================================================================
+   WARSTATE v1.8 — GAMEWORLD / MOTION / ISLAND DETAIL PASS
+   A unified game HUD, deterministic high-detail islands and tactile motion.
+   ===================================================================== */
+
+:root{
+  --ws-night:#061c27;
+  --ws-deep:#082b38;
+  --ws-sea:#0b6179;
+  --ws-sea-hi:#1687a0;
+  --ws-glass:rgba(8,43,54,.72);
+  --ws-glass-strong:rgba(8,38,48,.90);
+  --ws-glass-soft:rgba(31,99,106,.36);
+  --ws-line:rgba(196,238,224,.18);
+  --ws-gold:#f2cf72;
+  --ws-gold-hi:#ffe7a0;
+  --ws-sand:#f4df9b;
+  --ws-mint:#72d59e;
+  --ws-danger:#ee7665;
+  --ws-text:#f4f8ef;
+  --ws-muted:#9fbdb7;
+  --ws-shadow:0 18px 42px rgba(2,22,30,.24);
+  --ws-inset:inset 0 1px 0 rgba(255,255,255,.08);
+}
+
+html,body{background:var(--ws-night)!important}
+body{background:radial-gradient(circle at 50% -15%,rgba(30,135,146,.22),transparent 38%),var(--ws-night)!important}
+.island-app-shell{max-width:560px!important;background:transparent!important;box-shadow:none!important;overflow:hidden}
+.island-viewport{height:calc(100dvh - 76px - 76px - env(safe-area-inset-top))!important;background:linear-gradient(180deg,#0a5f77,#07495e)!important;perspective:900px;transform-style:preserve-3d}
+
+/* View transitions: current page folds away, next page settles in. */
+.ws-view-stage{height:100%;min-height:0;transform-origin:50% 58%;will-change:transform,opacity,filter}
+.ws-view-leaving .ws-view-stage{animation:wsViewLeave .15s cubic-bezier(.55,.06,.68,.19) both}
+.ws-view-entering .ws-view-stage{animation:wsViewEnter .28s cubic-bezier(.18,.88,.28,1.12) both}
+@keyframes wsViewLeave{to{opacity:0;transform:translate3d(0,10px,-22px) scale(.975);filter:blur(2px)}}
+@keyframes wsViewEnter{0%{opacity:0;transform:translate3d(0,15px,-30px) scale(.965);filter:blur(3px)}100%{opacity:1;transform:none;filter:none}}
+
+/* Global tactile language. */
+:is(.island-home-screen,.strategy-screen,.ranking-screen,.alliances-screen,.state-screen,.battle-screen) button,
+:is(.game-map-tools,.map-radar-panel,.game-island-sheet,.island-bottom-nav) button{
+  -webkit-tap-highlight-color:transparent;transition:transform .13s cubic-bezier(.2,.9,.2,1),filter .13s ease,background-color .13s ease,border-color .13s ease,box-shadow .13s ease
+}
+:is(.island-home-screen,.strategy-screen,.ranking-screen,.alliances-screen,.state-screen,.battle-screen) button:active,
+:is(.game-map-tools,.map-radar-panel,.game-island-sheet,.island-bottom-nav) button:active{transform:translateY(1px) scale(.965)!important;filter:brightness(.97)}
+
+/* Header becomes a compact command HUD instead of a boxed toolbar. */
+.game-mobile-header{
+  height:76px!important;padding:9px 10px!important;border:0!important;border-bottom:1px solid rgba(197,235,222,.12)!important;
+  background:linear-gradient(180deg,rgba(6,31,42,.97),rgba(7,39,50,.92))!important;
+  backdrop-filter:blur(18px) saturate(1.2);box-shadow:0 8px 28px rgba(1,19,27,.18)!important
+}
+.game-brand-rune{transform:none!important;width:34px!important;height:38px!important;border:1px solid rgba(255,225,139,.5)!important;border-radius:12px!important;background:linear-gradient(145deg,#e8c261,#9e732c)!important;color:#273a38!important;box-shadow:var(--ws-inset),0 5px 14px rgba(0,0,0,.16)!important}
+.game-header-avatar{border:1px solid rgba(244,218,139,.62)!important;box-shadow:0 0 0 3px rgba(244,218,139,.07)!important}
+.game-header-name b{font-size:12px!important;letter-spacing:-.02em!important;color:#fff!important}.game-header-name small{font-size:7px!important;color:#9bbab5!important}
+.game-header-stats{gap:5px!important}.game-stat-chip{min-width:56px!important;height:45px!important;border:1px solid rgba(205,235,224,.13)!important;border-radius:13px!important;background:linear-gradient(145deg,rgba(23,77,86,.78),rgba(8,42,54,.82))!important;box-shadow:var(--ws-inset)!important}.game-stat-chip.coin{background:linear-gradient(145deg,rgba(101,78,35,.62),rgba(52,49,37,.74))!important}.game-stat-chip b{font-size:10px!important}.game-stat-chip small{font-size:6px!important}.game-sync{height:25px!important;border:1px solid rgba(109,214,158,.22)!important;border-radius:999px!important;background:rgba(44,134,97,.14)!important;color:#9ae0b5!important;padding:0 7px!important;font-size:6px!important;font-weight:900!important}.game-sync i{width:5px!important;height:5px!important;background:#6fd89d!important;box-shadow:0 0 8px rgba(111,216,157,.75)!important}
+
+/* Exact close glyph. No font glyph, no stroke rasterisation, no optical drift. */
+.ui-close-icon{position:relative!important;display:block!important;width:16px!important;height:16px!important;flex:0 0 16px!important;transform:none!important}
+.ui-close-icon::before,.ui-close-icon::after{content:"";position:absolute;left:50%;top:50%;width:14px;height:2.25px;border-radius:1px;background:currentColor;transform-origin:50% 50%}
+.ui-close-icon::before{transform:translate(-50%,-50%) rotate(45deg)}
+.ui-close-icon::after{transform:translate(-50%,-50%) rotate(-45deg)}
+.sheet-close{
+  right:11px!important;top:11px!important;width:34px!important;height:34px!important;padding:0!important;display:grid!important;place-items:center!important;
+  border:1px solid rgba(226,239,229,.30)!important;border-radius:12px!important;background:rgba(6,33,42,.56)!important;color:#f7fbf3!important;box-shadow:var(--ws-inset),0 5px 16px rgba(0,0,0,.12)!important;line-height:1!important;font-size:0!important
+}
+.sheet-close:hover{background:rgba(18,63,70,.78)!important}.sheet-close:active{transform:scale(.91)!important}
+.map-radar-head button .ui-close-icon{width:14px!important;height:14px!important}.map-radar-head button .ui-close-icon::before,.map-radar-head button .ui-close-icon::after{width:12px;height:2px}
+
+/* World ambient life. */
+.world-ambient{position:absolute;inset:0;z-index:2;pointer-events:none;overflow:hidden}
+.ambient-gull{position:absolute;color:rgba(238,251,241,.74);font-size:18px;font-style:normal;text-shadow:0 2px 5px rgba(0,40,55,.22);animation:gullGlide 11s ease-in-out infinite}.gull-a{left:18%;top:25%}.gull-b{left:72%;top:16%;font-size:13px;animation-delay:-4.4s}.gull-c{left:58%;top:49%;font-size:10px;animation-delay:-7.2s}
+.ambient-current{position:absolute;width:130px;height:42px;border-top:1px solid rgba(204,250,239,.16);border-radius:50%;transform:rotate(-12deg);animation:currentDrift 9s ease-in-out infinite}.current-a{left:-18px;top:39%}.current-b{right:-35px;top:63%;width:180px;animation-delay:-4s}
+.ambient-sail{position:absolute;width:14px;height:8px;border-radius:0 0 8px 8px;background:#8b5a35;box-shadow:0 5px 7px rgba(0,0,0,.15);animation:sailDrift 18s linear infinite}.ambient-sail b{position:absolute;left:6px;bottom:5px;width:1px;height:13px;background:#70472f}.ambient-sail b::after{content:"";position:absolute;bottom:4px;left:1px;border-left:8px solid rgba(248,238,194,.82);border-top:4px solid transparent;border-bottom:5px solid transparent}.sail-a{left:8%;top:72%}.sail-b{left:86%;top:38%;transform:scale(.7);animation-duration:24s;animation-delay:-9s}
+@keyframes gullGlide{0%,100%{transform:translate3d(-16px,2px,0) rotate(-3deg)}50%{transform:translate3d(46px,-13px,0) rotate(4deg)}}
+@keyframes currentDrift{0%,100%{opacity:.18;transform:translateX(-12px) rotate(-12deg)}50%{opacity:.55;transform:translateX(22px) rotate(-8deg)}}
+@keyframes sailDrift{0%{translate:-16px 2px}50%{translate:18px -5px}100%{translate:56px 2px}}
+
+/* Islands: richer terrain, softer physical lift and selection feedback. */
+.game-island-node{filter:drop-shadow(0 18px 12px rgba(1,33,43,.28))!important;transition:transform .18s cubic-bezier(.2,.9,.25,1.2),filter .18s ease!important;transform-origin:center}
+.game-island-node:hover{filter:drop-shadow(0 20px 14px rgba(1,33,43,.34)) brightness(1.035)!important}
+.game-island-node.selected{animation:islandSelect .34s cubic-bezier(.16,1.25,.32,1) both;filter:drop-shadow(0 23px 16px rgba(1,29,39,.42)) brightness(1.05)!important}
+@keyframes islandSelect{0%{transform:translate(-50%,-50%) scale(.94)}55%{transform:translate(-50%,-50%) scale(1.028)}100%{transform:translate(-50%,-50%) scale(1)}}
+.island-art{shape-rendering:geometricPrecision;text-rendering:geometricPrecision}
+.island-forest,.island-micro-details,.island-civic{filter:drop-shadow(0 .8px .4px rgba(16,56,43,.10))}
+.island-palms-leaves{transform-box:fill-box;transform-origin:center;animation:palmSway 4.8s ease-in-out infinite alternate}
+.island-boat{animation:boatBob 3s ease-in-out infinite!important}
+@keyframes palmSway{from{transform:rotate(-.6deg)}to{transform:rotate(.8deg)}}
+.island-roads path:nth-child(2){filter:drop-shadow(0 .6px .3px rgba(83,60,29,.18))}
+.island-civic>g{filter:drop-shadow(0 1.4px .5px rgba(45,45,25,.23))}
+
+/* Island sheet is now a game inspector with real open + close motion. */
+.game-island-sheet{
+  left:9px!important;right:9px!important;bottom:9px!important;min-height:0!important;padding:20px 15px 15px!important;
+  border:1px solid rgba(222,239,228,.20)!important;border-radius:27px 27px 20px 20px!important;
+  background:linear-gradient(160deg,rgba(13,66,72,.94),rgba(7,39,51,.96))!important;color:var(--ws-text)!important;
+  box-shadow:0 24px 60px rgba(1,23,31,.34),var(--ws-inset)!important;backdrop-filter:blur(18px) saturate(1.18);transform-origin:50% 100%;will-change:transform,opacity,filter
+}
+.game-island-sheet::before{width:46px!important;height:4px!important;top:8px!important;background:rgba(220,237,226,.34)!important;border:0!important}
+.game-island-sheet.is-opening{animation:sheetOpen .36s cubic-bezier(.14,1.16,.34,1) both}.game-island-sheet.is-closing{animation:sheetClose .21s cubic-bezier(.55,.05,.68,.19) both;pointer-events:none}
+@keyframes sheetOpen{0%{opacity:0;transform:translateY(45px) scale(.975);filter:blur(3px)}70%{transform:translateY(-3px) scale(1.005)}100%{opacity:1;transform:none;filter:none}}
+@keyframes sheetClose{to{opacity:0;transform:translateY(42px) scale(.976);filter:blur(2px)}}
+.sheet-island-id{grid-template-columns:56px minmax(0,1fr) 11px!important;padding-right:39px!important;gap:10px!important}.sheet-avatar{width:54px!important;height:54px!important;border:1px solid rgba(255,224,135,.58)!important;border-radius:16px!important;box-shadow:0 0 0 4px rgba(255,224,135,.06)!important}.sheet-title-copy small{font-size:7px!important;color:#dcbf73!important;font-weight:900!important;letter-spacing:.08em!important}.sheet-title-copy h3{font-size:22px!important;color:#fff!important;letter-spacing:-.035em!important}.sheet-title-copy p{font-size:9px!important;color:#a9c4bd!important}.sheet-title-copy p b{color:#f5ddb1!important}.sheet-integrity-track{height:8px!important;margin:12px 0 8px!important;border:0!important;background:rgba(1,25,34,.72)!important;box-shadow:inset 0 1px 3px rgba(0,0,0,.35)!important}.sheet-integrity-track i{background:linear-gradient(90deg,#e86f61,#f0ca6c 48%,#6fd49b)!important;box-shadow:0 0 10px rgba(111,212,155,.22)}
+.sheet-game-stats{gap:6px!important;margin-top:6px}.sheet-game-stats span{padding:8px 5px!important;border:1px solid rgba(210,234,223,.11)!important;border-radius:13px!important;background:rgba(18,66,75,.54)!important;box-shadow:var(--ws-inset)!important}.sheet-game-stats b{font-size:13px!important;color:#fff!important}.sheet-game-stats b em{color:#9fb9b4!important}.sheet-game-stats small{font-size:6.5px!important;color:#91ada7!important}.sheet-status{border:1px solid rgba(226,239,229,.16)!important;border-radius:999px!important;background:rgba(190,220,207,.12)!important;color:#d6ebe1!important;font-size:6.4px!important;padding:5px 8px!important}.sheet-status.enemy{background:rgba(220,93,79,.17)!important;color:#ffb4a9!important}.sheet-status.ally{background:rgba(95,186,133,.18)!important;color:#9be2b8!important}.sheet-status.truce{background:rgba(96,157,178,.18)!important;color:#acdce7!important}.sheet-home,.sheet-attack{border:1px solid rgba(255,219,116,.42)!important;box-shadow:var(--ws-inset),0 8px 22px rgba(0,0,0,.12)!important;border-radius:16px!important;min-height:58px!important}.sheet-home{background:linear-gradient(145deg,rgba(226,181,76,.92),rgba(161,117,45,.94))!important;color:#fff5d4!important}.sheet-attack{background:linear-gradient(145deg,#e76c5e,#b74743)!important;color:#fff!important;border-color:rgba(255,177,163,.44)!important}.sheet-war-types{padding:4px!important;border-radius:14px!important;background:rgba(3,29,38,.55)!important}.sheet-war-types button{border:0!important;border-radius:10px!important;color:#a9c4be!important}.sheet-war-types button.active{background:rgba(240,205,114,.18)!important;color:#ffe69d!important;box-shadow:inset 0 0 0 1px rgba(240,205,114,.26)!important}
+
+/* Floating map controls. */
+.game-map-tools{gap:7px!important}.game-map-tools button{width:44px!important;height:44px!important;border:1px solid rgba(226,239,228,.24)!important;border-radius:15px!important;background:rgba(7,47,58,.74)!important;color:#f0e2ad!important;box-shadow:var(--ws-inset),0 8px 20px rgba(0,0,0,.12)!important;backdrop-filter:blur(12px)}.game-map-tools button.active{background:rgba(222,183,80,.25)!important;color:#ffe49a!important;border-color:rgba(255,226,143,.45)!important}.game-map-tools button span{filter:drop-shadow(0 1px 1px rgba(0,0,0,.2))}.game-minimap{border:1px solid rgba(226,239,228,.21)!important;border-radius:15px!important;background:rgba(7,44,55,.76)!important;box-shadow:var(--ws-inset),0 8px 22px rgba(0,0,0,.16)!important;backdrop-filter:blur(10px)}.game-minimap-water{background:linear-gradient(145deg,#157e94,#0b5873)!important}.game-map-status{border:1px solid rgba(220,237,226,.18)!important;background:rgba(6,42,53,.72)!important;color:#dcece4!important;box-shadow:var(--ws-inset)!important;backdrop-filter:blur(9px)}
+.map-radar-panel{border:1px solid rgba(217,237,224,.20)!important;border-radius:21px!important;background:linear-gradient(160deg,rgba(9,52,62,.94),rgba(5,34,44,.96))!important;box-shadow:0 20px 50px rgba(1,22,30,.30),var(--ws-inset)!important;color:#eef7f0!important;animation:radarOpen .26s cubic-bezier(.16,1.1,.3,1) both!important}.map-radar-head button{border:1px solid rgba(223,239,229,.18)!important;background:rgba(0,24,33,.26)!important;color:#edf7ef!important}.map-search{background:rgba(2,31,40,.52)!important;border:1px solid rgba(216,235,224,.13)!important}.map-search input{color:#eef7f1!important}.map-filter-row button{background:rgba(11,66,72,.44)!important;border:1px solid rgba(212,235,223,.11)!important;color:#a9c5be!important}.map-filter-row button.active{background:rgba(228,190,88,.18)!important;border-color:rgba(246,215,130,.33)!important;color:#ffe6a4!important}.map-search-results button{background:rgba(16,69,75,.50)!important;border-color:rgba(214,235,223,.11)!important;color:#eef7f0!important}
+@keyframes radarOpen{from{opacity:0;transform:translateY(-8px) scale(.97)}to{opacity:1;transform:none}}
+
+/* Navigation becomes a floating command dock. */
+.island-bottom-nav{
+  height:76px!important;padding:7px 7px calc(7px + env(safe-area-inset-bottom))!important;gap:4px!important;border:0!important;border-top:1px solid rgba(207,235,223,.10)!important;
+  background:linear-gradient(180deg,rgba(6,38,48,.94),rgba(5,29,39,.98))!important;box-shadow:0 -14px 35px rgba(0,18,26,.16)!important;backdrop-filter:blur(18px)
+}
+.island-bottom-nav button,.island-bottom-nav button:nth-child(3){height:60px!important;border:1px solid transparent!important;border-radius:16px!important;color:#98b8b2!important;background:transparent!important;box-shadow:none!important}.island-bottom-nav button .nav-icon-wrap{width:29px!important;height:29px!important}.island-bottom-nav button svg{width:22px!important;height:22px!important;stroke-width:1.9!important}.island-bottom-nav button small{font-size:7.4px!important}.island-bottom-nav button.active,.island-bottom-nav button:nth-child(3).active{background:linear-gradient(145deg,rgba(238,204,109,.20),rgba(172,126,49,.13))!important;border-color:rgba(248,218,130,.32)!important;color:#ffe7a5!important;box-shadow:var(--ws-inset)!important}.island-bottom-nav button.active .nav-icon-wrap{animation:navPop .28s cubic-bezier(.16,1.2,.3,1)}
+@keyframes navPop{0%{transform:scale(.72) translateY(4px)}75%{transform:scale(1.12) translateY(-2px)}100%{transform:none}}
+
+/* Every non-map page gets one coherent game scene. */
+.game-scene,.island-home-screen{
+  position:relative;height:100%;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;
+  background:
+    radial-gradient(circle at 82% -10%,rgba(34,142,147,.18),transparent 34%),
+    linear-gradient(180deg,#0a4351 0%,#0a3543 33%,#082a38 100%)!important;
+  color:var(--ws-text)!important
+}
+.game-scene::-webkit-scrollbar,.island-home-screen::-webkit-scrollbar{display:none}
+.game-scene::before,.island-home-screen::before{content:"";position:fixed;pointer-events:none;inset:76px 0 76px;max-width:560px;margin:auto;background:linear-gradient(115deg,rgba(255,255,255,.02),transparent 35%),radial-gradient(circle at 12% 24%,rgba(116,222,201,.06),transparent 22%);z-index:0}
+.game-scene>*:not(.world-ambient),.island-home-screen>*{position:relative;z-index:1}
+
+/* Shared card material across island, strategy, rating, diplomacy and profile. */
+:is(.island-section,.strategy-card,.panel,.diplomacy-inbox,.diplomacy-book,.elo-explain-v2){
+  border:1px solid rgba(213,236,224,.13)!important;border-radius:19px!important;background:linear-gradient(145deg,rgba(18,66,73,.72),rgba(8,42,53,.80))!important;color:var(--ws-text)!important;box-shadow:var(--ws-inset),0 12px 28px rgba(0,19,27,.11)!important;backdrop-filter:blur(10px)
+}
+:is(.island-section,.strategy-card,.panel,.diplomacy-inbox,.diplomacy-book,.elo-explain-v2) :is(p,small,span){color:var(--ws-muted)}
+:is(.island-section,.strategy-card,.panel,.diplomacy-inbox,.diplomacy-book,.elo-explain-v2) :is(h2,h3,h4,strong,b){color:var(--ws-text)}
+.section-row>span,.strategy-title>b{border:1px solid rgba(242,207,114,.22)!important;background:rgba(242,207,114,.10)!important;color:#f5db91!important;border-radius:999px!important}
+
+/* My Island: hero feels like a living capital, not a static card. */
+.my-island-hero,.freeport-hero{min-height:300px!important;border-radius:0 0 30px 30px!important;border:0!important;border-bottom:1px solid rgba(228,238,220,.14)!important;background:linear-gradient(180deg,#0f7890 0%,#0d657d 38%,#0a4b5e 100%)!important;box-shadow:0 22px 42px rgba(1,26,35,.16)!important;overflow:hidden}
+.my-island-hero::after,.freeport-hero::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,.04),transparent 30%,rgba(4,35,45,.16)),radial-gradient(ellipse at 50% 96%,rgba(113,229,207,.12),transparent 48%)}
+.home-island-art,.freeport-island-art{filter:drop-shadow(0 18px 12px rgba(3,34,40,.30));animation:capitalFloat 7s ease-in-out infinite}
+@keyframes capitalFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+.my-island-identity{border:1px solid rgba(229,238,222,.15)!important;background:rgba(5,42,51,.64)!important;backdrop-filter:blur(10px)!important;box-shadow:var(--ws-inset)!important}.island-integrity-float{border:1px solid rgba(230,239,223,.14)!important;background:rgba(5,40,50,.62)!important;backdrop-filter:blur(10px)!important}.island-command-strip{margin:10px!important;gap:7px!important;background:none!important;border:0!important}.island-command-strip>span{border:1px solid rgba(216,237,224,.12)!important;border-radius:15px!important;background:rgba(13,58,67,.68)!important;box-shadow:var(--ws-inset)!important}.island-command-strip>span small{color:#8faea8!important}.island-command-strip>span b{color:#fff!important}.island-command-strip>span em{color:#d8c27f!important}
+.infra-grid{gap:8px!important}.infra-card{border:1px solid rgba(214,236,224,.13)!important;border-radius:17px!important;background:linear-gradient(145deg,rgba(22,73,78,.68),rgba(10,48,57,.76))!important;box-shadow:var(--ws-inset)!important}.infra-icon{border:1px solid rgba(242,207,114,.18)!important;background:rgba(242,207,114,.10)!important;color:#f4d982!important}.infra-card button{border:1px solid rgba(242,207,114,.27)!important;background:rgba(242,207,114,.15)!important;color:#ffe49c!important;box-shadow:none!important}
+
+/* Strategy HQ. */
+.strategy-screen{padding-bottom:18px!important}.strategy-hero-v2{margin:10px!important;border:1px solid rgba(218,237,224,.14)!important;border-radius:23px!important;background:linear-gradient(145deg,rgba(26,91,94,.74),rgba(8,47,58,.84))!important;box-shadow:var(--ws-inset),0 14px 30px rgba(0,20,27,.12)!important}.strategy-hero-main>span{border:1px solid rgba(244,217,139,.34)!important;background:rgba(239,201,104,.12)!important;color:#f6da87!important}.strategy-health-row span{border:1px solid rgba(211,234,222,.10)!important;background:rgba(3,36,45,.34)!important}.strategy-level{border:1px solid rgba(242,207,114,.26)!important;background:rgba(242,207,114,.10)!important;color:#f2d681!important}.strategy-tabs{position:sticky!important;top:0!important;z-index:8!important;margin:0 10px 9px!important;padding:4px!important;border:1px solid rgba(216,236,223,.12)!important;border-radius:16px!important;background:rgba(6,39,49,.88)!important;backdrop-filter:blur(14px)!important}.strategy-tabs button{border-radius:11px!important;color:#91b0aa!important}.strategy-tabs button.active{background:rgba(240,205,114,.16)!important;color:#ffe39a!important;box-shadow:inset 0 0 0 1px rgba(240,205,114,.24)!important}.strategy-stat-grid-v2 article{border:1px solid rgba(214,236,224,.12)!important;border-radius:16px!important;background:rgba(14,59,67,.68)!important;box-shadow:var(--ws-inset)!important}.strategy-resource-grid>span,.battle-math-grid>span,.rule-grid>span{border:1px solid rgba(214,236,224,.11)!important;border-radius:14px!important;background:rgba(4,36,45,.32)!important}.activity-list>article{border:1px solid rgba(214,236,224,.11)!important;border-radius:17px!important;background:rgba(8,46,56,.46)!important}.activity-options button{border:1px solid rgba(242,207,114,.17)!important;border-radius:13px!important;background:rgba(240,205,114,.08)!important;color:#eef6ed!important}.activity-options button:hover{border-color:rgba(242,207,114,.36)!important;background:rgba(240,205,114,.14)!important}
+
+/* Ranking: more like a league screen. */
+.ranking-hero-v2,.diplomacy-hero-v2{margin:10px!important;padding:16px!important;border:1px solid rgba(217,236,224,.14)!important;border-radius:22px!important;background:linear-gradient(145deg,rgba(30,92,92,.72),rgba(8,47,58,.82))!important;color:#fff!important;box-shadow:var(--ws-inset),0 14px 30px rgba(0,19,26,.12)!important}.ranking-hero-v2 small,.diplomacy-hero-v2 small{color:#d7c17d!important}.ranking-hero-v2 p,.diplomacy-hero-v2 p{color:#9fbbb5!important}.ranking-my-rank,.diplomacy-score{border:1px solid rgba(242,207,114,.23)!important;background:rgba(242,207,114,.09)!important;color:#f4da8c!important}.ranking-podium{border:1px solid rgba(214,236,224,.11)!important;border-radius:21px!important;background:rgba(8,45,55,.68)!important;box-shadow:var(--ws-inset)!important}.ranking-podium article{background:rgba(23,73,77,.54)!important;border-color:rgba(220,237,226,.10)!important}.ranking-podium article.podium-1{background:linear-gradient(180deg,rgba(212,171,69,.28),rgba(22,70,75,.58))!important;border-color:rgba(244,207,114,.28)!important;transform:translateY(-5px)}.league-strip-v2{margin:8px 10px!important;padding:5px!important;border:1px solid rgba(215,235,223,.11)!important;border-radius:17px!important;background:rgba(6,39,49,.65)!important}.league-strip-v2 span{border-radius:12px!important}.league-strip-v2 span.active{background:rgba(242,207,114,.14)!important;color:#ffe39b!important}.ranking-search{margin:9px 10px!important;border:1px solid rgba(214,236,224,.12)!important;border-radius:15px!important;background:rgba(6,39,49,.65)!important}.ranking-search input{color:#f3f7ef!important}.ranking-list-v2 article{border:1px solid rgba(214,236,224,.10)!important;border-radius:15px!important;background:rgba(11,51,61,.58)!important;color:#eff6ee!important;box-shadow:var(--ws-inset)!important}.ranking-list-v2 article.mine{border-color:rgba(242,207,114,.30)!important;background:linear-gradient(145deg,rgba(151,118,46,.23),rgba(11,51,61,.64))!important}.ranking-list-v2 article small{color:#92afa9!important}
+
+/* Diplomacy. */
+.diplomacy-kpis>span{border:1px solid rgba(214,236,224,.11)!important;border-radius:15px!important;background:rgba(11,54,63,.63)!important;box-shadow:var(--ws-inset)!important}.diplomacy-kpis small,.diplomacy-kpis em{color:#8faea8!important}.diplomacy-inbox>article,.relations-list-v2 article{border:1px solid rgba(214,236,224,.10)!important;border-radius:14px!important;background:rgba(7,43,52,.48)!important;color:#eef6ed!important}.relation-actions button{border:1px solid rgba(242,207,114,.22)!important;border-radius:10px!important;background:rgba(242,207,114,.10)!important;color:#f8dda0!important}.relation-mark{box-shadow:0 0 0 3px rgba(255,255,255,.05)!important}
+
+/* Profile/politics page. */
+.hero-state.identity-hero{margin:10px!important;border:1px solid rgba(214,236,224,.13)!important;border-radius:24px!important;background:linear-gradient(145deg,color-mix(in srgb,var(--state-color),#0b4b54 62%),rgba(7,42,53,.86))!important;box-shadow:var(--ws-inset),0 16px 34px rgba(0,18,26,.13)!important}.state-emblem{box-shadow:0 0 0 5px rgba(255,255,255,.05),0 12px 28px rgba(0,0,0,.15)!important}.stats-grid{gap:7px!important;margin:8px 10px!important}.stats-grid .stat{border:1px solid rgba(214,236,224,.11)!important;border-radius:15px!important;background:rgba(12,55,64,.62)!important;box-shadow:var(--ws-inset)!important}.season-strip{margin:8px 10px!important;border:1px solid rgba(242,207,114,.16)!important;border-radius:16px!important;background:rgba(140,107,44,.13)!important}.candidate-card,.mission-row,.war-row{border:1px solid rgba(214,236,224,.10)!important;border-radius:14px!important;background:rgba(6,39,48,.42)!important;color:#eff6ed!important}.mission-reward button,.candidate-votes button,.nominate button,.identity-editor button{border:1px solid rgba(242,207,114,.20)!important;border-radius:10px!important;background:rgba(242,207,114,.10)!important;color:#f6dc9a!important}.motto-input input,.nominate input{border:1px solid rgba(214,236,224,.12)!important;background:rgba(4,34,43,.48)!important;color:#eef5ec!important}
+
+/* Battle scene: strong game HUD, no beige SaaS cards. */
+.battle-screen{background:radial-gradient(circle at 50% 28%,rgba(44,127,132,.20),transparent 34%),linear-gradient(180deg,#0a4655,#082c3a)!important}.battle-head-v2,.scoreboard-v2,.capture-point-v2,.combat-card-v2{border:1px solid rgba(214,236,224,.13)!important;border-radius:18px!important;background:linear-gradient(145deg,rgba(17,65,72,.75),rgba(6,39,49,.84))!important;color:#eff7ef!important;box-shadow:var(--ws-inset),0 12px 28px rgba(0,18,25,.12)!important}.scoreboard-v2{background:linear-gradient(90deg,rgba(164,67,59,.26),rgba(8,45,54,.78) 47%,rgba(44,106,87,.25))!important}.battle-kpi-row>span{border:1px solid rgba(214,236,224,.11)!important;background:rgba(6,41,51,.56)!important;box-shadow:var(--ws-inset)!important}.battle-result-card{border:1px solid rgba(214,236,224,.13)!important;background:linear-gradient(145deg,rgba(15,63,70,.78),rgba(5,37,47,.88))!important;box-shadow:var(--ws-inset)!important}.combat-actions-v2 button,.class-grid-v2 button,.commander-orders button,.battle-map-cta{border:1px solid rgba(242,207,114,.20)!important;border-radius:12px!important;background:rgba(242,207,114,.10)!important;color:#ffe09a!important}.battle-feed{border:1px solid rgba(214,236,224,.09)!important;border-radius:16px!important;background:rgba(4,33,42,.42)!important}
+
+/* Toasts gain clear game feedback. */
+.toast{border:1px solid rgba(219,237,225,.18)!important;border-radius:14px!important;background:rgba(5,38,48,.92)!important;color:#f3f8f1!important;box-shadow:0 16px 42px rgba(0,18,26,.26),var(--ws-inset)!important;backdrop-filter:blur(14px)!important;animation:toastIn .28s cubic-bezier(.16,1.12,.32,1) both!important}.toast-success{border-color:rgba(112,214,157,.28)!important}.toast-error{border-color:rgba(238,118,101,.30)!important}@keyframes toastIn{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:none}}
+
+@media(max-width:390px){
+  .game-mobile-header{padding-left:8px!important;padding-right:8px!important}.game-brand-rune{width:31px!important;flex-basis:31px!important}.game-header-avatar{width:35px!important;height:35px!important;flex-basis:35px!important}.game-header-stats{gap:3px!important}.game-stat-chip{min-width:49px!important;padding:4px!important}.game-stat-chip small{font-size:5.2px!important}.game-header-name b{max-width:96px!important}
+  .game-island-sheet{left:7px!important;right:7px!important;bottom:7px!important;padding-left:12px!important;padding-right:12px!important}.sheet-title-copy h3{font-size:19px!important}.sheet-game-stats span{padding-left:3px!important;padding-right:3px!important}.sheet-game-stats small{font-size:5.7px!important}
+  .island-bottom-nav{padding-left:4px!important;padding-right:4px!important;gap:2px!important}.island-bottom-nav button small{font-size:6.7px!important}
+  .ranking-hero-v2,.diplomacy-hero-v2{margin:7px!important}.ranking-podium{margin-left:7px!important;margin-right:7px!important}.stats-grid{margin-left:7px!important;margin-right:7px!important}
+}
+
+@media(prefers-reduced-motion:reduce){
+  .ws-view-stage,.game-island-sheet,.game-island-node.selected,.home-island-art,.freeport-island-art,.ambient-gull,.ambient-current,.ambient-sail,.island-palms-leaves,.island-bottom-nav button.active .nav-icon-wrap{animation:none!important;transition:none!important}
+}
+
+/* v1.8 label / ticker / Freeport / recruitment polish */
+.game-island-label{min-width:130px!important;height:auto!important;padding:7px 9px 7px 41px!important;border:1px solid rgba(219,237,225,.20)!important;border-radius:14px!important;background:linear-gradient(145deg,rgba(6,42,52,.88),rgba(7,35,46,.92))!important;box-shadow:var(--ws-inset),0 8px 22px rgba(0,20,28,.18)!important;backdrop-filter:blur(9px)}
+.game-island-node.mine .game-island-label{border-color:rgba(242,207,114,.40)!important;background:linear-gradient(145deg,rgba(91,79,45,.70),rgba(7,42,52,.92))!important}.game-island-node.relation-war .game-island-label{border-color:rgba(238,118,101,.44)!important}.game-island-node.relation-allied .game-island-label{border-color:rgba(114,213,158,.42)!important}.game-island-avatar{border:1px solid rgba(255,230,157,.56)!important;box-shadow:0 0 0 3px rgba(255,230,157,.06)!important}.game-island-kicker em{color:#cbbd8b!important}.game-island-copy strong{font-size:10px!important;color:#fff!important}.game-island-copy small{color:#9bb9b3!important}.relation-tag{border-radius:999px!important;border:1px solid rgba(255,255,255,.10)!important;box-shadow:none!important}
+.game-event-ticker{left:10px!important;right:10px!important;bottom:10px!important;height:54px!important;border:1px solid rgba(216,237,224,.17)!important;border-radius:16px!important;background:rgba(7,43,53,.82)!important;color:#eef7ef!important;box-shadow:var(--ws-inset),0 12px 28px rgba(0,19,27,.15)!important;backdrop-filter:blur(12px)}.game-event-ticker p{font-size:8px!important;color:#dceae3!important}.game-event-ticker small{color:#79d5a0!important}.game-event-ticker>span{border:1px solid rgba(242,207,114,.18)!important;background:rgba(242,207,114,.10)!important}
+.freeport-title{border:1px solid rgba(218,237,224,.14)!important;border-radius:18px!important;background:rgba(5,42,52,.62)!important;backdrop-filter:blur(10px)!important;box-shadow:var(--ws-inset)!important}.freeport-title small{color:#d9c17b!important}.freeport-title h2{color:#fff!important}.freeport-title p{color:#a4c0ba!important}.freeport-player-card{border:1px solid rgba(242,207,114,.19)!important;background:rgba(123,92,37,.22)!important;color:#f7e2a7!important;box-shadow:var(--ws-inset)!important}.freeport-guide{margin:10px!important;gap:7px!important}.freeport-guide article{border:1px solid rgba(214,236,224,.12)!important;border-radius:16px!important;background:rgba(11,55,63,.62)!important;box-shadow:var(--ws-inset)!important}.freeport-guide article>b{background:rgba(242,207,114,.14)!important;color:#f6db90!important;border:1px solid rgba(242,207,114,.24)!important}.freeport-guide strong{color:#fff!important}.freeport-guide small{color:#91afa9!important}.recruit-request,.recruit-post,.free-agent-list article{border:1px solid rgba(214,236,224,.11)!important;border-radius:15px!important;background:rgba(6,40,49,.48)!important;color:#eef6ed!important}.recruit-post textarea,.recruit-editor :is(input,textarea){border:1px solid rgba(214,236,224,.12)!important;border-radius:12px!important;background:rgba(4,34,43,.48)!important;color:#edf5ec!important}.recruit-post button,.recruit-actions button,.recruit-join,.recruit-small,.recruit-editor button,.free-agent-list button{border:1px solid rgba(242,207,114,.22)!important;border-radius:11px!important;background:rgba(242,207,114,.11)!important;color:#f7dda0!important;box-shadow:none!important}
+
+/* Tiny environmental animation only at close LOD. */
+.detail-near .island-micro-details{animation:islandLifePulse 6.5s ease-in-out infinite alternate}.detail-mid .island-micro-details{opacity:.72}@keyframes islandLifePulse{from{filter:saturate(.98)}to{filter:saturate(1.08)}}
+
+/* Stagger page content so screens assemble like a game HUD. */
+.ws-view-entering :is(.game-scene,.island-home-screen)>:nth-child(1){animation:wsCardRise .32s .02s both cubic-bezier(.18,.9,.28,1.08)}
+.ws-view-entering :is(.game-scene,.island-home-screen)>:nth-child(2){animation:wsCardRise .34s .055s both cubic-bezier(.18,.9,.28,1.08)}
+.ws-view-entering :is(.game-scene,.island-home-screen)>:nth-child(3){animation:wsCardRise .36s .085s both cubic-bezier(.18,.9,.28,1.08)}
+.ws-view-entering :is(.game-scene,.island-home-screen)>:nth-child(4){animation:wsCardRise .38s .11s both cubic-bezier(.18,.9,.28,1.08)}
+.ws-view-entering :is(.game-scene,.island-home-screen)>:nth-child(n+5){animation:wsCardRise .4s .13s both cubic-bezier(.18,.9,.28,1.08)}
+@keyframes wsCardRise{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.ws-view-entering :is(.game-scene,.island-home-screen)>*{animation:none!important}}
+.strategy-tab-stage{animation:strategyTabIn .24s cubic-bezier(.18,.9,.28,1.08) both;transform-origin:50% 0}.strategy-tab-stage>*:first-child{margin-top:0}@keyframes strategyTabIn{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){.strategy-tab-stage{animation:none!important}}

@@ -334,6 +334,74 @@ async function getPlayerMemberSnapshot(stateId: string, playerId: string) {
   return { contribution: Number(fallback.data?.contribution || 0), dutyRole: null };
 }
 
+export type JoinStateResult = {
+  player: { id: string; displayName: string };
+  state: { id: string; name: string };
+  role: string;
+  switchedFrom: string | null;
+};
+
+// !вступить (and the equivalent Mini App "Перейти" button) is a deliberate,
+// explicit request to hold citizenship of THIS state -- unlike the passive
+// home-state assignment in gw_set_player_home_state (used by
+// observeTelegramGroupMember/bootstrapGame just from being seen in a chat),
+// which intentionally blocks direct transfers between two regular states so
+// nobody's citizenship gets silently reassigned by background activity. An
+// explicit command must use the same explicit-switch RPC the Mini App uses
+// (gw_switch_player_state), which has no such block, so a citizen of one
+// state can deliberately switch citizenship by writing !вступить in another
+// state's chat, exactly like tapping "Перейти" on the map.
+export async function joinStateFromChat(user: TelegramUser, chatId: number): Promise<JoinStateResult> {
+  const supabase = getSupabaseAdmin();
+  const player = await upsertPlayer(user);
+
+  let target = await ensureStateForChat(chatId, player.id, user.id);
+  target = await syncStateChatMeta(target.id, chatId);
+
+  const { data: playerRow, error: playerError } = await supabase
+    .from("players")
+    .select("home_state_id")
+    .eq("id", player.id)
+    .single();
+  if (playerError) throw playerError;
+
+  const alreadyHome = String(playerRow?.home_state_id || "") === String(target.id);
+  let switchedFrom: string | null = null;
+  if (!alreadyHome && playerRow?.home_state_id) {
+    const { data: previousState, error: previousStateError } = await supabase
+      .from("states")
+      .select("name,is_freeport")
+      .eq("id", playerRow.home_state_id)
+      .maybeSingle();
+    if (!previousStateError && previousState && !previousState.is_freeport) switchedFrom = previousState.name;
+  }
+
+  const { error: switchError } = await supabase.rpc("gw_switch_player_state", {
+    p_player_id: player.id,
+    p_target_state_id: target.id,
+    p_membership_verified_at: new Date().toISOString(),
+  });
+  if (switchError) {
+    if (switchError.code === "PGRST202") throw new Error("Не применена миграция 018_state_switch_delete_ui.sql.");
+    throw new Error(switchError.message || "Не удалось вступить в государство.");
+  }
+
+  const { data: memberRow, error: memberError } = await supabase
+    .from("state_members")
+    .select("role")
+    .eq("state_id", target.id)
+    .eq("player_id", player.id)
+    .maybeSingle();
+  if (memberError) throw memberError;
+
+  return {
+    player: { id: player.id, displayName: player.display_name },
+    state: { id: target.id, name: target.name },
+    role: memberRow?.role || "citizen",
+    switchedFrom: alreadyHome ? null : switchedFrom,
+  };
+}
+
 export async function bootstrapGame(
   user: TelegramUser,
   chatId: number | null,

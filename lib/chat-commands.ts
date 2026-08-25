@@ -1,6 +1,6 @@
 import { getBattleView } from "@/lib/battle";
 import { getAlliedStateChats, performDiplomacyAction } from "@/lib/diplomacy";
-import { bootstrapGame, getGameSnapshot, tickState } from "@/lib/game";
+import { bootstrapGame, getGameSnapshot, joinStateFromChat, tickState } from "@/lib/game";
 import { startWarAction, upgradeBuildingAction } from "@/lib/actions";
 import { addAllianceBattleSupport, completeDailyActivity, surrenderBattle } from "@/lib/strategy";
 import { appointPresident, appointPresidentByPlayerId, openGovernmentElection, removePresident, renameState, requestFounderSelfPresidency, resolveStateMemberByTelegramId, resolveStateMemberByUsername, resolveStateTarget, searchStates, setDeputy, setDeputyByPlayerId, setStateUsername, voteForUsername } from "@/lib/government";
@@ -321,8 +321,10 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (["вступить", "войти", "присоединиться"].includes(command)) {
-      const joined = await bootstrapGame(telegramUser(from), chatId, { trustedChatMembership: true });
-      await send(chatId, `✅ ${joined.player.displayName} теперь числится гражданином государства «${joined.state.name}».\n\nMini App открывать для вступления не обязательно.`);
+      const joined = await joinStateFromChat(telegramUser(from), chatId);
+      await send(chatId, joined.switchedFrom
+        ? `✅ ${joined.player.displayName} сменил(а) гражданство: «${joined.switchedFrom}» → «${joined.state.name}».`
+        : `✅ ${joined.player.displayName} теперь числится гражданином государства «${joined.state.name}».\n\nMini App открывать для вступления не обязательно.`);
       return true;
     }
 

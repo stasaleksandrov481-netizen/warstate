@@ -25,9 +25,13 @@ export async function publishStateEvent(stateId: string, title: string, body: st
 
 export async function publishStateAudit(stateId: string, action: string, details: string) {
   const supabase = getSupabaseAdmin();
-  await supabase.from("state_events").insert({
-    state_id: stateId,
-    event_type: action,
-    message: details,
-  }).catch(() => null);
+  try {
+    await supabase.from("state_events").insert({
+      state_id: stateId,
+      event_type: action,
+      message: details,
+    });
+  } catch (error) {
+    console.warn("WARSTATE state audit event skipped", error);
+  }
 }

@@ -355,7 +355,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         return true;
       }
       try {
-        const adminSnapshot = await bootstrapGame(telegramUser(from), chatId, { preserveHomeState: true, trustedChatMembership: true });
+        const adminSnapshot = await bootstrapGame(telegramUser(from), chatId, { preserveHomeState: true });
         await send(chatId, `🧪 РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА\n\nСтатус ID: включён\nРежим в этом чате: ${superAdminMode ? "включён" : "выключен"}\nГосударство: ${adminSnapshot.state.name}\nВы Основатель: ${adminSnapshot.government.canFounderManage ? "да" : "нет"}\n\nГлобальный доступ: включён. В этом чате ваши команды работают как админ бота. Игровая роль, президентство и гражданство не меняются.`);
       } catch (adminError) {
         await send(chatId, `🧪 РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА\n\nСтатус: включён\nНо игровая база сейчас отвечает ошибкой: ${commandErrorMessage(adminError)}`);
@@ -384,7 +384,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       return true;
     }
 
-    const snapshot = await bootstrapGame(telegramUser(from), chatId, superAdminMode ? { preserveHomeState: true, trustedChatMembership: true, /* admin mode without changing government role */ } : { trustedChatMembership: true });
+    const snapshot = await bootstrapGame(telegramUser(from), chatId, superAdminMode ? { preserveHomeState: true, /* admin mode without changing government role */ } : {});
     const effectiveActorPlayerId = superAdminMode
       ? String(snapshot.government.founder?.playerId || snapshot.government.president?.playerId || snapshot.player.id)
       : snapshot.player.id;
@@ -933,9 +933,7 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
     const snapshot = await bootstrapGame(
       telegramUser(from),
       stateChatId,
-      superAdminMode
-        ? { preserveHomeState: true, trustedChatMembership: true, /* admin mode without changing government role */ }
-        : { trustedChatMembership: true },
+      superAdminMode ? { preserveHomeState: true, /* admin mode without changing government role */ } : {},
     );
     const effectiveActorPlayerId = superAdminMode
       ? String(snapshot.government.founder?.playerId || snapshot.government.president?.playerId || snapshot.player.id)

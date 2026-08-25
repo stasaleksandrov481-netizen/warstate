@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "open") {
-      if (auth.member.role !== "founder") throw new Error("Внеочередные выборы запускает только Основатель.");
+      if (String(auth.state.founder_player_id || "") !== String(auth.player.id)) throw new Error("Внеочередные выборы запускает только Основатель.");
       // Reconcile first so a previous, already-expired election is finalized
       // instead of colliding with the new one (only one 'open' election per
       // state is allowed at the database level).

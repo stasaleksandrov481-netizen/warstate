@@ -531,9 +531,10 @@ export default function GameApp() {
   if (error || !snapshot) return <Splash text={error || "Ошибка"} action="Повторить" onAction={bootstrap} />;
 
   const availableNav = NAV;
+  const hasWorldPulse = hasActiveWorldPulse(snapshot);
 
   return (
-    <main className="app-shell island-app-shell">
+    <main className={`app-shell island-app-shell ${hasWorldPulse ? "has-world-pulse" : ""}`}>
       <MobileHeader snapshot={snapshot} online={isOnline} lastSyncAt={lastSyncAt} syncing={syncing} onSync={syncNow} />
       <WorldPulseBar snapshot={snapshot} onBattle={() => navigate("battle")} onIsland={() => navigate("island")} onProfile={() => navigate("profile")} />
 
@@ -581,6 +582,15 @@ function Splash({ text, action, onAction }: { text: string; action?: string; onA
   return <main className="splash ws-splash"><div className="ws-splash-orbit"><div className="logo-mark">GW</div></div><h1>WARSTATE</h1><p>{text}</p><div className="ws-loading-bars" aria-hidden="true"><i/><i/><i/></div>{action && <button className="primary" onClick={onAction}>{action}</button>}</main>;
 }
 
+function hasActiveWorldPulse(snapshot: GameSnapshot) {
+  const now = Date.now();
+  const activeBattle = Boolean(snapshot.activeBattle && snapshot.activeBattle.status !== "resolved");
+  const activeConstruction = snapshot.buildings.some((building) => building.upgradeFinishesAt && new Date(building.upgradeFinishesAt).getTime() > now);
+  const activeElection = Boolean(snapshot.election?.status === "open" && new Date(snapshot.election.endsAt).getTime() > now);
+  const readyReward = snapshot.dailyMissions.some((mission) => !mission.claimed && mission.progress >= mission.target);
+  return activeBattle || activeConstruction || activeElection || readyReward;
+}
+
 function WorldPulseBar({ snapshot, onBattle, onIsland, onProfile }: { snapshot: GameSnapshot; onBattle: () => void; onIsland: () => void; onProfile: () => void }) {
   const [, forceTime] = useState(0);
   useEffect(() => {
@@ -610,7 +620,8 @@ function WorldPulseBar({ snapshot, onBattle, onIsland, onProfile }: { snapshot: 
 
 const MobileHeader = memo(function MobileHeader({ snapshot, online, lastSyncAt, syncing, onSync }: { snapshot: GameSnapshot; online: boolean; lastSyncAt: number; syncing: boolean; onSync: () => void }) {
   const state = snapshot.state;
-  const role = state.isFreeport ? "Свободный игрок" : snapshot.player.role === "founder" ? "Основатель" : snapshot.player.role === "president" ? "Президент" : snapshot.player.role === "minister" || snapshot.player.role === "deputy" ? "Заместитель" : snapshot.player.role === "curator" ? "Куратор" : "Участник";
+  const founderIsPresident = snapshot.government.founder?.playerId === snapshot.player.id && snapshot.government.president?.playerId === snapshot.player.id;
+  const role = state.isFreeport ? "Свободный игрок" : founderIsPresident ? "Основатель · Президент" : snapshot.government.founder?.playerId === snapshot.player.id ? "Основатель" : snapshot.player.role === "president" ? "Президент" : snapshot.player.role === "minister" || snapshot.player.role === "deputy" ? "Заместитель" : snapshot.player.role === "curator" ? "Куратор" : "Участник";
   const compact = (value: number) => COMPACT_FORMATTER.format(value);
   return (
     <header className="island-mobile-header game-mobile-header">

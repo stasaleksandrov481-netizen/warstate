@@ -1328,3 +1328,186 @@ body{background:radial-gradient(circle at 50% -15%,rgba(30,135,146,.22),transpar
 .game-guide-intro{margin:0 12px 9px;padding:10px 11px;border-radius:12px;background:rgba(8,48,58,.48);color:#bed3cd;font-size:8px;line-height:1.5}.game-guide-intro b{color:#f0d47e}
 .game-guide-sections{display:grid;gap:6px;padding:0 12px 11px}.game-guide-step{border:1px solid rgba(169,220,212,.13);border-radius:12px;background:rgba(5,34,44,.42);overflow:hidden}.game-guide-step>summary{list-style:none;display:grid;grid-template-columns:24px 1fr auto;align-items:center;gap:7px;padding:9px 10px;cursor:pointer}.game-guide-step>summary i{font-style:normal;font-size:13px}.game-guide-step>summary b{font-size:8.6px;color:#eef3df}.game-guide-step>summary span{font-size:13px;font-weight:500;color:#88afa7;transition:transform .15s ease}.game-guide-step[open]>summary span{transform:rotate(45deg)}.game-guide-step ul{margin:0;padding:0 12px 10px 30px;color:#afc4bf;font-size:7.4px;line-height:1.48}.game-guide-step li+li{margin-top:4px}
 .game-guide-commands{margin:0 12px 12px;padding:10px 11px;border:1px solid rgba(242,207,114,.17);border-radius:12px;background:rgba(67,54,21,.22);display:grid;gap:3px}.game-guide-commands b{font-size:8px;color:#f0d47e}.game-guide-commands span{font-size:7.4px;color:#c5cec0;overflow-wrap:anywhere}
+
+/* ========================================================================== */
+/* WARSTATE v2.3.1 · Profile layout repair + creator test console              */
+/* ========================================================================== */
+
+/* The live-event ribbon used to float directly over the first card of every
+   screen. Reserve real viewport space whenever the ribbon exists. */
+.has-world-pulse .world-pulse{
+  top:80px!important;
+  left:8px!important;
+  right:8px!important;
+  height:48px!important;
+  padding:3px 1px 3px!important;
+  align-items:center!important;
+}
+.has-world-pulse .island-viewport{
+  margin-top:52px!important;
+  height:calc(100dvh - 76px - 76px - 52px - env(safe-area-inset-top))!important;
+}
+.world-pulse-item{
+  height:42px!important;
+  border-radius:13px!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 7px 18px rgba(1,18,25,.16)!important;
+}
+
+/* Profile had several generations of theme rules fighting each other: dark
+   cards with dark text, cream cards inside a teal page, and chunky brown
+   double borders. This final layer makes the whole profile one coherent HUD. */
+.state-screen.game-scene{
+  padding:10px 10px 28px!important;
+  background:
+    radial-gradient(circle at 82% 4%,rgba(74,164,157,.13),transparent 31%),
+    linear-gradient(180deg,#0b4d5b 0%,#083b49 42%,#072f3c 100%)!important;
+  color:#edf5ee!important;
+}
+.state-screen .panel,
+.state-screen .season-strip,
+.state-screen .stat{
+  border:1px solid rgba(204,235,223,.14)!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.055),0 12px 28px rgba(1,25,32,.14)!important;
+}
+.state-screen .panel{
+  margin:9px 0!important;
+  padding:13px!important;
+  border-radius:19px!important;
+  background:linear-gradient(145deg,rgba(9,53,63,.88),rgba(7,39,50,.86))!important;
+  color:#edf5ee!important;
+}
+.state-screen .panel h3,
+.state-screen .panel strong,
+.state-screen .panel b{color:#f3f1d7!important}
+.state-screen .panel p,
+.state-screen .panel span{color:#a9c1bb!important}
+.state-screen .panel small{color:#8faaa5!important}
+
+.state-screen .stats-grid{margin:8px 0!important;gap:7px!important}
+.state-screen .stats-grid .stat{
+  min-height:82px!important;
+  padding:13px 14px!important;
+  border-radius:17px!important;
+  background:linear-gradient(145deg,rgba(13,67,75,.78),rgba(8,47,58,.78))!important;
+}
+.state-screen .stats-grid .stat small{color:#91b0aa!important;font-size:8px!important}
+.state-screen .stats-grid .stat strong{color:#f5e7ae!important;font-size:22px!important}
+
+.state-screen .season-strip{
+  margin:8px 0!important;
+  border-radius:17px!important;
+  background:linear-gradient(145deg,rgba(111,86,39,.32),rgba(30,65,62,.58))!important;
+  color:#edf4e9!important;
+}
+.state-screen .season-strip small{color:#bda866!important}
+.state-screen .season-strip strong{color:#f2edcf!important}
+.state-screen .season-strip>b{color:#f0c969!important}
+.state-screen .season-progress i{border:0!important;background:rgba(5,31,39,.65)!important}
+.state-screen .season-progress span{color:#9db3ad!important}
+
+.state-screen .game-guide-panel>details>summary strong{color:#f4efd2!important}
+.state-screen .game-guide-panel>details>summary small{color:#93afa9!important}
+.state-screen .game-guide-intro,
+.state-screen .game-guide-step,
+.state-screen .game-guide-commands{
+  border:1px solid rgba(206,235,224,.11)!important;
+  background:rgba(4,36,46,.46)!important;
+  color:#aec3bd!important;
+}
+.state-screen .game-guide-step>summary b{color:#edf4e9!important}
+.state-screen .game-guide-commands b{color:#f0cf76!important}
+
+.state-screen .daily-ops{padding:0!important;overflow:hidden!important}
+.state-screen .daily-head{
+  padding:13px 14px 11px!important;
+  border-bottom:1px solid rgba(242,207,114,.16)!important;
+  background:linear-gradient(145deg,rgba(125,96,38,.27),rgba(13,57,61,.25))!important;
+}
+.state-screen .daily-head h3{color:#f3f0d7!important}
+.state-screen .daily-head>b{color:#b7a36b!important}
+.state-screen .mission-row{
+  margin:0 8px 7px!important;
+  padding:12px!important;
+  border:1px solid rgba(205,234,222,.10)!important;
+  border-radius:15px!important;
+  background:rgba(5,39,49,.47)!important;
+  box-shadow:none!important;
+}
+.state-screen .mission-row:first-child{margin-top:8px!important}
+.state-screen .mission-row.done{background:rgba(65,122,88,.28)!important;border-color:rgba(113,210,156,.21)!important}
+.state-screen .mission-row.claimed{opacity:.62!important}
+.state-screen .mission-copy strong{color:#edf4e8!important}
+.state-screen .mission-copy>span,
+.state-screen .mission-reward>span,
+.state-screen .mission-reward>small{color:#9fb5af!important}
+.state-screen .mission-copy>i{border:0!important;background:rgba(1,27,35,.74)!important}
+.state-screen .mission-copy>i>em{background:linear-gradient(90deg,#67c39a,#efc765)!important}
+.state-screen .mission-reward>button{
+  border:1px solid rgba(242,207,114,.26)!important;
+  border-radius:10px!important;
+  background:rgba(242,207,114,.13)!important;
+  color:#f6db94!important;
+  box-shadow:none!important;
+}
+.state-screen .mission-reward>button:disabled{
+  border-color:rgba(202,226,215,.09)!important;
+  background:rgba(191,211,201,.06)!important;
+  color:#78918c!important;
+  box-shadow:none!important;
+}
+
+.state-screen .government-roster article,
+.state-screen .government-console,
+.state-screen .government-vote,
+.state-screen .government-danger-zone{
+  box-shadow:none!important;
+}
+.state-screen .government-roster article{
+  border:1px solid rgba(194,232,221,.11)!important;
+  background:rgba(4,35,45,.43)!important;
+}
+.state-screen .government-roster b{color:#f3efd3!important}
+.state-screen .government-field input,
+.state-screen .government-vote input{
+  border:1px solid rgba(195,229,220,.14)!important;
+  background:rgba(3,30,40,.68)!important;
+  color:#f0f5ea!important;
+}
+.state-screen .government-field button,
+.state-screen .government-actions button{
+  border:1px solid rgba(194,229,219,.14)!important;
+  background:rgba(17,69,76,.72)!important;
+  color:#e8f2e9!important;
+  box-shadow:none!important;
+}
+.state-screen .government-actions .primary{
+  border-color:rgba(242,207,114,.25)!important;
+  background:rgba(242,207,114,.13)!important;
+  color:#f5d98f!important;
+}
+
+.project-admin-console{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;
+  margin-top:12px;padding:12px;border:1px solid rgba(242,207,114,.28);border-radius:16px;
+  background:linear-gradient(145deg,rgba(113,84,29,.30),rgba(10,50,57,.46));
+}
+.project-admin-copy{min-width:0;display:grid;gap:3px}.project-admin-copy small{font-size:7px!important;letter-spacing:.11em!important;color:#d6b85f!important}.project-admin-copy b{font-size:11px!important}.project-admin-copy span{font-size:8px!important;line-height:1.42;color:#abc0b8!important}
+.project-admin-console>button,
+.founder-self-rule>button{
+  min-height:39px;padding:0 11px;border:1px solid rgba(242,207,114,.28);border-radius:11px;
+  background:rgba(242,207,114,.13);color:#f5d98f;font-size:8px;font-weight:900;white-space:nowrap;
+}
+.project-admin-console>button:disabled,.founder-self-rule>button:disabled{opacity:.48}
+.founder-self-rule{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:center;
+  margin-bottom:11px;padding:10px;border:1px solid rgba(117,208,194,.13);border-radius:14px;background:rgba(4,37,47,.38);
+}
+.founder-self-rule>div{display:grid;gap:3px}.founder-self-rule small{font-size:6.5px!important;letter-spacing:.1em!important}.founder-self-rule b{font-size:10px!important}.founder-self-rule span{font-size:7.6px!important;line-height:1.4}
+
+@media(max-width:420px){
+  .has-world-pulse .island-viewport{height:calc(100dvh - 76px - 76px - 52px - env(safe-area-inset-top))!important}
+  .project-admin-console,.founder-self-rule{grid-template-columns:1fr}
+  .project-admin-console>button,.founder-self-rule>button{width:100%}
+  .state-screen .mission-row{grid-template-columns:minmax(0,1fr) 92px!important;gap:8px!important}
+  .state-screen .mission-reward{min-width:0!important}
+}

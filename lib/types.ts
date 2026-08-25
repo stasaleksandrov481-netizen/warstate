@@ -399,6 +399,7 @@ export interface GovernmentView {
   president: GovernmentMemberView | null;
   deputies: GovernmentMemberView[];
   canFounderManage: boolean;
+  canProjectAdmin: boolean;
 }
 
 export interface GameSnapshot {

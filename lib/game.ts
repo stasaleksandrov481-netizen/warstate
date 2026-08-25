@@ -64,7 +64,7 @@ function emptyStrategy(role: string, beginnerIsland: boolean) {
 }
 
 const EMPTY_RECRUITMENT = { post: null, listings: [], myRequests: [], incoming: [], freeAgents: [] };
-const EMPTY_GOVERNMENT = { stateUsername: null, telegramChatTitle: null, founder: null, president: null, deputies: [], canFounderManage: false };
+const EMPTY_GOVERNMENT = { stateUsername: null, telegramChatTitle: null, founder: null, president: null, deputies: [], canFounderManage: false, canProjectAdmin: false };
 
 const BASE_COSTS: Record<BuildingType, Partial<Record<"credits" | "steel" | "fuel" | "food" | "tech", number>>> = {
   hq: { credits: 1800, steel: 500, tech: 30 },

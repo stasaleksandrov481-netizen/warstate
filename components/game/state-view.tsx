@@ -55,7 +55,7 @@ function PlayerProgress({ snapshot }: { snapshot: GameSnapshot }) {
   const nextFloor = 180 * Math.pow(snapshot.player.level, 2);
   const progress = Math.max(0, Math.min(100, ((snapshot.player.xp - currentFloor) / Math.max(1, nextFloor - currentFloor)) * 100));
   return <div className="panel player-progress">
-    <div className="player-progress-head"><div><small>ТВОЙ ПРОФИЛЬ</small><h3>{snapshot.player.displayName}</h3><p>{snapshot.state.isFreeport ? "Свободный игрок Freeport" : roleLabel(snapshot.player.role)} · вклад {snapshot.player.contribution.toLocaleString("ru-RU")}</p></div><b>LVL {snapshot.player.level}</b></div>
+    <div className="player-progress-head"><div><small>ТВОЙ ПРОФИЛЬ</small><h3>{snapshot.player.displayName}</h3><p>{snapshot.state.isFreeport ? "Свободный игрок Freeport" : snapshot.government.founder?.playerId === snapshot.player.id && snapshot.government.president?.playerId === snapshot.player.id ? "Основатель · Президент" : snapshot.government.founder?.playerId === snapshot.player.id ? "Основатель" : roleLabel(snapshot.player.role)} · вклад {snapshot.player.contribution.toLocaleString("ru-RU")}</p></div><b>LVL {snapshot.player.level}</b></div>
     <div className="xp-track"><i style={{ width: `${progress}%` }} /></div>
     <span>{snapshot.player.xp.toLocaleString("ru-RU")} XP · до следующего уровня {Math.max(0, nextFloor - snapshot.player.xp).toLocaleString("ru-RU")} XP</span>
     {snapshot.state.shieldUntil && new Date(snapshot.state.shieldUntil).getTime() > Date.now() && <div className="rookie-shield">◆ Защита новичка активна до {new Date(snapshot.state.shieldUntil).toLocaleTimeString("ru-RU", {hour:"2-digit",minute:"2-digit"})}</div>}
@@ -71,6 +71,8 @@ function GovernmentPanel({ snapshot, onGovernment }: Pick<Props, "snapshot" | "o
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const founderName = gov.founder ? `${gov.founder.displayName}${gov.founder.username ? ` (@${gov.founder.username})` : ""}` : "не подтверждён";
   const presidentName = gov.president ? `${gov.president.displayName}${gov.president.username ? ` (@${gov.president.username})` : ""}` : "не назначен";
+  const founderIsPresident = Boolean(gov.founder && gov.president && gov.founder.playerId === gov.president.playerId);
+  const iAmPresident = gov.president?.playerId === snapshot.player.id;
   return <div className="panel government-panel">
     <div className="panel-head"><div><small>ПРАВИТЕЛЬСТВО</small><h3>Управление государством</h3></div><span>{snapshot.state.stateUsername ? `@${snapshot.state.stateUsername}` : "без юза"}</span></div>
     <div className="government-roster">
@@ -83,7 +85,15 @@ function GovernmentPanel({ snapshot, onGovernment }: Pick<Props, "snapshot" | "o
       <div><input placeholder="@username" value={voteTarget} onChange={(e) => setVoteTarget(e.target.value)} /><button type="button" className="primary" onClick={() => onGovernment("vote_username", { username: voteTarget })}>Голосовать</button></div>
       <small>Один голос на гражданина. Голос можно изменить до закрытия выборов.</small>
     </div>}
+    {gov.canProjectAdmin && gov.canFounderManage && <div className="project-admin-console">
+      <div className="project-admin-copy"><small>РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА</small><b>Тестовое управление без голосования</b><span>Работает только для Telegram ID из WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS и только в вашем государстве.</span></div>
+      <button type="button" disabled={iAmPresident} onClick={() => onGovernment("admin_self_president")}>{iAmPresident ? "Вы уже президент" : "Назначить себя президентом"}</button>
+    </div>}
     {gov.canFounderManage && <div className="government-console">
+      <div className="founder-self-rule">
+        <div><small>СОВМЕЩЕНИЕ РОЛЕЙ</small><b>{founderIsPresident ? "Основатель + Президент" : "Основатель может стать Президентом"}</b><span>{gov.canProjectAdmin ? "Для тестирования доступно мгновенное назначение выше." : "Для обычного Основателя самоназначение проходит через 30-минутное голосование и требует хотя бы одного голоса другого гражданина и большинства среди поданных голосов."}</span></div>
+        {!gov.canProjectAdmin && <button type="button" disabled={iAmPresident} onClick={() => onGovernment("request_self_presidency")}>{iAmPresident ? "Вы уже президент" : "Выдвинуть себя"}</button>}
+      </div>
       <div className="government-field"><label>Название государства</label><div><input maxLength={64} value={stateName} onChange={(e) => setStateName(e.target.value)} /><button type="button" onClick={() => onGovernment("rename_state", { name: stateName })}>Сохранить</button></div></div>
       <div className="government-field"><label>Уникальный юз</label><div><input maxLength={32} placeholder="north_empire" value={handle} onChange={(e) => setHandle(e.target.value.replace(/^@/, ""))} /><button type="button" onClick={() => onGovernment("set_username", { username: handle })}>@ Юз</button></div></div>
       <div className="government-field"><label>Гражданин по @username</label><input placeholder="@username" value={target} onChange={(e) => setTarget(e.target.value)} /></div>
@@ -113,7 +123,7 @@ function GovernmentPanel({ snapshot, onGovernment }: Pick<Props, "snapshot" | "o
 
 function IdentityEditor({ snapshot, onCustomize }: Pick<Props, "snapshot" | "onCustomize">) {
   const [motto, setMotto] = useState(snapshot.state.motto);
-  const canEdit = ["president","minister","deputy","curator"].includes(snapshot.player.role);
+  const canEdit = ["president","minister","deputy","curator"].includes(snapshot.player.role) || snapshot.government.president?.playerId === snapshot.player.id;
   if (!canEdit) return null;
   return <div className="panel identity-editor">
     <div className="panel-head"><div><small>АЙДЕНТИКА</small><h3>Лицо государства</h3></div><span>видно всему миру</span></div>
@@ -127,7 +137,7 @@ function IdentityEditor({ snapshot, onCustomize }: Pick<Props, "snapshot" | "onC
 function ElectionPanel({ snapshot, onPolitics, now }: Pick<Props, "snapshot" | "onPolitics"> & { now: number }) {
   const [statement, setStatement] = useState("Развивать остров, укреплять флот и поднимать рейтинг.");
   const election = snapshot.election;
-  const canOpen = snapshot.player.role === "founder";
+  const canOpen = snapshot.government.canFounderManage;
   const myCandidate = election?.candidates.find((candidate) => candidate.isMe);
   const totalVotes = election?.candidates.reduce((sum, candidate) => sum + candidate.votes, 0) || 0;
   const ended = election ? new Date(election.endsAt).getTime() <= now : false;
@@ -139,7 +149,7 @@ function ElectionPanel({ snapshot, onPolitics, now }: Pick<Props, "snapshot" | "
     <div className="candidate-list">{election.candidates.map((candidate, index) => {
       const share = totalVotes ? Math.round(candidate.votes / totalVotes * 100) : 0;
       return <div className={`candidate-card ${election.myVoteCandidateId === candidate.id ? "voted" : ""}`} key={candidate.id}>
-        <div className="candidate-rank">{index + 1}</div><div className="candidate-main"><strong>{candidate.displayName}{candidate.isMe ? " · вы" : ""}</strong><span>{candidate.statement || "Без предвыборной программы"}</span><i><em style={{ width: `${share}%` }} /></i></div><div className="candidate-votes"><b>{candidate.votes}</b><small>{share}%</small>{election.status === "open" && !ended && <button type="button" onClick={() => onPolitics("vote", { electionId: election.id, candidateId: candidate.id })}>{election.myVoteCandidateId === candidate.id ? "✓" : "Голос"}</button>}</div>
+        <div className="candidate-rank">{index + 1}</div><div className="candidate-main"><strong>{candidate.displayName}{candidate.isMe ? " · вы" : ""}</strong><span>{candidate.statement || "Без предвыборной программы"}</span><i><em style={{ width: `${share}%` }} /></i></div><div className="candidate-votes"><b>{candidate.votes}</b><small>{share}%</small>{election.status === "open" && !ended && <button type="button" disabled={snapshot.government.canFounderManage && candidate.isMe} onClick={() => onPolitics("vote", { electionId: election.id, candidateId: candidate.id })}>{snapshot.government.canFounderManage && candidate.isMe ? "Нужен другой" : election.myVoteCandidateId === candidate.id ? "✓" : "Голос"}</button>}</div>
       </div>;
     })}</div>
     {election.status === "open" && !ended && !myCandidate && <div className="nominate"><input maxLength={120} value={statement} onChange={(e) => setStatement(e.target.value)} /><button type="button" onClick={() => onPolitics("nominate", { electionId: election.id, statement })}>Выдвинуться</button></div>}

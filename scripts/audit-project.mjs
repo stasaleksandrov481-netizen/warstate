@@ -66,6 +66,7 @@ const requiredV20 = [
   "supabase/migrations/016_member_activity_votes_spy.sql",
   "supabase/migrations/017_telegram_update_claim_lease.sql",
   "supabase/migrations/018_state_switch_delete_ui.sql",
+  "supabase/migrations/023_founder_president_admin.sql",
   "app/api/game/state/switch/route.ts",
   "lib/community.ts",
   "lib/maintenance.ts",

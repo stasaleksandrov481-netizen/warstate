@@ -1,12 +1,14 @@
 import { authorizeStateAction, jsonError } from "@/lib/request-auth";
 import { bootstrapGame, getGameSnapshot } from "@/lib/game";
 import {
-  appointPresident,
+  appointPresidentByPlayerId,
   deleteState,
   notifyStateChat,
   openGovernmentElection,
   removePresident,
   renameState,
+  requestFounderSelfPresidency,
+  resolveStateMemberByUsername,
   setDeputy,
   setStateUsername,
   voteForUsername,
@@ -14,6 +16,7 @@ import {
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { reconcileStateRuntime } from "@/lib/maintenance";
 import { assertTelegramChatOwner } from "@/lib/telegram-bot";
+import { isProjectAdminTelegramId } from "@/lib/config";
 
 export const runtime = "nodejs";
 
@@ -47,8 +50,36 @@ export async function POST(request: Request) {
       const { target } = await voteForUsername(stateId, auth.player.id, String(body.username || ""));
       notification = `🗳 ${actor} проголосовал(а) за ${targetLabel(target)} в Mini App.`;
     } else if (action === "appoint_president") {
-      const target = await appointPresident(stateId, auth.player.id, String(body.username || ""));
-      notification = `👑 ${actor} назначил(а) ${targetLabel(target)} президентом через Mini App.`;
+      const target = await resolveStateMemberByUsername(stateId, String(body.username || ""));
+      const isSelf = String(target.id) === String(auth.player.id);
+      const { data: founderState, error: founderStateError } = await getSupabaseAdmin()
+        .from("states")
+        .select("founder_player_id")
+        .eq("id", stateId)
+        .single();
+      if (founderStateError) throw founderStateError;
+      const isFounder = String(founderState?.founder_player_id || "") === String(auth.player.id);
+      if (isSelf && isFounder && !isProjectAdminTelegramId(auth.session.user.id)) {
+        await requestFounderSelfPresidency(stateId, auth.player.id);
+        notification = `🗳 ${actor} выдвинул(а) себя в президенты. Решение принимают граждане на 30-минутном голосовании: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов.`;
+      } else {
+        const appointed = await appointPresidentByPlayerId(stateId, auth.player.id, String(target.id));
+        notification = `👑 ${actor} назначил(а) ${targetLabel(appointed)} президентом через Mini App.`;
+      }
+    } else if (action === "request_self_presidency") {
+      await requestFounderSelfPresidency(stateId, auth.player.id);
+      notification = `🗳 ${actor} выдвинул(а) себя в президенты. Решение принимают граждане на 30-минутном голосовании: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов.`;
+    } else if (action === "admin_self_president") {
+      if (!isProjectAdminTelegramId(auth.session.user.id)) throw new Error("Режим создателя проекта недоступен этому аккаунту.");
+      const { data: founderState, error: founderStateError } = await getSupabaseAdmin()
+        .from("states")
+        .select("founder_player_id")
+        .eq("id", stateId)
+        .single();
+      if (founderStateError) throw founderStateError;
+      if (String(founderState?.founder_player_id || "") !== String(auth.player.id)) throw new Error("Админ-назначение себя президентом доступно только в вашем собственном государстве.");
+      const target = await appointPresidentByPlayerId(stateId, auth.player.id, auth.player.id);
+      notification = `🧪 ${actor} включил(а) тестовый режим создателя проекта и назначил(а) себя президентом без голосования.`;
     } else if (action === "remove_president") {
       await removePresident(stateId, auth.player.id);
       notification = `👑 ${actor} снял(а) президента с должности через Mini App. Государство временно без президента.`;

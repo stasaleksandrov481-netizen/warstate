@@ -23,7 +23,7 @@ export async function authorizeStateAction(
   const playerRow = requireData(player, "Игрок не найден. Откройте WARSTATE из Telegram-группы.");
   const [{ data: member, error: memberError }, { data: state, error: stateError }] = await Promise.all([
     supabase.from("state_members").select("*").eq("state_id", stateId).eq("player_id", playerRow.id).single(),
-    supabase.from("states").select("telegram_chat_id,is_freeport,is_beginner_island,game_level,max_level").eq("id", stateId).single(),
+    supabase.from("states").select("telegram_chat_id,is_freeport,is_beginner_island,game_level,max_level,founder_player_id,owner_player_id").eq("id", stateId).single(),
   ]);
   if (memberError) throw new Error("Вы не состоите в этом государстве.");
   if (stateError) throw new Error("Государство не найдено.");

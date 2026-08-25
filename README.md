@@ -236,6 +236,8 @@ Optional:
 
 ```text
 BEGINNER_ISLAND_CHAT_ID=
+WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS=
+WARSTATE_SUPERADMIN_TELEGRAM_ID=
 UPSTASH_REDIS_REST_URL=
 UPSTASH_REDIS_REST_TOKEN=
 CRON_SECRET=
@@ -245,7 +247,7 @@ CRON_SECRET=
 
 ## Supabase migrations
 
-Fresh database: apply `001` through `018` in numeric order.
+Fresh database: apply `001` through `023` in numeric order.
 
 Existing v1.9 database: apply sequentially:
 
@@ -254,9 +256,25 @@ supabase/migrations/015_event_driven_runtime.sql
 supabase/migrations/016_member_activity_votes_spy.sql
 supabase/migrations/017_telegram_update_claim_lease.sql
 supabase/migrations/018_state_switch_delete_ui.sql
+supabase/migrations/019_fix_state_switch_cooldown.sql
+supabase/migrations/020_integrity_repair.sql
+supabase/migrations/021_fix_stale_election_conflict.sql
+supabase/migrations/022_fix_state_color_contrast.sql
+supabase/migrations/023_founder_president_admin.sql
 ```
 
-Migration `016` adds member specializations, civic war/alliance votes, the 10-message resource farm, and spy quests. Migration `017` makes Telegram update claims retry-safe. Migration `018` adds explicit state switching and owner-only state deletion. If your database is older, apply every missing migration sequentially. Do not skip intermediate migrations.
+Migration `016` adds member specializations, civic war/alliance votes, the 10-message resource farm, and spy quests. Migration `017` makes Telegram update claims retry-safe. Migration `018` adds explicit state switching and owner-only state deletion. Migration `023` lets a Founder also hold the President office, restores the Founder role when that presidency ends, and keeps Founder self-promotion inside elections unless the account is explicitly configured as the project testing admin. If your database is older, apply every missing migration sequentially. Do not skip intermediate migrations.
+
+## Project creator testing admin
+
+For development and bot testing, one or more trusted Telegram accounts can receive a creator-only control in the Profile government panel. This is intentionally keyed by immutable numeric Telegram user ID rather than username.
+
+1. Send `!мойid` in one of your WARSTATE state chats.
+2. Put that numeric ID into `WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS` (comma-separated if you use more than one test account).
+3. Redeploy/restart the server after changing environment variables.
+4. Send `!админ` to confirm the flag, then use `!назначитьпрезидента` with no username, or the **Админ-панель проекта** button in Profile.
+
+The creator override only works inside a state whose `founder_player_id` is that same player. It does not grant control over somebody else's state. Ordinary chat Founders can also become President, but self-promotion opens/joins a 30-minute citizen election and requires at least one vote from another citizen and a majority of votes cast; the Founder cannot approve their own nomination.
 
 ## Telegram setup
 

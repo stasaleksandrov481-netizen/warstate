@@ -104,7 +104,7 @@ export async function nominateCandidate(electionId: string, playerId: string, st
   const { data: member, error: memberError } = await supabase.from("state_members").select("id,role").eq("state_id", electionRow.state_id).eq("player_id", playerId).maybeSingle();
   if (memberError) throw memberError;
   if (!member) throw new Error("Только граждане могут выдвигаться.");
-  if (["founder", "curator"].includes(String(member.role))) throw new Error("Основатель и куратор не участвуют в выборах президента как кандидаты.");
+  if (String(member.role) === "curator") throw new Error("Куратор Острова новичков не участвует в выборах президента как кандидат.");
   const { error } = await supabase.from("election_candidates").upsert({
     election_id: electionId,
     player_id: playerId,

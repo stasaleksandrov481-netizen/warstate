@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { getChat, getChatAdministrators, getChatMemberCount, telegramApi } from "@/lib/telegram-bot";
 import { getElection, finalizeElection } from "@/lib/politics";
 import type { GovernmentView } from "@/lib/types";
+import { isProjectAdminTelegramId } from "@/lib/config";
 
 // Any government action taken from the Mini App (as opposed to a Telegram
 // !command, which already replies in the chat itself) must still be visible
@@ -94,9 +95,6 @@ export async function registerTelegramState(chatId: number) {
       patch.founder_player_id = founder.id;
       patch.founder_verified_at = new Date().toISOString();
     }
-    // Legacy versions used owner_player_id as the president. Once Telegram confirms
-    // the creator as Founder, do not silently leave the same person in two offices.
-    if (String(state.owner_player_id || "") === String(founder.id)) patch.owner_player_id = null;
     const { data: updated, error } = await supabase.from("states").update(patch).eq("id", state.id).select("*").single();
     if (error) throw error;
     state = updated;
@@ -104,12 +102,30 @@ export async function registerTelegramState(chatId: number) {
 
   if (!state) throw new Error("Не удалось зарегистрировать государство.");
 
-  const { error: founderMemberError } = await supabase.from("state_members").upsert({
-    state_id: state.id,
-    player_id: founder.id,
-    role: "founder",
-  }, { onConflict: "state_id,player_id" });
-  if (founderMemberError) throw founderMemberError;
+  // Founder identity lives in states.founder_player_id. The membership role may
+  // legitimately be "president" when the Founder also holds that elected office,
+  // so registration must never overwrite it back to "founder".
+  const { data: founderMembership, error: founderMembershipError } = await supabase
+    .from("state_members")
+    .select("id,role")
+    .eq("state_id", state.id)
+    .eq("player_id", founder.id)
+    .maybeSingle();
+  if (founderMembershipError) throw founderMembershipError;
+  if (!founderMembership) {
+    const { error: founderMemberError } = await supabase.from("state_members").insert({
+      state_id: state.id,
+      player_id: founder.id,
+      role: "founder",
+    });
+    if (founderMemberError) throw founderMemberError;
+  } else if (!["founder", "president"].includes(String(founderMembership.role))) {
+    const { error: founderRoleError } = await supabase
+      .from("state_members")
+      .update({ role: "founder" })
+      .eq("id", founderMembership.id);
+    if (founderRoleError) throw founderRoleError;
+  }
 
   const { error: buildingsError } = await supabase.from("buildings").upsert(
     START_BUILDINGS.map((building_type) => ({ state_id: state.id, building_type, level: 1 })),
@@ -177,26 +193,58 @@ export async function resolveStateMemberByUsername(stateId: string, raw: string)
 
 export async function getGovernmentView(stateId: string, playerId: string): Promise<GovernmentView> {
   const supabase = getSupabaseAdmin();
-  const [{ data: state, error: stateError }, { data: members, error: memberError }] = await Promise.all([
-    supabase.from("states").select("founder_player_id,state_username,telegram_chat_title").eq("id", stateId).single(),
-    supabase.from("state_members").select("player_id,role,player:players!state_members_player_id_fkey(display_name,username)").eq("state_id", stateId).in("role", ["founder","president","minister","deputy"]),
-  ]);
+  const { data: state, error: stateError } = await supabase
+    .from("states")
+    .select("founder_player_id,owner_player_id,state_username,telegram_chat_title")
+    .eq("id", stateId)
+    .single();
   if (stateError) throw stateError;
-  if (memberError) throw memberError;
-  const rows = members || [];
-  const mapMember = (row: any) => ({
+
+  const leadershipIds = [...new Set([state?.founder_player_id, state?.owner_player_id].filter(Boolean).map(String))];
+  const [leadersRes, deputiesRes, actorRes] = await Promise.all([
+    leadershipIds.length
+      ? supabase.from("players").select("id,display_name,username").in("id", leadershipIds)
+      : Promise.resolve({ data: [] as any[], error: null }),
+    supabase
+      .from("state_members")
+      .select("player_id,role,player:players!state_members_player_id_fkey(display_name,username)")
+      .eq("state_id", stateId)
+      .in("role", ["minister", "deputy"]),
+    supabase.from("players").select("telegram_id").eq("id", playerId).maybeSingle(),
+  ]);
+  if (leadersRes.error) throw leadersRes.error;
+  if (deputiesRes.error) throw deputiesRes.error;
+  if (actorRes.error) throw actorRes.error;
+
+  const leaders = new Map((leadersRes.data || []).map((row: any) => [String(row.id), row]));
+  const memberFromPlayer = (id: string | null | undefined, role: string) => {
+    if (!id) return null;
+    const row: any = leaders.get(String(id));
+    if (!row) return null;
+    return {
+      playerId: String(row.id),
+      displayName: String(row.display_name || "Игрок"),
+      username: row.username ? String(row.username) : null,
+      role,
+    };
+  };
+  const deputies = (deputiesRes.data || []).slice(0, 3).map((row: any) => ({
     playerId: String(row.player_id),
     displayName: String(row.player?.display_name || "Игрок"),
     username: row.player?.username ? String(row.player.username) : null,
     role: String(row.role),
-  });
+  }));
+  const founderId = state?.founder_player_id ? String(state.founder_player_id) : null;
+  const presidentId = state?.owner_player_id ? String(state.owner_player_id) : null;
+
   return {
     stateUsername: state?.state_username ? String(state.state_username) : null,
     telegramChatTitle: state?.telegram_chat_title ? String(state.telegram_chat_title) : null,
-    founder: rows.find((row: any) => row.role === "founder") ? mapMember(rows.find((row: any) => row.role === "founder")) : null,
-    president: rows.find((row: any) => row.role === "president") ? mapMember(rows.find((row: any) => row.role === "president")) : null,
-    deputies: rows.filter((row: any) => ["minister","deputy"].includes(String(row.role))).slice(0, 3).map(mapMember),
-    canFounderManage: String(state?.founder_player_id || "") === playerId,
+    founder: memberFromPlayer(founderId, "founder"),
+    president: memberFromPlayer(presidentId, presidentId && founderId === presidentId ? "founder_president" : "president"),
+    deputies,
+    canFounderManage: Boolean(founderId && founderId === playerId),
+    canProjectAdmin: isProjectAdminTelegramId(actorRes.data?.telegram_id),
   };
 }
 
@@ -215,12 +263,63 @@ export async function voteForUsername(stateId: string, voterPlayerId: string, us
   return { data, target };
 }
 
+export async function appointPresidentByPlayerId(stateId: string, founderPlayerId: string, targetPlayerId: string) {
+  const supabase = getSupabaseAdmin();
+  const { data: target, error: targetError } = await supabase
+    .from("players")
+    .select("id,telegram_id,display_name,username")
+    .eq("id", targetPlayerId)
+    .single();
+  if (targetError) throw targetError;
+  const { error } = await supabase.rpc("gw_appoint_president", {
+    p_state_id: stateId,
+    p_founder_player_id: founderPlayerId,
+    p_target_player_id: targetPlayerId,
+  });
+  if (error) {
+    const message = String(error.message || "");
+    if (String(founderPlayerId) === String(targetPlayerId) && (error.code === "PGRST202" || message.includes("Основатель не может занимать вторую роль"))) {
+      throw new Error("Для совмещения ролей Основатель + Президент примените миграцию 023_founder_president_admin.sql.");
+    }
+    throw error;
+  }
+  return target;
+}
+
 export async function appointPresident(stateId: string, founderPlayerId: string, username: string) {
   const target = await resolveStateMemberByUsername(stateId, username);
+  return appointPresidentByPlayerId(stateId, founderPlayerId, target.id);
+}
+
+export async function requestFounderSelfPresidency(stateId: string, founderPlayerId: string) {
   const supabase = getSupabaseAdmin();
-  const { error } = await supabase.rpc("gw_appoint_president", { p_state_id: stateId, p_founder_player_id: founderPlayerId, p_target_player_id: target.id });
-  if (error) throw error;
-  return target;
+  const { data: state, error: stateError } = await supabase
+    .from("states")
+    .select("founder_player_id")
+    .eq("id", stateId)
+    .single();
+  if (stateError) throw stateError;
+  if (String(state?.founder_player_id || "") !== founderPlayerId) throw new Error("Самовыдвижение доступно только Основателю этого государства.");
+
+  let electionId: string | null = null;
+  try {
+    electionId = await openGovernmentElection(stateId, founderPlayerId);
+  } catch (error: any) {
+    const message = String(error?.message || error || "");
+    if (!message.toLocaleLowerCase("ru-RU").includes("выборы уже идут")) throw error;
+  }
+
+  // Founder self-promotion is a nomination, not a self-vote. Migration 023
+  // requires another citizen's vote and a majority of votes cast before the Founder can win.
+  const { data, error } = await supabase.rpc("gw_nominate_founder_for_president", {
+    p_state_id: stateId,
+    p_founder_player_id: founderPlayerId,
+  });
+  if (error) {
+    if (error.code === "PGRST202") throw new Error("Не применена миграция 023_founder_president_admin.sql.");
+    throw error;
+  }
+  return electionId || String((data as any)?.electionId || "") || null;
 }
 
 export async function removePresident(stateId: string, founderPlayerId: string) {

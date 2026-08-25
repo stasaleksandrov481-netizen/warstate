@@ -3,7 +3,7 @@ import { getAlliedStateChats, performDiplomacyAction } from "@/lib/diplomacy";
 import { bootstrapGame, tickState } from "@/lib/game";
 import { startWarAction, upgradeBuildingAction } from "@/lib/actions";
 import { addAllianceBattleSupport, completeDailyActivity, surrenderBattle } from "@/lib/strategy";
-import { appointPresident, openGovernmentElection, removePresident, renameState, resolveStateMemberByUsername, resolveStateTarget, searchStates, setDeputy, setStateUsername, voteForUsername } from "@/lib/government";
+import { appointPresident, appointPresidentByPlayerId, openGovernmentElection, removePresident, renameState, requestFounderSelfPresidency, resolveStateMemberByUsername, resolveStateTarget, searchStates, setDeputy, setStateUsername, voteForUsername } from "@/lib/government";
 import { claimDailyMission } from "@/lib/missions";
 import { miniAppLink, telegramApi } from "@/lib/telegram-bot";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -26,9 +26,22 @@ import type { BuildingType, WarType } from "@/lib/types";
 import type { TelegramUser } from "@/lib/telegram";
 import { telegramGameGuideText } from "@/lib/game-guide";
 import { publishStateEvent } from "@/lib/state-events";
+import { isProjectAdminTelegramId } from "@/lib/config";
 
 const LEADERS = new Set(["president", "minister", "deputy", "curator"]);
 const WAR_LEADERS = new Set(["president", "minister", "deputy"]);
+
+function commandErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object") {
+    const raw = error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+    const message = String(raw.message || raw.details || raw.hint || "").trim();
+    if (message) return message;
+    if (raw.code) return `Ошибка сервера ${String(raw.code)}`;
+  }
+  if (typeof error === "string" && error.trim()) return error.trim();
+  return "Команда не выполнена. Сервер не вернул подробности ошибки.";
+}
 
 const BUILDING_ALIASES: Record<string, BuildingType> = {
   hq: "hq", штаб: "hq", казначейство: "hq",
@@ -211,6 +224,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         "👑 УПРАВЛЕНИЕ\n" +
         "!президент / !замы — руководство государства\n" +
         "!назначитьпрезидента @user / !снятьпрезидента\n" +
+        "!назначитьпрезидента — самовыдвижение Основателя через голосование\n" +
         "!назначитьзама @user / !снятьзама @user\n" +
         "!роли — список специализаций · !роль @user роль — назначить\n" +
         "!выборы — открыть выборы · !голосовать @user — отдать голос\n" +
@@ -241,7 +255,21 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       return true;
     }
 
+    if (command === "мойid" || command === "myid") {
+      await send(chatId, `🪪 Ваш Telegram ID: ${Number(from.id)}\n\nДля режима создателя проекта добавьте этот ID в WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS.`);
+      return true;
+    }
+
     const snapshot = await bootstrapGame(telegramUser(from), chatId);
+
+    if (command === "админ" || command === "admin") {
+      if (!isProjectAdminTelegramId(Number(from.id))) {
+        await send(chatId, "🧪 Режим создателя проекта для этого Telegram ID не включён. Узнайте ID командой !мойid и добавьте его в WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS.");
+        return true;
+      }
+      await send(chatId, `🧪 РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА\n\nСтатус: включён\nГосударство: ${snapshot.state.name}\nВы Основатель: ${snapshot.government.canFounderManage ? "да" : "нет"}\n\nВ своём государстве команда !назначитьпрезидента без @username назначит вас президентом сразу, без голосования. В Mini App доступна отдельная админ-панель.`);
+      return true;
+    }
 
     if (command === "государство" || command === "state") {
       const gov = snapshot.government;
@@ -321,8 +349,35 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
 
     if (command === "назначитьпрезидента") {
       if (!snapshot.government.canFounderManage) throw new Error("Президента назначает только Основатель.");
-      const target = await appointPresident(snapshot.state.id, snapshot.player.id, String(args[0] || ""));
-      await send(chatId, `👑 ${target.display_name}${target.username ? ` (@${target.username})` : ""} назначен президентом.`);
+      const targetRaw = String(args[0] || "").trim();
+      const projectAdmin = isProjectAdminTelegramId(Number(from.id));
+
+      // No argument means "myself". For normal Founders this starts a
+      // 30-minute consent election. The project creator may bypass it only in
+      // their own state, which keeps testing fast without granting that power
+      // to every Telegram chat owner.
+      if (!targetRaw) {
+        if (projectAdmin) {
+          const target = await appointPresidentByPlayerId(snapshot.state.id, snapshot.player.id, snapshot.player.id);
+          await send(chatId, `🧪 ${target.display_name}${target.username ? ` (@${target.username})` : ""} назначен президентом без голосования · режим создателя проекта.`);
+        } else {
+          await requestFounderSelfPresidency(snapshot.state.id, snapshot.player.id);
+          await send(chatId, `🗳 САМОВЫДВИЖЕНИЕ ОСНОВАТЕЛЯ\n\n${snapshot.player.displayName} выдвинул(а) себя в президенты. Голосование идёт 30 минут. Ваш собственный голос не засчитывается: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов. Граждане могут голосовать в Mini App${snapshot.player.username ? ` или командой !голосовать @${snapshot.player.username}` : ""}.`);
+        }
+        return true;
+      }
+
+      const target = await resolveStateMemberByUsername(snapshot.state.id, targetRaw);
+      const selfFounder = String(target.id) === String(snapshot.player.id);
+      if (selfFounder && !projectAdmin) {
+        await requestFounderSelfPresidency(snapshot.state.id, snapshot.player.id);
+        await send(chatId, `🗳 САМОВЫДВИЖЕНИЕ ОСНОВАТЕЛЯ\n\n${snapshot.player.displayName} выдвинул(а) себя в президенты. Решение принимают граждане на 30-минутном голосовании: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов.`);
+        return true;
+      }
+      const appointed = selfFounder
+        ? await appointPresidentByPlayerId(snapshot.state.id, snapshot.player.id, snapshot.player.id)
+        : await appointPresident(snapshot.state.id, snapshot.player.id, targetRaw);
+      await send(chatId, `👑 ${appointed.display_name}${appointed.username ? ` (@${appointed.username})` : ""} назначен президентом.`);
       return true;
     }
 
@@ -446,7 +501,8 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
 
 
     if (command === "профиль" || command === "profile") {
-      const roleLabel = snapshot.player.role === "founder" ? "Основатель"
+      const roleLabel = snapshot.government.founder?.playerId === snapshot.player.id && snapshot.government.president?.playerId === snapshot.player.id ? "Основатель · Президент"
+        : snapshot.government.founder?.playerId === snapshot.player.id ? "Основатель"
         : snapshot.player.role === "president" ? "Президент"
         : ["minister", "deputy"].includes(snapshot.player.role) ? "Заместитель"
         : snapshot.player.role === "curator" ? "Куратор"
@@ -697,7 +753,8 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     await send(chatId, "❔ КОМАНДА НЕ НАЙДЕНА\n\nПроверьте написание или откройте список команд: !помощь");
     return true;
   } catch (error) {
-    const messageText = error instanceof Error ? error.message : "Команда не выполнена.";
+    const messageText = commandErrorMessage(error);
+    console.error("WARSTATE group command failed", { command, chatId, telegramId: Number(from?.id || 0), error });
     await send(chatId, `⛔ КОМАНДА НЕ ВЫПОЛНЕНА\n\n${messageText}\n\nПодсказка: !помощь`);
     return true;
   }
@@ -874,7 +931,7 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
 
     return false;
   } catch (error) {
-    await answer(error instanceof Error ? error.message : "Действие не выполнено.", true);
+    await answer(commandErrorMessage(error), true);
     return true;
   }
 }

@@ -87,11 +87,11 @@ function GovernmentPanel({ snapshot, onGovernment }: Pick<Props, "snapshot" | "o
     </div>}
     {gov.canProjectAdmin && gov.canFounderManage && <div className="project-admin-console">
       <div className="project-admin-copy"><small>РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА</small><b>Тестовое управление без голосования</b><span>Работает только для Telegram ID из WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS и только в вашем государстве.</span></div>
-      <button type="button" disabled={iAmPresident} onClick={() => onGovernment("admin_self_president")}>{iAmPresident ? "Вы уже президент" : "Назначить себя президентом"}</button>
+      <button type="button" disabled={iAmPresident} onClick={() => onGovernment("request_self_presidency")}>{iAmPresident ? "Вы уже президент" : "Назначить себя президентом"}</button>
     </div>}
     {gov.canFounderManage && <div className="government-console">
       <div className="founder-self-rule">
-        <div><small>СОВМЕЩЕНИЕ РОЛЕЙ</small><b>{founderIsPresident ? "Основатель + Президент" : "Основатель может стать Президентом"}</b><span>{gov.canProjectAdmin ? "Для тестирования доступно мгновенное назначение выше." : "Для обычного Основателя самоназначение проходит через 30-минутное голосование и требует хотя бы одного голоса другого гражданина и большинства среди поданных голосов."}</span></div>
+        <div><small>СОВМЕЩЕНИЕ РОЛЕЙ</small><b>{founderIsPresident ? "Основатель + Президент" : "Основатель может стать Президентом"}</b><span>{gov.canProjectAdmin ? "Админ бота управляет командами без изменения роли." : "Для обычного Основателя самоназначение проходит через 2-минутное голосование и требует хотя бы одного голоса другого гражданина и большинства среди поданных голосов."}</span></div>
         {!gov.canProjectAdmin && <button type="button" disabled={iAmPresident} onClick={() => onGovernment("request_self_presidency")}>{iAmPresident ? "Вы уже президент" : "Выдвинуть себя"}</button>}
       </div>
       <div className="government-field"><label>Название государства</label><div><input maxLength={64} value={stateName} onChange={(e) => setStateName(e.target.value)} /><button type="button" onClick={() => onGovernment("rename_state", { name: stateName })}>Сохранить</button></div></div>

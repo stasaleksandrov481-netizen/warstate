@@ -410,7 +410,7 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null, o
       if (restoreFounderError) throw restoreFounderError;
     }
   }
-  if (options.syntheticRole) role = options.syntheticRole;
+  // Project admins never become in-game presidents. Their power is checked separately.\n  // Keep the real government role from Telegram state unchanged.
   if (state.is_beginner_island) {
     const { error: curatorError } = await supabase.rpc("gw_refresh_beginner_curator", { p_state_id: state.id });
     if (curatorError && curatorError.code !== "PGRST202") throw curatorError;

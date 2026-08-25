@@ -133,7 +133,7 @@ export async function createStateVote(params: {
       : "В государстве уже идёт голосование. Сначала завершите его.");
   }
 
-  const duration = Math.max(3, Math.min(30, Math.round(params.durationMinutes || 10)));
+  const duration = Math.max(2, Math.min(30, Math.round(params.durationMinutes || 2)));
   const { data, error } = await supabase.from("state_votes").insert({
     state_id: params.stateId,
     created_by_player_id: params.createdByPlayerId,

@@ -67,6 +67,7 @@ const requiredV20 = [
   "supabase/migrations/017_telegram_update_claim_lease.sql",
   "supabase/migrations/018_state_switch_delete_ui.sql",
   "supabase/migrations/023_founder_president_admin.sql",
+  "supabase/migrations/024_repair_government_commands.sql",
   "app/api/game/state/switch/route.ts",
   "lib/community.ts",
   "lib/maintenance.ts",
@@ -111,6 +112,44 @@ for (const file of migrationFiles) {
 }
 for (const rpc of referencedRpc) if (!definedRpc.has(rpc)) failures.push(`RPC used by app but missing from migrations: ${rpc}`);
 
+// Validate named Supabase RPC arguments against the latest migration definition.
+// PostgREST resolves RPCs by argument names, so a harmless-looking rename such
+// as sid -> p_state_id can otherwise break every matching command in production.
+const rpcDefinitions = new Map();
+for (const file of migrationFiles.sort()) {
+  const text = fs.readFileSync(path.join(root, file), "utf8");
+  const pattern = /create\s+(?:or\s+replace\s+)?function\s+(?:public\.)?([a-zA-Z0-9_]+)\s*\(([\s\S]*?)\)\s*returns\b/gi;
+  for (const match of text.matchAll(pattern)) {
+    const params = [];
+    const optional = new Set();
+    for (const rawPart of match[2].split(",")) {
+      const part = rawPart.trim();
+      if (!part) continue;
+      const tokens = part.split(/\s+/);
+      const offset = ["in", "out", "inout", "variadic"].includes(String(tokens[0] || "").toLowerCase()) ? 1 : 0;
+      const name = tokens[offset];
+      if (!name) continue;
+      params.push(name);
+      if (/\bdefault\b|:=/i.test(part)) optional.add(name);
+    }
+    rpcDefinitions.set(match[1], { params, optional, file });
+  }
+}
+for (const file of sourceFiles) {
+  const text = fs.readFileSync(path.join(root, file), "utf8");
+  const calls = [
+    ...text.matchAll(/\.rpc\(\s*["']([a-zA-Z0-9_]+)["']\s*,\s*\{([\s\S]*?)\}\s*\)/g),
+  ];
+  for (const call of calls) {
+    const definition = rpcDefinitions.get(call[1]);
+    if (!definition) continue;
+    const keys = [...call[2].matchAll(/([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g)].map((m) => m[1]);
+    const unknown = keys.filter((key) => !definition.params.includes(key));
+    const missing = definition.params.filter((name) => !keys.includes(name) && !definition.optional.has(name));
+    if (unknown.length || missing.length) failures.push(`RPC argument mismatch: ${file} -> ${call[1]} (unknown: ${unknown.join(",") || "none"}; missing: ${missing.join(",") || "none"}; latest: ${definition.file})`);
+  }
+}
+
 const communityMigration = fs.readFileSync(path.join(root, "supabase/migrations/016_member_activity_votes_spy.sql"), "utf8");
 for (const marker of ["duty_role", "state_votes", "state_vote_ballots", "spy_quests", "gw_resolve_spy_quest", "chat_message_progress"]) {
   if (!communityMigration.includes(marker)) failures.push(`Migration 016 is missing community mechanic: ${marker}`);
@@ -151,9 +190,29 @@ const requiredCommands = [
   "помощь","государство","статус","ресурсы","рейтинг","карта","альянсы","президент","замы","выборы","голосовать",
   "назначитьпрезидента","назначитьзама","снятьзама","казна","постройки","улучшить","налоги","война","бой","сдаться","разведка",
   "оборона","союз","разорватьсоюз","активность","миссия","награда","профиль","создатьюз","юз","название","найти",
-  "роли","роль","голосование","шпион","играть","как_играть","гайд",
+  "роли","роль","голосование","шпион","играть","как_играть","гайд","мойид","админ","диагностика",
 ];
 for (const command of requiredCommands) if (!commandSource.includes(`"${command}"`) && !commandSource.includes(`'${command}'`)) failures.push(`Requested chat command is missing: !${command}`);
+
+
+const commandSetBlock = commandSource.match(/const WARSTATE_COMMANDS = new Set\(\[([\s\S]*?)\]\);/);
+const registeredCommandAliases = commandSetBlock ? [...commandSetBlock[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]) : [];
+const handlerStart = commandSource.indexOf("export async function handleGroupTextCommand");
+const handlerEnd = commandSource.indexOf("export async function handleGroupCallback");
+const commandHandlerSource = handlerStart >= 0 && handlerEnd > handlerStart ? commandSource.slice(handlerStart, handlerEnd) : "";
+for (const alias of registeredCommandAliases) {
+  if (!commandHandlerSource.includes(`"${alias}"`)) failures.push(`Registered command alias has no handler route: !${alias}`);
+}
+if (!commandSource.includes('if (!WARSTATE_COMMANDS.has(command)) return null')) failures.push("Unknown !commands must be ignored instead of answered");
+if (commandSource.includes("КОМАНДА НЕ НАЙДЕНА")) failures.push("Unknown !commands still produce a WARSTATE error reply");
+for (const alias of ["мойид", "мойid", "myid", "админ", "admin", "диагностика", "проверка"]) {
+  const occurrences = commandSource.split(`"${alias}"`).length - 1;
+  if (occurrences < 2) failures.push(`Command alias is registered but not routed: !${alias}`);
+}
+const repairMigration = fs.readFileSync(path.join(root, "supabase/migrations/024_repair_government_commands.sql"), "utf8");
+for (const fn of ["gw_appoint_president","gw_remove_president","gw_nominate_founder_for_president","gw_vote_for_player","gw_cast_vote","gw_finalize_election","gw_command_health"]) {
+  if (!repairMigration.includes(fn)) failures.push(`Government repair migration is missing: ${fn}`);
+}
 
 const routes = walk("app/api").filter((file) => file.endsWith("route.ts"));
 notes.push(`${sourceFiles.length} source files scanned`);
@@ -161,6 +220,7 @@ notes.push(`${routes.length} API routes found`);
 notes.push(`${referencedEnv.size} environment variables referenced and documented`);
 notes.push(`${referencedRpc.size}/${referencedRpc.size} referenced RPCs found in migrations`);
 notes.push(`${requiredCommands.length}/${requiredCommands.length} required chat commands present`);
+notes.push(`${registeredCommandAliases.length}/${registeredCommandAliases.length} registered command aliases routed`);
 notes.push("Vercel Cron dependency: disabled by default (event-driven runtime)");
 if (!fs.readFileSync(path.join(root, "README.md"), "utf8").includes("/setprivacy")) failures.push("README must document disabling BotFather Privacy Mode for !commands");
 notes.push("Telegram webhook idempotency: PostgreSQL-backed");

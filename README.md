@@ -269,7 +269,7 @@ Migration `016` adds member specializations, civic war/alliance votes, the 10-me
 
 For development and bot testing, one or more trusted Telegram accounts can receive a creator-only control in the Profile government panel. This is intentionally keyed by immutable numeric Telegram user ID rather than username.
 
-1. Send `!мойid` in one of your WARSTATE state chats.
+1. Send `!мойид` in one of your WARSTATE state chats.
 2. Put that numeric ID into `WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS` (comma-separated if you use more than one test account).
 3. Redeploy/restart the server after changing environment variables.
 4. Send `!админ` to confirm the flag, then use `!назначитьпрезидента` with no username, or the **Админ-панель проекта** button in Profile.

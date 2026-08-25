@@ -34,7 +34,7 @@ const WAR_LEADERS = new Set(["president", "minister", "deputy"]);
 const WARSTATE_COMMANDS = new Set([
   "играть", "как_играть", "какиграть", "гайд", "guide",
   "help", "помощь", "команды",
-  "мойid", "myid", "админ", "admin",
+  "мойid", "мойид", "мой_id", "myid", "id", "админ", "admin", "проверка", "диагностика", "health",
   "государство", "state", "президент", "замы",
   "роли", "roles", "роль", "role",
   "выборы", "голосовать", "назначитьпрезидента", "снятьпрезидента",
@@ -289,21 +289,49 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       return true;
     }
 
-    if (command === "мойid" || command === "myid") {
+    if (["мойid", "мойид", "мой_id", "myid", "id"].includes(command)) {
       await send(chatId, `🪪 Ваш Telegram ID: ${Number(from.id)}\n\nДля режима создателя проекта добавьте этот ID в WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS.`);
       return true;
     }
 
-    const snapshot = await bootstrapGame(telegramUser(from), chatId);
+    const projectAdmin = isProjectAdminTelegramId(Number(from.id));
 
     if (command === "админ" || command === "admin") {
-      if (!isProjectAdminTelegramId(Number(from.id))) {
-        await send(chatId, "🧪 Режим создателя проекта для этого Telegram ID не включён. Узнайте ID командой !мойid и добавьте его в WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS.");
+      if (!projectAdmin) {
+        await send(chatId, "🧪 Режим создателя проекта для этого Telegram ID не включён. Узнайте ID командой !мойид и добавьте его в WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS.");
         return true;
       }
-      await send(chatId, `🧪 РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА\n\nСтатус: включён\nГосударство: ${snapshot.state.name}\nВы Основатель: ${snapshot.government.canFounderManage ? "да" : "нет"}\n\nВ своём государстве команда !назначитьпрезидента без @username назначит вас президентом сразу, без голосования. В Mini App доступна отдельная админ-панель.`);
+      try {
+        const adminSnapshot = await bootstrapGame(telegramUser(from), chatId);
+        await send(chatId, `🧪 РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА\n\nСтатус: включён\nГосударство: ${adminSnapshot.state.name}\nВы Основатель: ${adminSnapshot.government.canFounderManage ? "да" : "нет"}\n\nВ своём государстве команда !назначитьпрезидента без @username назначит вас президентом сразу, без голосования. В Mini App доступна отдельная админ-панель.`);
+      } catch (adminError) {
+        await send(chatId, `🧪 РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА\n\nСтатус: включён\nНо игровая база сейчас отвечает ошибкой: ${commandErrorMessage(adminError)}`);
+      }
       return true;
     }
+
+    if (["проверка", "диагностика", "health"].includes(command)) {
+      if (!projectAdmin) {
+        await send(chatId, "🧪 Диагностика доступна только ID из WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS.");
+        return true;
+      }
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase.rpc("gw_command_health");
+      if (error) {
+        if (error.code === "PGRST202") {
+          await send(chatId, "🧪 ДИАГНОСТИКА\n\nSQL-проверка не установлена. Примените миграцию 024_repair_government_commands.sql.");
+          return true;
+        }
+        throw error;
+      }
+      const health = (data || {}) as { ok?: boolean; missing?: string[] };
+      await send(chatId, health.ok
+        ? "🧪 ДИАГНОСТИКА\n\nКритические RPC правительства на месте. Командный маршрутизатор активен."
+        : `🧪 ДИАГНОСТИКА\n\nНе хватает SQL-функций: ${(health.missing || []).join(", ") || "неизвестно"}`);
+      return true;
+    }
+
+    const snapshot = await bootstrapGame(telegramUser(from), chatId);
 
     if (command === "государство" || command === "state") {
       const gov = snapshot.government;
@@ -384,8 +412,6 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     if (command === "назначитьпрезидента") {
       if (!snapshot.government.canFounderManage) throw new Error("Президента назначает только Основатель.");
       const targetRaw = String(args[0] || "").trim();
-      const projectAdmin = isProjectAdminTelegramId(Number(from.id));
-
       // No argument means "myself". For normal Founders this starts a
       // 30-minute consent election. The project creator may bypass it only in
       // their own state, which keeps testing fast without granting that power

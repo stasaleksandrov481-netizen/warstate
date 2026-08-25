@@ -208,30 +208,9 @@ export async function POST(request: Request) {
     }
 
     if (message?.chat?.id && ["group", "supergroup"].includes(message.chat.type)) {
-      // Telegram does not expose a complete historical member list to bots.
-      // We therefore enrol every newly joined human immediately, and any existing
-      // member is enrolled on their first message/command or via !вступить.
-      if (Array.isArray(message.new_chat_members)) {
-        for (const member of message.new_chat_members) {
-          if (!member?.id || member?.is_bot) continue;
-          await bootstrapGame({
-            id: Number(member.id),
-            first_name: String(member.first_name || "Игрок"),
-            last_name: member.last_name ? String(member.last_name) : undefined,
-            username: member.username ? String(member.username) : undefined,
-          }, Number(message.chat.id)).catch((error) => console.warn("WARSTATE new member enrolment skipped", error));
-        }
-      }
-
       // Commands are the critical path. Never make a !command wait for optional
       // world maintenance, vote settlement or chat-farm bookkeeping.
       if (await handleGroupTextCommand(message)) return Response.json({ ok: true });
-      // A leading ! belongs to WARSTATE only when it exactly matches a registered
-      // command. Unknown bang-commands are a hard no-op so we never answer typos
-      // or commands intended for another bot in the same group.
-      if (String(message.text || "").trim().startsWith("!")) {
-        return Response.json({ ok: true, ignored: "unknown_bang_command" });
-      }
       const text = String(message.text || "").split("@")[0].trim();
       if (["/groupwars", "/gw", "/war"].includes(text)) {
         await registerTelegramState(Number(message.chat.id));

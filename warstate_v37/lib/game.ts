@@ -232,7 +232,7 @@ async function getPlayerMemberSnapshot(stateId: string, playerId: string) {
   return { contribution: Number(fallback.data?.contribution || 0), dutyRole: null };
 }
 
-export async function bootstrapGame(user: TelegramUser, chatId: number | null, options: { preserveHomeState?: boolean; syntheticRole?: string } = {}): Promise<GameSnapshot> {
+export async function bootstrapGame(user: TelegramUser, chatId: number | null): Promise<GameSnapshot> {
   const supabase = getSupabaseAdmin();
   const player = await upsertPlayer(user);
 
@@ -283,32 +283,30 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null, o
     }
   }
 
-  // One Telegram player normally has one active in-game citizenship. Project
-  // superadmins may inspect/control any group without moving their real home state.
-  // This prevents the creator from accidentally "joining" every state they help.
-  if (!options.preserveHomeState) {
-    const { error: memberError } = await supabase.rpc("gw_set_player_home_state", {
-      p_player_id: player.id,
-      p_state_id: state.id,
-      p_role: role === "founder" ? "citizen" : role,
-      p_membership_verified_at: membershipVerifiedAt,
-    });
-    if (memberError) {
-      const dbMessage = String(memberError.message || "");
-      if (dbMessage.includes("24") || dbMessage.toLowerCase().includes("cooldown")) {
-        console.warn("Ignored citizenship cooldown during bootstrap:", dbMessage);
-      } else if (dbMessage.includes("gw_set_player_home_state") || memberError.code === "PGRST202") {
-        throw new Error("Не установлены актуальные миграции 012_live_integrity_audit.sql и 013_full_state_wars_spec.sql.");
-      } else {
-        throw memberError;
-      }
-    }
-    if (role === "founder") {
-      const { error: restoreFounderError } = await supabase.from("state_members").update({ role: "founder" }).eq("state_id", state.id).eq("player_id", player.id);
-      if (restoreFounderError) throw restoreFounderError;
+  // One Telegram player has one active in-game citizenship. The database RPC
+  // serializes concurrent launches and changes membership + home_state_id atomically.
+  const { data: membershipId, error: memberError } = await supabase.rpc("gw_set_player_home_state", {
+    p_player_id: player.id,
+    p_state_id: state.id,
+    p_role: role === "founder" ? "citizen" : role,
+    p_membership_verified_at: membershipVerifiedAt,
+  });
+  if (memberError) {
+    const dbMessage = String(memberError.message || "");
+    // Do not block Mini App launch because of stale citizenship/cooldown rules.
+    // The player can still open the game and repair the membership from the UI.
+    if (dbMessage.includes("24") || dbMessage.toLowerCase().includes("cooldown")) {
+      console.warn("Ignored citizenship cooldown during bootstrap:", dbMessage);
+    } else if (dbMessage.includes("gw_set_player_home_state") || memberError.code === "PGRST202") {
+      throw new Error("Не установлены актуальные миграции 012_live_integrity_audit.sql и 013_full_state_wars_spec.sql.");
+    } else {
+      throw memberError;
     }
   }
-  if (options.syntheticRole) role = options.syntheticRole;
+  if (role === "founder") {
+    const { error: restoreFounderError } = await supabase.from("state_members").update({ role: "founder" }).eq("state_id", state.id).eq("player_id", player.id);
+    if (restoreFounderError) throw restoreFounderError;
+  }
   if (state.is_beginner_island) {
     const { error: curatorError } = await supabase.rpc("gw_refresh_beginner_curator", { p_state_id: state.id });
     if (curatorError && curatorError.code !== "PGRST202") throw curatorError;

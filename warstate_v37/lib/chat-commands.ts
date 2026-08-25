@@ -3,7 +3,7 @@ import { getAlliedStateChats, performDiplomacyAction } from "@/lib/diplomacy";
 import { bootstrapGame, tickState } from "@/lib/game";
 import { startWarAction, upgradeBuildingAction } from "@/lib/actions";
 import { addAllianceBattleSupport, completeDailyActivity, surrenderBattle } from "@/lib/strategy";
-import { appointPresident, appointPresidentByPlayerId, openGovernmentElection, removePresident, renameState, requestFounderSelfPresidency, resolveStateMemberByTelegramId, resolveStateMemberByUsername, resolveStateTarget, searchStates, setDeputy, setDeputyByPlayerId, setStateUsername, voteForUsername } from "@/lib/government";
+import { appointPresident, appointPresidentByPlayerId, openGovernmentElection, removePresident, renameState, requestFounderSelfPresidency, resolveStateMemberByUsername, resolveStateTarget, searchStates, setDeputy, setStateUsername, voteForUsername } from "@/lib/government";
 import { claimDailyMission } from "@/lib/missions";
 import { miniAppLink, telegramApi } from "@/lib/telegram-bot";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -27,18 +27,14 @@ import type { TelegramUser } from "@/lib/telegram";
 import { telegramGameGuideText } from "@/lib/game-guide";
 import { publishStateEvent } from "@/lib/state-events";
 import { isProjectAdminTelegramId } from "@/lib/config";
-import { isProjectAdminChatMode, setProjectAdminChatMode } from "@/lib/project-admin-session";
 
 const LEADERS = new Set(["president", "minister", "deputy", "curator"]);
 const WAR_LEADERS = new Set(["president", "minister", "deputy"]);
 
-const WARSTATE_BUILD = "3.6-max";
-
 const WARSTATE_COMMANDS = new Set([
   "играть", "как_играть", "какиграть", "гайд", "guide",
-  "help", "помощь", "команды", "версия", "version",
-  "мойid", "мойид", "мой_id", "myid", "id", "админ", "admin", "суперадмин", "режимадмина", "админрежим", "проверка", "диагностика", "health",
-  "вступить", "войти", "присоединиться", "оботе", "о_боте", "чтоэтобот",
+  "help", "помощь", "команды",
+  "мойid", "мойид", "мой_id", "myid", "id", "админ", "admin", "проверка", "диагностика", "health",
   "государство", "state", "президент", "замы",
   "роли", "roles", "роль", "role",
   "выборы", "голосовать", "назначитьпрезидента", "снятьпрезидента",
@@ -46,35 +42,26 @@ const WARSTATE_COMMANDS = new Set([
   "найти", "рейтинг", "карта", "альянсы", "голосование", "vote",
   "статус", "status", "ресурсы", "resources", "профиль", "profile",
   "вклад", "contribution", "государства", "states", "казна", "налоги",
-  "постройки", "постройка", "стройки", "buildings", "миссия", "миссии", "награда", "награды", "reward", "rewards", "активность", "activity",
+  "постройки", "миссия", "награда", "активность", "activity",
   "бой", "battle", "оборона", "defense", "улучшить", "upgrade",
   "союз", "alliance", "разорватьсоюз", "разведка", "шпион", "spy",
   "война", "war", "поддержать", "support", "сдаться", "surrender",
 ]);
 
-function normalizeCommandName(value: string) {
-  return String(value || "")
-    .trim()
-    .toLocaleLowerCase("ru-RU")
-    .replace(/ё/g, "е")
-    .replace(/[-]+/g, "_");
-}
-
 function parseWarstateCommand(text: string) {
-  const trimmed = String(text || "").trim();
-  if (!trimmed.startsWith("!")) return null;
-  const source = trimmed.slice(1).trim();
-  if (!source) return null;
-  const [rawCommand, ...args] = source.split(/\s+/);
+  if (!text.startsWith("!")) return null;
+  const [rawCommand, ...args] = text.slice(1).trim().split(/\s+/);
   if (!rawCommand) return null;
 
   const [rawName, rawMention] = String(rawCommand).split("@", 2);
   if (rawMention) {
-    const ownUsername = normalizeCommandName(String(process.env.TELEGRAM_BOT_USERNAME || "").replace(/^@/, ""));
-    if (!ownUsername || normalizeCommandName(rawMention) !== ownUsername) return null;
+    const ownUsername = String(process.env.TELEGRAM_BOT_USERNAME || "")
+      .replace(/^@/, "")
+      .toLocaleLowerCase("ru-RU");
+    if (!ownUsername || rawMention.toLocaleLowerCase("ru-RU") !== ownUsername) return null;
   }
 
-  const command = normalizeCommandName(rawName);
+  const command = rawName.toLocaleLowerCase("ru-RU");
   if (!WARSTATE_COMMANDS.has(command)) return null;
   return { command, args };
 }
@@ -256,15 +243,10 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       return true;
     }
 
-    if (command === "версия" || command === "version") {
-      await send(chatId, `🧩 WARSTATE ${WARSTATE_BUILD}\n\nКомандный маршрутизатор: точный режим. Неизвестные !команды игнорируются.`);
-      return true;
-    }
-
     if (["help", "помощь", "команды"].includes(command)) {
       await send(chatId,
         "🧭 WARSTATE · ПОМОЩЬ\n\n" +
-        "📖 Новичок? !играть — подробная инструкция от первого входа до войн и союзов. !оботе — что такое WARSTATE.\n\n" +
+        "📖 Новичок? !играть — подробная инструкция от первого входа до войн и союзов.\n\n" +
         "🏛 ГОСУДАРСТВО\n" +
         "!государство — карточка страны\n" +
         "!статус — уровень, армия, оборона и прочность\n" +
@@ -272,13 +254,12 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         "!карта — карта островов и переход в другое государство\n" +
         "!государства — список государств · !найти @state — поиск\n" +
         "!рейтинг — топ по ELO · !профиль — роль, XP и бои\n" +
-        "!мойид — Telegram ID · !версия — версия обработчика\n" +
         "!вклад — твой вклад в развитие страны\n\n" +
         "👑 УПРАВЛЕНИЕ\n" +
-        "!президент / !замы — руководство государства\n!вступить — стать гражданином государства текущей группы без Mini App\n!суперадмин — включить режим создателя в текущем чате (только ваш Telegram ID)\n" +
+        "!президент / !замы — руководство государства\n" +
         "!назначитьпрезидента @user / !снятьпрезидента\n" +
         "!назначитьпрезидента — самовыдвижение Основателя через голосование\n" +
-        "!назначитьзама @user / !снятьзама @user — Основатель или Президент; можно ответом на сообщение\n" +
+        "!назначитьзама @user / !снятьзама @user\n" +
         "!роли — список специализаций · !роль @user роль — назначить\n" +
         "!выборы — открыть выборы · !голосовать @user — отдать голос\n" +
         "!голосование — текущее решение войны/союза\n" +
@@ -302,27 +283,9 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         "!миссия — ежедневные задачи\n" +
         "!награда — забрать готовую награду\n" +
         "!активность — доступные операции дня\n\n" +
-        "🧪 Создатель проекта: в любом чате напишите !суперадмин, чтобы включить глобальные права команд именно в этом чате. !суперадмин выкл — отключить.\n\n" +
         "💬 За общение: +2 XP и +1 вклад не чаще раза в минуту. Каждые 10 обычных сообщений граждан дают государству +1 ко всем ресурсам.\n\n" +
         "⇄ Смена государства: открой !карта → выбери остров → «Перейти». Бот обязательно проверит, что ты состоишь в Telegram-чате выбранного государства."
       );
-      return true;
-    }
-
-    if (["оботе", "о_боте", "чтоэтобот"].includes(command)) {
-      await send(chatId,
-        "⚔ WARSTATE · ЧТО ЭТО ЗА БОТ\n\n" +
-        "WARSTATE превращает Telegram-группы в государства на общей карте. У каждой группы есть остров, экономика, правительство, граждане, армия, дипломатия, выборы и войны.\n\n" +
-        "Как начать:\n1. Добавьте бота в группу.\n2. Напишите !вступить.\n3. Основатель задаёт юз: !создатьюз название.\n4. Управляйте страной прямо командами в группе или через Mini App.\n\n" +
-        "Главные команды: !помощь, !играть, !государство, !карта, !президент, !замы, !ресурсы, !постройки, !союз, !война.\n\n" +
-        "Важно: Mini App удобен для визуального управления, но основные игровые действия доступны и из чата."
-      );
-      return true;
-    }
-
-    if (["вступить", "войти", "присоединиться"].includes(command)) {
-      const joined = await bootstrapGame(telegramUser(from), chatId);
-      await send(chatId, `✅ ${joined.player.displayName} теперь числится гражданином государства «${joined.state.name}».\n\nMini App открывать для вступления не обязательно.`);
       return true;
     }
 
@@ -333,21 +296,6 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
 
     const projectAdmin = isProjectAdminTelegramId(Number(from.id));
 
-    if (["суперадмин", "режимадмина", "админрежим"].includes(command)) {
-      if (!projectAdmin) {
-        await send(chatId, "⛔ Этот Telegram ID не имеет прав создателя проекта.");
-        return true;
-      }
-      const disable = ["выкл", "off", "0", "нет"].includes(String(args[0] || "").toLocaleLowerCase("ru-RU"));
-      await setProjectAdminChatMode(Number(from.id), chatId, !disable);
-      await send(chatId, disable
-        ? "🧪 Глобальный режим создателя отключён в этом чате."
-        : "🧪 ГЛОБАЛЬНЫЙ РЕЖИМ СОЗДАТЕЛЯ ВКЛЮЧЁН\n\nВ этом чате вам доступны все административные команды WARSTATE независимо от местной должности. Для отключения: !суперадмин выкл");
-      return true;
-    }
-
-    const superAdminMode = projectAdmin && await isProjectAdminChatMode(Number(from.id), chatId);
-
     if (command === "админ" || command === "admin") {
       if (!projectAdmin) {
         await send(chatId, "🧪 Режим создателя проекта для этого Telegram ID не включён. Узнайте ID командой !мойид и добавьте его в WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS.");
@@ -355,7 +303,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       }
       try {
         const adminSnapshot = await bootstrapGame(telegramUser(from), chatId);
-        await send(chatId, `🧪 РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА\n\nСтатус ID: включён\nРежим в этом чате: ${superAdminMode ? "включён" : "выключен"}\nГосударство: ${adminSnapshot.state.name}\nВы Основатель: ${adminSnapshot.government.canFounderManage ? "да" : "нет"}\n\nГлобальный доступ: включён. В любом чате с WARSTATE ваши команды выполняются с правами проекта без смены вашего государства. Ограничения игровых ролей для команд управления не применяются.`);
+        await send(chatId, `🧪 РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА\n\nСтатус: включён\nГосударство: ${adminSnapshot.state.name}\nВы Основатель: ${adminSnapshot.government.canFounderManage ? "да" : "нет"}\n\nВ своём государстве команда !назначитьпрезидента без @username назначит вас президентом сразу, без голосования. В Mini App доступна отдельная админ-панель.`);
       } catch (adminError) {
         await send(chatId, `🧪 РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА\n\nСтатус: включён\nНо игровая база сейчас отвечает ошибкой: ${commandErrorMessage(adminError)}`);
       }
@@ -378,15 +326,12 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       }
       const health = (data || {}) as { ok?: boolean; missing?: string[] };
       await send(chatId, health.ok
-        ? `🧪 ДИАГНОСТИКА\n\nWARSTATE ${WARSTATE_BUILD}\nКритические RPC правительства на месте. Командный маршрутизатор активен. Неизвестные !команды игнорируются.`
+        ? "🧪 ДИАГНОСТИКА\n\nКритические RPC правительства на месте. Командный маршрутизатор активен."
         : `🧪 ДИАГНОСТИКА\n\nНе хватает SQL-функций: ${(health.missing || []).join(", ") || "неизвестно"}`);
       return true;
     }
 
-    const snapshot = await bootstrapGame(telegramUser(from), chatId, superAdminMode ? { preserveHomeState: true, syntheticRole: "president" } : {});
-    const effectiveActorPlayerId = superAdminMode
-      ? String(snapshot.government.founder?.playerId || snapshot.government.president?.playerId || snapshot.player.id)
-      : snapshot.player.id;
+    const snapshot = await bootstrapGame(telegramUser(from), chatId);
 
     if (command === "государство" || command === "state") {
       const gov = snapshot.government;
@@ -441,7 +386,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       const clear = ["снять", "none", "clear", "нет"].includes(roleRaw.toLocaleLowerCase("ru-RU"));
       const dutyRole = clear ? null : parseDutyRole(roleRaw);
       if (!clear && !dutyRole) throw new Error("Специализация: дипломат, шпион, шахтер или рабочий.");
-      await setDutyRole({ stateId: snapshot.state.id, actorPlayerId: effectiveActorPlayerId, targetPlayerId: target.id, dutyRole });
+      await setDutyRole({ stateId: snapshot.state.id, actorPlayerId: snapshot.player.id, targetPlayerId: target.id, dutyRole });
       await send(chatId, dutyRole
         ? `🎖 ${target.display_name}${target.username ? ` (@${target.username})` : ""} получает специализацию «${DUTY_ROLE_LABELS[dutyRole]}».`
         : `🎖 Специализация ${target.display_name}${target.username ? ` (@${target.username})` : ""} снята.`);
@@ -449,8 +394,8 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "выборы") {
-      if (!snapshot.government.canFounderManage && !superAdminMode) throw new Error("Внеочередные выборы запускает только Основатель.");
-      const electionId = await openGovernmentElection(snapshot.state.id, effectiveActorPlayerId);
+      if (!snapshot.government.canFounderManage) throw new Error("Внеочередные выборы запускает только Основатель.");
+      const electionId = await openGovernmentElection(snapshot.state.id, snapshot.player.id);
       await publishStateEvent(snapshot.state.id, "🗳 ВЫБОРЫ ПРЕЗИДЕНТА", "Началось голосование за нового президента государства.");
       await send(chatId, `🗳 ВЫБОРЫ ПРЕЗИДЕНТА\n\nГолосование открыто на 30 минут.\nКоманда: !голосовать @username\n\nИтог будет подведён автоматически при следующей активности государства.`);
       return true;
@@ -465,22 +410,18 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "назначитьпрезидента") {
-      if (!snapshot.government.canFounderManage && !superAdminMode) throw new Error("Президента назначает только Основатель.");
+      if (!snapshot.government.canFounderManage) throw new Error("Президента назначает только Основатель.");
       const targetRaw = String(args[0] || "").trim();
       // No argument means "myself". For normal Founders this starts a
       // 30-minute consent election. The project creator may bypass it only in
       // their own state, which keeps testing fast without granting that power
       // to every Telegram chat owner.
       if (!targetRaw) {
-        if (superAdminMode && !snapshot.government.canFounderManage) {
-          throw new Error("В чужом государстве укажите кандидата: !назначитьпрезидента @username. Глобальные права не делают вас гражданином этого государства.");
-        }
-        if (superAdminMode) {
-          const founderActor = String(snapshot.government.founder?.playerId || snapshot.player.id);
-          const target = await appointPresidentByPlayerId(snapshot.state.id, founderActor, snapshot.player.id);
+        if (projectAdmin) {
+          const target = await appointPresidentByPlayerId(snapshot.state.id, snapshot.player.id, snapshot.player.id);
           await send(chatId, `🧪 ${target.display_name}${target.username ? ` (@${target.username})` : ""} назначен президентом без голосования · режим создателя проекта.`);
         } else {
-          await requestFounderSelfPresidency(snapshot.state.id, effectiveActorPlayerId);
+          await requestFounderSelfPresidency(snapshot.state.id, snapshot.player.id);
           await send(chatId, `🗳 САМОВЫДВИЖЕНИЕ ОСНОВАТЕЛЯ\n\n${snapshot.player.displayName} выдвинул(а) себя в президенты. Голосование идёт 30 минут. Ваш собственный голос не засчитывается: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов. Граждане могут голосовать в Mini App${snapshot.player.username ? ` или командой !голосовать @${snapshot.player.username}` : ""}.`);
         }
         return true;
@@ -488,59 +429,48 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
 
       const target = await resolveStateMemberByUsername(snapshot.state.id, targetRaw);
       const selfFounder = String(target.id) === String(snapshot.player.id);
-      if (selfFounder && !superAdminMode) {
-        await requestFounderSelfPresidency(snapshot.state.id, effectiveActorPlayerId);
+      if (selfFounder && !projectAdmin) {
+        await requestFounderSelfPresidency(snapshot.state.id, snapshot.player.id);
         await send(chatId, `🗳 САМОВЫДВИЖЕНИЕ ОСНОВАТЕЛЯ\n\n${snapshot.player.displayName} выдвинул(а) себя в президенты. Решение принимают граждане на 30-минутном голосовании: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов.`);
         return true;
       }
-      const founderActor = effectiveActorPlayerId;
       const appointed = selfFounder
-        ? await appointPresidentByPlayerId(snapshot.state.id, founderActor, snapshot.player.id)
-        : await appointPresident(snapshot.state.id, founderActor, targetRaw);
+        ? await appointPresidentByPlayerId(snapshot.state.id, snapshot.player.id, snapshot.player.id)
+        : await appointPresident(snapshot.state.id, snapshot.player.id, targetRaw);
       await send(chatId, `👑 ${appointed.display_name}${appointed.username ? ` (@${appointed.username})` : ""} назначен президентом.`);
       return true;
     }
 
     if (command === "снятьпрезидента") {
-      if (!snapshot.government.canFounderManage && !superAdminMode) throw new Error("Президента снимает только Основатель.");
-      await removePresident(snapshot.state.id, effectiveActorPlayerId);
+      if (!snapshot.government.canFounderManage) throw new Error("Президента снимает только Основатель.");
+      await removePresident(snapshot.state.id, snapshot.player.id);
       await send(chatId, "👑 Президент снят с должности. Государство временно управляется без президента до назначения или выборов.");
       return true;
     }
 
     if (command === "назначитьзама" || command === "снятьзама") {
-      const isPresident = snapshot.government.president?.playerId === snapshot.player.id;
-      if (!superAdminMode && !snapshot.government.canFounderManage && !isPresident) throw new Error("Заместителей назначает и снимает Основатель или Президент.");
+      if (!snapshot.government.canFounderManage) throw new Error("Заместителей назначает и снимает только Основатель.");
       const enabled = command === "назначитьзама";
-      const replyTelegramId = Number(message?.reply_to_message?.from?.id || 0);
-      let target: any;
-      if (Number.isSafeInteger(replyTelegramId) && replyTelegramId > 0) {
-        const member = await resolveStateMemberByTelegramId(snapshot.state.id, replyTelegramId);
-        target = await setDeputyByPlayerId(snapshot.state.id, effectiveActorPlayerId, member.id, enabled);
-      } else {
-        const rawTarget = String(args[0] || "");
-        if (!rawTarget) throw new Error(`Ответьте этой командой на сообщение человека или укажите @username: !${command} @username`);
-        target = await setDeputy(snapshot.state.id, effectiveActorPlayerId, rawTarget, enabled);
-      }
+      const target = await setDeputy(snapshot.state.id, snapshot.player.id, String(args[0] || ""), enabled);
       await publishStateEvent(snapshot.state.id, enabled ? "🛡 НАЗНАЧЕН ЗАМЕСТИТЕЛЬ" : "🛡 ЗАМЕСТИТЕЛЬ СНЯТ", `${target.display_name}${target.username ? ` (@${target.username})` : ""}`);
       await send(chatId, `${enabled ? "🛡 Назначен заместитель" : "🛡 Заместитель снят"}: ${target.display_name}${target.username ? ` (@${target.username})` : ""}.`);
       return true;
     }
 
     if (command === "создатьюз" || command === "юз") {
-      if (!snapshot.government.canFounderManage && !superAdminMode) throw new Error("Юз государства меняет только Основатель.");
+      if (!snapshot.government.canFounderManage) throw new Error("Юз государства меняет только Основатель.");
       const raw = String(args[0] || "");
       if (!raw) throw new Error(`Формат: !${command} north_empire`);
-      const result: any = await setStateUsername(snapshot.state.id, effectiveActorPlayerId, raw);
+      const result: any = await setStateUsername(snapshot.state.id, snapshot.player.id, raw);
       await send(chatId, `🌐 Юз государства: @${String(result?.username || raw).replace(/^@/, "")}`);
       return true;
     }
 
     if (command === "название") {
-      if (!snapshot.government.canFounderManage && !superAdminMode) throw new Error("Название государства меняет только Основатель.");
+      if (!snapshot.government.canFounderManage) throw new Error("Название государства меняет только Основатель.");
       const name = args.join(" ").trim();
       if (!name) throw new Error("Формат: !название Новое Государство");
-      const result: any = await renameState(snapshot.state.id, effectiveActorPlayerId, name);
+      const result: any = await renameState(snapshot.state.id, snapshot.player.id, name);
       await send(chatId, `🏛 Государство теперь называется «${String(result?.name || name)}».`);
       return true;
     }
@@ -685,17 +615,17 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       return true;
     }
 
-    if (["постройки", "постройка", "стройки", "buildings"].includes(command)) {
+    if (command === "постройки") {
       await send(chatId, `🏗 ПОСТРОЙКИ\n\n${snapshot.buildings.map((b) => `${b.label} · ур.${b.level}${b.upgradeTargetLevel ? ` → ${b.upgradeTargetLevel}` : ""}`).join("\n")}`, [[{ text: "🏝 Открыть остров", url: miniAppLink(chatId) }]]);
       return true;
     }
 
-    if (command === "миссия" || command === "миссии") {
+    if (command === "миссия") {
       await send(chatId, `🎖 МИССИИ\n\n${snapshot.dailyMissions.map((m) => `${m.claimed ? "✅" : m.progress >= m.target ? "🎁" : "•"} ${m.title}: ${m.progress}/${m.target} · ${m.rewardXp} XP${m.rewardCredits ? ` + ${m.rewardCredits} кредитов` : ""}`).join("\n")}`);
       return true;
     }
 
-    if (["награда", "награды", "reward", "rewards"].includes(command)) {
+    if (command === "награда") {
       const mission = snapshot.dailyMissions.find((m) => !m.claimed && m.progress >= m.target);
       if (!mission) throw new Error("Сейчас нет готовой награды. Выполните миссии через !миссия.");
       await claimDailyMission(snapshot.player.id, snapshot.state.id, mission.id);
@@ -752,17 +682,17 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "улучшить" || command === "upgrade") {
-      if (!LEADERS.has(snapshot.player.role) && !superAdminMode) throw new Error("Улучшать инфраструктуру может только президент или заместитель.");
+      if (!LEADERS.has(snapshot.player.role)) throw new Error("Улучшать инфраструктуру может только президент или заместитель.");
       const building = BUILDING_ALIASES[String(args[0] || "").toLowerCase()];
       if (!building) throw new Error("Укажите постройку: казначейство, казармы, шахта, нпз, ферма, академия, застава или торговая_палата.");
-      const upgrade = await upgradeBuildingAction({ actorRole: superAdminMode ? "president" : snapshot.player.role, stateId: snapshot.state.id, buildingType: building, stateIsFreeport: snapshot.state.isFreeport });
+      const upgrade = await upgradeBuildingAction({ actorRole: snapshot.player.role, stateId: snapshot.state.id, buildingType: building, stateIsFreeport: snapshot.state.isFreeport });
       const buildMinutes = upgrade.finishesAt ? Math.max(1, Math.ceil((new Date(upgrade.finishesAt).getTime() - Date.now()) / 60_000)) : null;
       await send(chatId, `🏗️ Строительство запущено: ${String(args[0])} → ур. ${upgrade.targetLevel}. Ресурсы зарезервированы. ${buildMinutes ? `Осталось примерно ${buildMinutes} мин.` : "Завершение идёт по серверному таймеру."}`, [[{ text: "🏝️ Открыть остров", url: miniAppLink(chatId) }]]);
       return true;
     }
 
     if (command === "союз" || command === "alliance" || command === "разорватьсоюз") {
-      const canDiplomacy = projectAdmin || snapshot.player.role === "president" || snapshot.player.dutyRole === "diplomat";
+      const canDiplomacy = snapshot.player.role === "president" || snapshot.player.dutyRole === "diplomat";
       if (!canDiplomacy) throw new Error("Союзами управляет Президент или Дипломат.");
       const actionRaw = command === "разорватьсоюз" ? "выйти" : String(args[0] || "").toLowerCase();
       const isAction = ["принять", "accept", "отклонить", "reject", "выйти", "leave"].includes(actionRaw);
@@ -801,7 +731,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       }
       const vote = await createStateVote({
         stateId: snapshot.state.id,
-        createdByPlayerId: effectiveActorPlayerId,
+        createdByPlayerId: snapshot.player.id,
         kind: "alliance",
         targetStateId: target.id,
         payload: { action: accepting ? "accept" : "propose" },
@@ -814,7 +744,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "разведка") {
-      if (!WAR_LEADERS.has(snapshot.player.role) && !superAdminMode) throw new Error("Разведкой управляет президент или заместитель.");
+      if (!WAR_LEADERS.has(snapshot.player.role)) throw new Error("Разведкой управляет президент или заместитель.");
       const target = await resolveStateTarget(String(args[0] || ""));
       const supabase = getSupabaseAdmin();
       const { data, error } = await supabase.from("states").select("name,state_username,game_level,rating,army_power,defense_power,reputation,active_player_count,island_integrity").eq("id", target.id).single();
@@ -824,7 +754,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "шпион" || command === "spy") {
-      if (snapshot.player.dutyRole !== "spy" && !superAdminMode) throw new Error("Команда доступна только участнику со специализацией «Шпион».");
+      if (snapshot.player.dutyRole !== "spy") throw new Error("Команда доступна только участнику со специализацией «Шпион».");
       const target = await resolveStateTarget(String(args[0] || ""));
       if (target.id === snapshot.state.id) throw new Error("Укажите вражеское или нейтральное государство.");
       await send(chatId,
@@ -838,7 +768,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "война" || command === "war") {
-      if (snapshot.player.role !== "president" && !superAdminMode) throw new Error("Голосование о начале войны запускает Президент.");
+      if (snapshot.player.role !== "president") throw new Error("Голосование о начале войны запускает Президент.");
       const targetRaw = String(args[0] || "");
       if (!targetRaw) throw new Error("Формат: !война @north_empire raid");
       const battleType = WAR_TYPES[String(args[1] || "raid").toLowerCase()];
@@ -846,7 +776,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       const target = await resolveStateTarget(targetRaw);
       const vote = await createStateVote({
         stateId: snapshot.state.id,
-        createdByPlayerId: effectiveActorPlayerId,
+        createdByPlayerId: snapshot.player.id,
         kind: "war",
         targetStateId: target.id,
         payload: { battleType },
@@ -859,12 +789,12 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "поддержать" || command === "support") {
-      if (!LEADERS.has(snapshot.player.role) && !superAdminMode) throw new Error("Союзную поддержку отправляет президент или заместитель.");
+      if (!LEADERS.has(snapshot.player.role)) throw new Error("Союзную поддержку отправляет президент или заместитель.");
       const battleId = String(args[0] || "");
       const rawSide = String(args[1] || "").toLowerCase();
       const side = ["attack", "attacker", "атака"].includes(rawSide) ? "attacker" : ["defense", "defender", "защита"].includes(rawSide) ? "defender" : null;
       if (!battleId || !side) throw new Error("Формат: !поддержать <ID_боя> defense");
-      const result: any = await addAllianceBattleSupport(battleId, snapshot.state.id, effectiveActorPlayerId, side);
+      const result: any = await addAllianceBattleSupport(battleId, snapshot.state.id, snapshot.player.id, side);
       await send(chatId, result?.training
         ? `🗺️ Учебная поддержка отправлена: +${Number(result?.power || 0)} силы в оборону. После боя вы получите XP +${Number(result?.xp || 0)}, репутацию +${Number(result?.reputation || 0)} и вклад. Ресурсы Остров новичков не получает.`
         : `🤝 Союзная поддержка отправлена: +${Number(result?.power || 0)} силы на ${side === "defender" ? "оборону" : "атаку"}.`);
@@ -872,7 +802,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "сдаться" || command === "surrender") {
-      if (!WAR_LEADERS.has(snapshot.player.role) && !superAdminMode) throw new Error("Сдаться может только президент или заместитель.");
+      if (!WAR_LEADERS.has(snapshot.player.role)) throw new Error("Сдаться может только президент или заместитель.");
       const battleId = String(args[0] || snapshot.activeBattle?.id || "");
       if (!battleId) throw new Error("Активной битвы нет.");
       await surrenderBattle(battleId, snapshot.state.id);
@@ -1010,7 +940,7 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
       }
       const side = action === "attacker" ? "attacker" : action === "defender" ? "defender" : null;
       if (!side) return false;
-      const result: any = await addAllianceBattleSupport(battleId, snapshot.state.id, effectiveActorPlayerId, side);
+      const result: any = await addAllianceBattleSupport(battleId, snapshot.state.id, snapshot.player.id, side);
       await answer(`Поддержка +${Number(result?.power || 0)}`);
       await send(chatId, result?.training
         ? `🗺️ Учебная поддержка принята: +${Number(result?.power || 0)} к обороне. После боя Остров новичков получит опыт, репутацию и вклад, но не ресурсы.`
@@ -1050,7 +980,7 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
     }
 
     if (action === "surrender") {
-      if (!WAR_LEADERS.has(snapshot.player.role) && !superAdminMode) throw new Error("Сдаться может только президент или заместитель.");
+      if (!WAR_LEADERS.has(snapshot.player.role)) throw new Error("Сдаться может только президент или заместитель.");
       if (!isDefender) throw new Error("Капитуляцию через эту кнопку подтверждает защищающаяся сторона.");
       await surrenderBattle(battleId, snapshot.state.id);
       await answer("Капитуляция подтверждена");

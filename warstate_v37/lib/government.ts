@@ -191,45 +191,6 @@ export async function resolveStateMemberByUsername(stateId: string, raw: string)
   return { ...player, role: member.role };
 }
 
-
-export async function resolveStateMemberByTelegramId(stateId: string, telegramId: number) {
-  const supabase = getSupabaseAdmin();
-  const { data: player, error: playerError } = await supabase
-    .from("players")
-    .select("id,telegram_id,display_name,username")
-    .eq("telegram_id", telegramId)
-    .maybeSingle();
-  if (playerError) throw playerError;
-  if (!player) throw new Error("Игрок ещё не зарегистрирован в WARSTATE. Пусть напишет !вступить в этом чате или любое сообщение после добавления бота.");
-  const { data: member, error: memberError } = await supabase
-    .from("state_members")
-    .select("role")
-    .eq("state_id", stateId)
-    .eq("player_id", player.id)
-    .maybeSingle();
-  if (memberError) throw memberError;
-  if (!member) throw new Error("Игрок зарегистрирован, но ещё не вступил в государство этого чата. Пусть напишет !вступить здесь.");
-  return { ...player, role: member.role };
-}
-
-export async function setDeputyByPlayerId(stateId: string, actorPlayerId: string, targetPlayerId: string, enabled: boolean) {
-  const supabase = getSupabaseAdmin();
-  const { data: target, error: targetError } = await supabase
-    .from("players")
-    .select("id,telegram_id,display_name,username")
-    .eq("id", targetPlayerId)
-    .single();
-  if (targetError) throw targetError;
-  const { error } = await supabase.rpc("gw_set_deputy", {
-    p_state_id: stateId,
-    p_founder_player_id: actorPlayerId,
-    p_target_player_id: targetPlayerId,
-    p_enabled: enabled,
-  });
-  if (error) throw error;
-  return target;
-}
-
 export async function getGovernmentView(stateId: string, playerId: string): Promise<GovernmentView> {
   const supabase = getSupabaseAdmin();
   const { data: state, error: stateError } = await supabase
@@ -367,9 +328,12 @@ export async function removePresident(stateId: string, founderPlayerId: string) 
   if (error) throw error;
 }
 
-export async function setDeputy(stateId: string, actorPlayerId: string, username: string, enabled: boolean) {
+export async function setDeputy(stateId: string, founderPlayerId: string, username: string, enabled: boolean) {
   const target = await resolveStateMemberByUsername(stateId, username);
-  return setDeputyByPlayerId(stateId, actorPlayerId, target.id, enabled);
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase.rpc("gw_set_deputy", { p_state_id: stateId, p_founder_player_id: founderPlayerId, p_target_player_id: target.id, p_enabled: enabled });
+  if (error) throw error;
+  return target;
 }
 
 export async function setStateUsername(stateId: string, founderPlayerId: string, username: string) {

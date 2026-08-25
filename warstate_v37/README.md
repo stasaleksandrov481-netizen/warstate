@@ -247,7 +247,7 @@ CRON_SECRET=
 
 ## Supabase migrations
 
-Fresh database: apply `001` through `025` in numeric order.
+Fresh database: apply `001` through `023` in numeric order.
 
 Existing v1.9 database: apply sequentially:
 
@@ -261,11 +261,9 @@ supabase/migrations/020_integrity_repair.sql
 supabase/migrations/021_fix_stale_election_conflict.sql
 supabase/migrations/022_fix_state_color_contrast.sql
 supabase/migrations/023_founder_president_admin.sql
-supabase/migrations/024_repair_government_commands.sql
-supabase/migrations/025_compact_world_and_map_repair.sql
 ```
 
-Migration `016` adds member specializations, civic war/alliance votes, the 10-message resource farm, and spy quests. Migration `017` makes Telegram update claims retry-safe. Migration `018` adds explicit state switching and owner-only state deletion. Migration `023` lets a Founder also hold the President office, restores the Founder role when that presidency ends, and keeps Founder self-promotion inside elections unless the account is explicitly configured as the project testing admin. Migration `024` restores the government command RPCs with stable PostgREST argument names. Migration `025` compacts the island world, repairs island-slot placement, and keeps future islands close to the active cluster. If your database is older, apply every missing migration sequentially. Do not skip intermediate migrations.
+Migration `016` adds member specializations, civic war/alliance votes, the 10-message resource farm, and spy quests. Migration `017` makes Telegram update claims retry-safe. Migration `018` adds explicit state switching and owner-only state deletion. Migration `023` lets a Founder also hold the President office, restores the Founder role when that presidency ends, and keeps Founder self-promotion inside elections unless the account is explicitly configured as the project testing admin. If your database is older, apply every missing migration sequentially. Do not skip intermediate migrations.
 
 ## Project creator testing admin
 
@@ -323,11 +321,3 @@ npm run build
 ## Important
 
 PostgreSQL remains the source of truth. Client state, Realtime events, Redis locks and serverless process memory are never trusted as authoritative balances or battle results.
-
-## v3.8 chat-first administration
-
-- `!вступить` registers the sender and joins the state of the current Telegram group without opening Mini App.
-- New Telegram members are enrolled when Telegram sends `new_chat_members`; existing silent members are enrolled on first activity/command because Telegram Bot API does not expose a complete historical member list.
-- Founder **or President** can appoint/remove deputies. `!назначитьзама` and `!снятьзама` also work as a reply to a member's message, so a Telegram username is not required.
-- Project creator global command mode is explicitly activated per chat with `!суперадмин` and disabled with `!суперадмин выкл`. Only IDs configured in `WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS` can activate it.
-- `!оботе` explains the project and chat-first gameplay.

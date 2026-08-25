@@ -247,7 +247,7 @@ CRON_SECRET=
 
 ## Supabase migrations
 
-Fresh database: apply `001` through `023` in numeric order.
+Fresh database: apply `001` through `025` in numeric order.
 
 Existing v1.9 database: apply sequentially:
 
@@ -261,9 +261,11 @@ supabase/migrations/020_integrity_repair.sql
 supabase/migrations/021_fix_stale_election_conflict.sql
 supabase/migrations/022_fix_state_color_contrast.sql
 supabase/migrations/023_founder_president_admin.sql
+supabase/migrations/024_repair_government_commands.sql
+supabase/migrations/025_compact_world_and_map_repair.sql
 ```
 
-Migration `016` adds member specializations, civic war/alliance votes, the 10-message resource farm, and spy quests. Migration `017` makes Telegram update claims retry-safe. Migration `018` adds explicit state switching and owner-only state deletion. Migration `023` lets a Founder also hold the President office, restores the Founder role when that presidency ends, and keeps Founder self-promotion inside elections unless the account is explicitly configured as the project testing admin. If your database is older, apply every missing migration sequentially. Do not skip intermediate migrations.
+Migration `016` adds member specializations, civic war/alliance votes, the 10-message resource farm, and spy quests. Migration `017` makes Telegram update claims retry-safe. Migration `018` adds explicit state switching and owner-only state deletion. Migration `023` lets a Founder also hold the President office, restores the Founder role when that presidency ends, and keeps Founder self-promotion inside elections unless the account is explicitly configured as the project testing admin. Migration `024` restores the government command RPCs with stable PostgREST argument names. Migration `025` compacts the island world, repairs island-slot placement, and keeps future islands close to the active cluster. If your database is older, apply every missing migration sequentially. Do not skip intermediate migrations.
 
 ## Project creator testing admin
 

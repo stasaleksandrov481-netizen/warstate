@@ -1511,3 +1511,73 @@ body{background:radial-gradient(circle at 50% -15%,rgba(30,135,146,.22),transpar
   .state-screen .mission-row{grid-template-columns:minmax(0,1fr) 92px!important;gap:8px!important}
   .state-screen .mission-reward{min-width:0!important}
 }
+
+/* ========================================================================== */
+/* WARSTATE v3.6 · compact world + mobile UX hardening                        */
+/* ========================================================================== */
+
+/* The map should feel populated, not like a maritime endurance test. */
+.game-map-nearby{
+  position:absolute;z-index:42;left:50%;bottom:8px;transform:translateX(-50%);
+  width:min(calc(100% - 116px),390px);pointer-events:auto;
+  padding:6px;border:1px solid rgba(213,238,226,.13);border-radius:15px;
+  background:linear-gradient(155deg,rgba(5,43,52,.90),rgba(4,31,41,.92));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 12px 28px rgba(1,21,28,.18);
+  backdrop-filter:blur(14px) saturate(120%);-webkit-backdrop-filter:blur(14px) saturate(120%)
+}
+.game-map-nearby-title{display:block;padding:1px 4px 5px;font-size:5.8px;font-weight:950;letter-spacing:.13em;color:#8fb1aa}
+.game-map-nearby>div{display:flex;gap:5px;overflow-x:auto;scrollbar-width:none}.game-map-nearby>div::-webkit-scrollbar{display:none}
+.game-map-nearby button{flex:0 0 min(142px,42vw);min-width:0;height:42px;display:grid;grid-template-columns:30px minmax(0,1fr);align-items:center;gap:7px;padding:5px 7px;border:1px solid rgba(204,234,222,.10);border-radius:11px;background:rgba(12,61,67,.54);color:#edf6ee;text-align:left}
+.game-map-nearby button:active{transform:scale(.975)}
+.game-map-nearby button>i{width:29px;height:29px;border-radius:9px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.18);font-size:11px;font-style:normal;font-weight:950;color:#fff}
+.game-map-nearby button>span{min-width:0}.game-map-nearby button b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:7.5px;color:#f2f4df}.game-map-nearby button small{display:block;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:5.6px;color:#91aaa5}
+
+.map-landmark-shortcuts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:8px 0 2px}.map-landmark-shortcuts .map-beginner-shortcut{margin:0;min-width:0}.map-freeport-shortcut{border-color:rgba(112,204,213,.28)!important;background:rgba(16,89,102,.62)!important;color:#e5f7f4!important;box-shadow:none!important}.map-freeport-shortcut small{color:#a9cfc9!important}
+
+/* Search/radar and the island sheet must never escape a short phone viewport. */
+.map-radar-panel{max-height:calc(100% - 20px)!important;overflow:auto!important;overscroll-behavior:contain!important;scrollbar-width:none!important}.map-radar-panel::-webkit-scrollbar{display:none}
+.game-island-sheet{max-height:min(72dvh,540px)!important;overflow-y:auto!important;overscroll-behavior:contain!important;scrollbar-width:none!important}.game-island-sheet::-webkit-scrollbar{display:none}
+
+/* Island labels and selection glows intentionally extend outside the node box.
+   A previous paint-containment override clipped them on some Chromium builds. */
+.game-island-node{contain:layout style!important;overflow:visible!important}
+
+/* Smaller scene chrome means more actual game on screen. */
+.my-island-hero,.freeport-hero{min-height:282px!important}
+.home-island-art{width:min(88%,460px)!important;top:57%!important}.freeport-island-art{width:min(92%,480px)!important}
+.state-screen .hero-state.identity-hero{min-height:148px!important;padding-top:20px!important;padding-bottom:18px!important}
+.state-screen .stats-grid .stat{min-height:68px!important;padding:10px 12px!important}.state-screen .stats-grid .stat strong{font-size:19px!important}
+.state-screen .panel{padding:12px!important;margin:8px 0!important}
+.state-screen .mission-row{padding:10px!important;margin-bottom:6px!important}
+.state-screen .daily-head{padding:11px 12px 10px!important}
+.state-screen .player-progress{margin-top:8px!important}
+
+/* Mission rewards are deliberately high in Profile now; make ready ones pop. */
+.state-screen .mission-row.done{box-shadow:inset 0 0 0 1px rgba(119,219,165,.08)!important}
+.state-screen .daily-head>b{padding:4px 7px;border-radius:8px;background:rgba(242,207,114,.08)}
+
+/* Header resilience for narrow Telegram webviews and long state names. */
+.game-header-identity{overflow:hidden}.game-header-name{flex:1 1 auto!important}.game-header-name b{max-width:clamp(72px,24vw,118px)!important}.game-header-stats{min-width:0}.game-stat-chip{min-width:47px!important;padding-inline:5px!important}
+.game-sync{flex:0 0 auto}
+
+/* Touch targets without ballooning the visual layout. */
+.game-map-tools button,.sheet-close,.map-radar-head button{min-width:40px!important;min-height:40px!important}
+.game-map-tools{gap:6px!important}
+
+@media(max-width:380px){
+  .map-landmark-shortcuts{grid-template-columns:1fr}
+  .game-brand-rune{display:none!important}
+  .game-mobile-header{gap:4px!important;padding-inline:6px!important}
+  .game-header-identity{gap:5px!important}
+  .game-header-avatar{width:34px!important;height:34px!important;flex-basis:34px!important}
+  .game-header-name b{max-width:78px!important;font-size:10.4px!important}.game-header-name small{font-size:6px!important}
+  .game-stat-chip{min-width:43px!important;height:40px!important;padding-inline:4px!important}.game-stat-chip svg{width:12px!important}.game-stat-chip b{font-size:8px!important}.game-stat-chip small{font-size:4.7px!important}
+  .game-map-nearby{left:58px;right:58px;width:auto;transform:none;bottom:8px}.game-map-nearby button{flex-basis:126px}
+  .state-screen .stats-grid .stat{min-height:62px!important}.state-screen .stats-grid .stat strong{font-size:17px!important}
+}
+
+@media(max-height:680px){
+  .my-island-hero,.freeport-hero{min-height:248px!important}
+  .game-map-nearby{bottom:6px}.game-map-nearby-title{display:none}.game-map-nearby{padding:5px}.game-map-nearby button{height:38px}
+  .game-island-sheet{max-height:68dvh!important}
+}

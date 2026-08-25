@@ -157,6 +157,24 @@ function ElectionPanel({ snapshot, onPolitics, now }: Pick<Props, "snapshot" | "
   </div>;
 }
 
+function DailyOpsPanel({ snapshot, onClaim }: Pick<Props, "snapshot" | "onClaim">) {
+  const claimed = snapshot.dailyMissions.filter((mission) => mission.claimed).length;
+  const ready = snapshot.dailyMissions.filter((mission) => !mission.claimed && mission.progress >= mission.target).length;
+  return <div className="panel daily-ops" id="daily-ops">
+    <div className="daily-head"><div><small>ЕЖЕДНЕВНЫЕ ОПЕРАЦИИ</small><h3>{claimed}/{snapshot.dailyMissions.length} наград получено</h3></div><b>{ready > 0 ? `${ready} готово` : "до 00:00 UTC"}</b></div>
+    <div className="mission-list">
+      {snapshot.dailyMissions.map((mission) => {
+        const done = mission.progress >= mission.target;
+        const pct = mission.target > 0 ? Math.min(100, mission.progress / mission.target * 100) : 100;
+        return <div className={`mission-row ${mission.claimed ? "claimed" : done ? "done" : ""}`} key={mission.id}>
+          <div className="mission-copy"><strong>{mission.title}</strong><span>{mission.description}</span><i><em style={{ width: `${pct}%` }} /></i></div>
+          <div className="mission-reward"><small>{mission.progress}/{mission.target}</small><span>+{mission.rewardXp} XP<br/>+{mission.rewardCredits} ₡</span><button type="button" disabled={!done || mission.claimed} onClick={() => onClaim(mission.id)}>{mission.claimed ? "✓" : done ? "Забрать" : "…"}</button></div>
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
 function StateViewInner({ snapshot, onClaim, onPolitics, onGovernment, onCustomize }: Props) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(timer); }, []);
@@ -170,15 +188,14 @@ function StateViewInner({ snapshot, onClaim, onPolitics, onGovernment, onCustomi
     <div className="hero-state identity-hero"><div className="state-emblem">{snapshot.state.emblem}</div><div className="flag"><span /></div><small>{snapshot.state.isFreeport ? "НЕЙТРАЛЬНАЯ ГАВАНЬ" : "ГОСУДАРСТВО"}</small><h2>{snapshot.state.name}</h2>{snapshot.state.stateUsername && <div className="state-handle">@{snapshot.state.stateUsername}</div>}<p className="state-motto">«{snapshot.state.motto}»</p></div>
     {!snapshot.state.isFreeport && snapshot.season && <div className="season-strip"><div><small>СЕЗОН {snapshot.season.number}</small><strong>{snapshot.season.name}</strong></div><div className="season-progress"><i><em style={{ width: `${seasonProgress}%` }} /></i><span>осталось {remaining(snapshot.season.endsAt, now)}</span></div><b>#{snapshot.state.seasonRank}</b></div>}
     <div className="stats-grid"><Stat label={snapshot.state.isFreeport ? "Уровень" : "Рейтинг"} value={snapshot.state.isFreeport ? String(snapshot.player.level) : snapshot.state.rating.toLocaleString("ru-RU")} /><Stat label={snapshot.state.isFreeport ? "Опыт" : "Место"} value={snapshot.state.isFreeport ? `${snapshot.player.xp} XP` : `#${snapshot.state.seasonRank}`} /><Stat label={snapshot.state.isFreeport ? "Свободные игроки" : "Граждане"} value={String(snapshot.state.memberCount)} /><Stat label={snapshot.state.isFreeport ? "Статус" : "Победы"} value={snapshot.state.isFreeport ? "FREE" : String(snapshot.state.islandWins)} /></div>
+    {!snapshot.state.isFreeport && snapshot.election?.status === "open" && <ElectionPanel snapshot={snapshot} onPolitics={onPolitics} now={now} />}
+    <DailyOpsPanel snapshot={snapshot} onClaim={onClaim} />
+    <PlayerProgress snapshot={snapshot} />
     <GameGuidePanel />
     {!snapshot.state.isFreeport && <GovernmentPanel snapshot={snapshot} onGovernment={onGovernment} />}
-    {!snapshot.state.isFreeport && <ElectionPanel snapshot={snapshot} onPolitics={onPolitics} now={now} />}
+    {!snapshot.state.isFreeport && snapshot.election?.status !== "open" && <ElectionPanel snapshot={snapshot} onPolitics={onPolitics} now={now} />}
     {!snapshot.state.isFreeport && <IdentityEditor snapshot={snapshot} onCustomize={onCustomize} />}
     {!snapshot.state.isFreeport && <div className="panel badge-panel"><div className="panel-head"><div><small>ЛЕТОПИСЬ</small><h3>Награды государства</h3></div><span>{snapshot.badges.length} получено</span></div>{snapshot.badges.length ? <div className="badge-grid">{snapshot.badges.map((badge) => <div className="state-badge" key={badge.id}><b>{badge.icon}</b><strong>{badge.title}</strong><span>{badge.description}</span></div>)}</div> : <p>Первая награда появится за рейтинг, серию или победы.</p>}</div>}
-    <div className="panel daily-ops"><div className="daily-head"><div><small>ЕЖЕДНЕВНЫЕ ОПЕРАЦИИ</small><h3>{snapshot.dailyMissions.filter((mission) => mission.claimed).length}/{snapshot.dailyMissions.length} наград получено</h3></div><b>до 00:00 UTC</b></div><div className="mission-list">
-      {snapshot.dailyMissions.map((mission) => { const done = mission.progress >= mission.target; return <div className={`mission-row ${mission.claimed ? "claimed" : done ? "done" : ""}`} key={mission.id}><div className="mission-copy"><strong>{mission.title}</strong><span>{mission.description}</span><i><em style={{ width: `${Math.min(100, mission.progress / mission.target * 100)}%` }} /></i></div><div className="mission-reward"><small>{mission.progress}/{mission.target}</small><span>+{mission.rewardXp} XP<br/>+{mission.rewardCredits} ₡</span><button type="button" disabled={!done || mission.claimed} onClick={() => onClaim(mission.id)}>{mission.claimed ? "✓" : done ? "Забрать" : "…"}</button></div></div>; })}
-    </div></div>
-    <PlayerProgress snapshot={snapshot} />
     <div className="panel wars-panel"><small>ПОСЛЕДНИЕ БОИ</small>{snapshot.wars.length ? snapshot.wars.map((war) => <div className="war-row" key={war.id}><b>{war.attackerName}</b><span>{war.attackerPower} : {war.defenderPower}</span><b>{war.defenderName || "Нейтралы"}</b></div>) : <p>История пока пустая. Время испортить отношения с соседями.</p>}</div>
   </div>;
 }

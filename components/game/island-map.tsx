@@ -8,11 +8,11 @@ import { IslandArt } from "@/components/game/island-art";
 import { OceanCanvas } from "@/components/game/ocean-canvas";
 
 function islandSize(members: number, freeport = false) {
-  if (freeport) return 860;
-  // Every additional citizen expands the physical footprint, but sub-linear
-  // growth keeps huge supergroups from swallowing the whole viewport.
+  if (freeport) return 720;
+  // Population still matters visually, but the hard cap prevents a very large
+  // Telegram group from becoming a continent that hides all nearby states.
   const population = Math.max(1, members);
-  return Math.max(190, Math.min(1320, 150 + Math.pow(population, 0.47) * 22));
+  return Math.max(180, Math.min(820, 150 + Math.pow(population, 0.46) * 21));
 }
 
 function timeLeft(iso?: string | null, now = Date.now()) {
@@ -49,6 +49,12 @@ function CloseIcon() {
 
 type Camera = { x: number; y: number; zoom: number };
 type MapFilter = "all" | "enemy" | "ally" | "neutral";
+
+const MIN_ZOOM = 0.34;
+const MAX_ZOOM = 1.55;
+const DEFAULT_STATE_ZOOM = 0.58;
+const DEFAULT_FREEPORT_ZOOM = 0.50;
+const CAMERA_STORAGE_VERSION = "v3";
 
 function cameraTransform(camera: Camera, viewport: { width: number; height: number }) {
   const tx = viewport.width / 2 - camera.x * camera.zoom;
@@ -142,7 +148,8 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   const cameraTweenRafRef = useRef<number | null>(null);
   // Zoomed further out by default so the nearest neighbouring islands are
   // visible on open instead of requiring a long pan/scroll to reach them.
-  const cameraRef = useRef<Camera>({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: snapshot.state.isFreeport ? 0.40 : 0.50 });
+  const defaultZoom = snapshot.state.isFreeport ? DEFAULT_FREEPORT_ZOOM : DEFAULT_STATE_ZOOM;
+  const cameraRef = useRef<Camera>({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: defaultZoom });
   const [camera, setCamera] = useState<Camera>(cameraRef.current);
   const [viewport, setViewport] = useState({ width: 390, height: 620 });
   const [dragging, setDragging] = useState(false);
@@ -169,11 +176,14 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
 
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem(`warstate:camera:${snapshot.state.id}`);
+      const raw = sessionStorage.getItem(`warstate:camera:${CAMERA_STORAGE_VERSION}:${snapshot.state.id}`);
       if (!raw) return;
       const saved = JSON.parse(raw) as Partial<Camera>;
       if (![saved.x, saved.y, saved.zoom].every((value) => typeof value === "number" && Number.isFinite(value))) return;
-      const restored = { x: saved.x as number, y: saved.y as number, zoom: Math.max(.30, Math.min(1.60, saved.zoom as number)) };
+      // World coordinates were compacted in v3.6. Refuse stale/far-away camera
+      // positions instead of opening on apparently empty water after an update.
+      if (Math.hypot((saved.x as number) - snapshot.state.worldX, (saved.y as number) - snapshot.state.worldY) > 7200) return;
+      const restored = { x: saved.x as number, y: saved.y as number, zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, saved.zoom as number)) };
       cameraRef.current = restored;
       pendingCameraRef.current = restored;
       setCamera(restored);
@@ -181,7 +191,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   }, [snapshot.state.id]);
 
   useEffect(() => {
-    try { sessionStorage.setItem(`warstate:camera:${snapshot.state.id}`, JSON.stringify(camera)); } catch { /* private mode can reject storage */ }
+    try { sessionStorage.setItem(`warstate:camera:${CAMERA_STORAGE_VERSION}:${snapshot.state.id}`, JSON.stringify(camera)); } catch { /* private mode can reject storage */ }
   }, [snapshot.state.id, camera.x, camera.y, camera.zoom]);
 
   useEffect(() => {
@@ -203,7 +213,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
     if (exploreKickRef.current) window.clearTimeout(exploreKickRef.current);
     exploreKickRef.current = window.setTimeout(() => {
       const current = cameraRef.current;
-      onExplore(current.x, current.y, Math.min(6200, 3100 / current.zoom));
+      onExplore(current.x, current.y, Math.min(5600, 2800 / current.zoom));
     }, delay);
   }, [onExplore]);
 
@@ -230,7 +240,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   }, []);
 
   const updateCamera = useCallback((next: Camera, explore = false, forceCommit = false) => {
-    const normalized = { ...next, zoom: Math.max(0.30, Math.min(1.60, next.zoom)) };
+    const normalized = { ...next, zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next.zoom)) };
     cameraRef.current = normalized;
     pendingCameraRef.current = normalized;
 
@@ -251,7 +261,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
     if (cameraTweenRafRef.current) window.cancelAnimationFrame(cameraTweenRafRef.current);
     if (inertiaRafRef.current) { window.cancelAnimationFrame(inertiaRafRef.current); inertiaRafRef.current = null; }
     const from = { ...cameraRef.current };
-    const normalized = { ...target, zoom: Math.max(.30, Math.min(1.60, target.zoom)) };
+    const normalized = { ...target, zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, target.zoom)) };
     const started = performance.now();
     interactingRef.current = true;
     const frame = (at: number) => {
@@ -277,7 +287,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
     if (cameraTweenRafRef.current) { window.cancelAnimationFrame(cameraTweenRafRef.current); cameraTweenRafRef.current = null; }
     interactingRef.current = false;
     const old = cameraRef.current;
-    const zoom = Math.max(0.30, Math.min(1.60, nextZoom));
+    const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
     const worldX = old.x + (screenX - viewport.width / 2) / old.zoom;
     const worldY = old.y + (screenY - viewport.height / 2) / old.zoom;
     updateCamera({
@@ -288,11 +298,11 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   }, [updateCamera, viewport.height, viewport.width]);
 
   const centerMine = useCallback(() => {
-    animateCameraTo({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: Math.max(snapshot.state.isFreeport ? 0.40 : 0.50, cameraRef.current.zoom) });
-  }, [animateCameraTo, snapshot.state.isFreeport, snapshot.state.worldX, snapshot.state.worldY]);
+    animateCameraTo({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: defaultZoom });
+  }, [animateCameraTo, defaultZoom, snapshot.state.worldX, snapshot.state.worldY]);
 
   const focusIsland = useCallback((island: IslandView) => {
-    animateCameraTo({ x: island.worldX, y: island.worldY, zoom: Math.max(.65, cameraRef.current.zoom) });
+    animateCameraTo({ x: island.worldX, y: island.worldY, zoom: Math.max(.70, cameraRef.current.zoom) });
     onSelect(island);
     setRadarOpen(false);
   }, [animateCameraTo, onSelect]);
@@ -360,7 +370,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
       const midY = (a.y + b.y) / 2;
       const distance = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
       const pinch = pinchRef.current;
-      const zoom = Math.max(0.30, Math.min(1.60, pinch.zoom * (distance / pinch.distance)));
+      const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinch.zoom * (distance / pinch.distance)));
       updateCamera({ x: pinch.worldX - (midX - viewport.width / 2) / zoom, y: pinch.worldY - (midY - viewport.height / 2) / zoom, zoom });
       return;
     }
@@ -432,7 +442,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
 
   const transform = useMemo(() => cameraTransform(camera, viewport), [camera, viewport]);
   const detail = camera.zoom < 0.50 ? "far" : camera.zoom < 1.02 ? "mid" : "near";
-  const normalizedQuery = query.trim().toLocaleLowerCase("ru-RU");
+  const normalizedQuery = query.trim().replace(/^@/, "").toLocaleLowerCase("ru-RU");
 
   const mapCounts = useMemo(() => ({
     all: snapshot.islands.length,
@@ -441,6 +451,12 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
     neutral: snapshot.islands.filter((island) => !island.relation && !island.isMine).length,
   }), [snapshot.islands]);
   const beginnerIsland = useMemo(() => snapshot.islands.find((island) => island.isBeginnerIsland) || null, [snapshot.islands]);
+  const freeportIsland = useMemo(() => snapshot.islands.find((island) => island.isFreeport) || null, [snapshot.islands]);
+  const nearbyIslands = useMemo(() => snapshot.islands
+    .filter((island) => !island.isMine)
+    .map((island) => ({ island, distance: Math.hypot(island.worldX - snapshot.state.worldX, island.worldY - snapshot.state.worldY) }))
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, 4), [snapshot.islands, snapshot.state.worldX, snapshot.state.worldY]);
 
   const sortedIslands = useMemo(() => [...snapshot.islands].sort((a, b) => islandSize(a.memberCount, a.isFreeport) - islandSize(b.memberCount, b.isFreeport)), [snapshot.islands]);
   const visibleIslands = useMemo(() => {
@@ -464,7 +480,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   const searchResults = useMemo(() => {
     if (!normalizedQuery) return [];
     return snapshot.islands
-      .filter((island) => island.name.toLocaleLowerCase("ru-RU").includes(normalizedQuery))
+      .filter((island) => island.name.toLocaleLowerCase("ru-RU").includes(normalizedQuery) || (island.stateUsername || "").toLocaleLowerCase("ru-RU").includes(normalizedQuery))
       .sort((a, b) => Math.hypot(a.worldX - camera.x, a.worldY - camera.y) - Math.hypot(b.worldX - camera.x, b.worldY - camera.y))
       .slice(0, 6);
   }, [snapshot.islands, normalizedQuery, camera.x, camera.y]);
@@ -536,7 +552,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
         {radarOpen && (
           <aside className="map-radar-panel" onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
             <div className="map-radar-head"><div><small>РАДАР МИРА</small><b>Навигация по островам</b></div><button type="button" onClick={() => { setRadarOpen(false); setQuery(""); }} aria-label="Закрыть радар"><CloseIcon /></button></div>
-            <label className="map-search"><span aria-hidden="true">⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Найти государство" autoComplete="off" /></label>
+            <label className="map-search"><span aria-hidden="true">⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Название или @юз" autoComplete="off" /></label>
             <div className="map-filter-row">
               {([
                 ["all", "Все", mapCounts.all],
@@ -545,11 +561,18 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
                 ["neutral", "Нейтр.", mapCounts.neutral],
               ] as Array<[MapFilter, string, number]>).map(([key, label, count]) => <button key={key} type="button" className={mapFilter === key ? "active" : ""} onClick={() => setMapFilter(key)}><b>{label}</b><small>{count}</small></button>)}
             </div>
-            {beginnerIsland && (
-              <button className="map-beginner-shortcut" type="button" onClick={() => focusIsland(beginnerIsland)}>
-                <span>🧭</span><div><b>Остров новичков</b><small>Защищённая территория · выбрать на карте</small></div><i>›</i>
-              </button>
-            )}
+            <div className="map-landmark-shortcuts">
+              {freeportIsland && !freeportIsland.isMine && (
+                <button className="map-beginner-shortcut map-freeport-shortcut" type="button" onClick={() => focusIsland(freeportIsland)}>
+                  <span>⚓</span><div><b>Freeport</b><small>Нейтральный центр · выбрать на карте</small></div><i>›</i>
+                </button>
+              )}
+              {beginnerIsland && !beginnerIsland.isMine && (
+                <button className="map-beginner-shortcut" type="button" onClick={() => focusIsland(beginnerIsland)}>
+                  <span>🧭</span><div><b>Остров новичков</b><small>Защищённая территория · выбрать на карте</small></div><i>›</i>
+                </button>
+              )}
+            </div>
             {normalizedQuery && <div className="map-search-results">{searchResults.length ? searchResults.map((island) => <button type="button" key={island.id} onClick={() => focusIsland(island)}><span style={{ background: island.color }}>{island.emblem || island.name.slice(0, 1)}</span><div><b>{island.name}</b><small>{island.memberCount.toLocaleString("ru-RU")} участников · {island.rating} ELO</small></div><i>›</i></button>) : <p>Ничего не найдено</p>}</div>}
             <div className="map-radar-foot"><span><i />{visibleIslands.length} на экране</span><span>масштаб {Math.round(camera.zoom * 100)}%</span></div>
           </aside>
@@ -567,6 +590,20 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
             />
           ))}
         </div>
+
+        {!selected && !radarOpen && nearbyIslands.length > 0 && (
+          <div className="game-map-nearby" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+            <span className="game-map-nearby-title">БЛИЖАЙШИЕ</span>
+            <div>
+              {nearbyIslands.map(({ island, distance }) => (
+                <button type="button" key={island.id} onClick={() => focusIsland(island)}>
+                  <i style={{ background: island.color }}>{island.emblem || island.name.slice(0, 1)}</i>
+                  <span><b>{island.name}</b><small>{Math.max(1, Math.round(distance)).toLocaleString("ru-RU")} м · {island.rating} ELO</small></span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="game-map-tools game-map-tools-left">
           <button className="map-tool-home" type="button" onClick={(event) => { event.stopPropagation(); centerMine(); }} aria-label="Мой остров"><span>⌂</span></button>

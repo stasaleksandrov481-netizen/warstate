@@ -68,6 +68,7 @@ const requiredV20 = [
   "supabase/migrations/018_state_switch_delete_ui.sql",
   "supabase/migrations/023_founder_president_admin.sql",
   "supabase/migrations/024_repair_government_commands.sql",
+  "supabase/migrations/025_compact_world_and_map_repair.sql",
   "app/api/game/state/switch/route.ts",
   "lib/community.ts",
   "lib/maintenance.ts",
@@ -157,6 +158,7 @@ for (const marker of ["duty_role", "state_votes", "state_vote_ballots", "spy_que
 if (!webhookSource.includes('["group", "supergroup"].includes(message.chat.type)')) failures.push("Telegram webhook must handle both group and supergroup chats");
 if (/РЕСУРСЫ ЗА АКТИВНОСТЬ|Чат нафармил|10 сообщений граждан/.test(webhookSource)) failures.push("Chat activity resource notification must stay silent");
 if (!webhookSource.includes("handleGroupTextCommand(message)")) failures.push("Telegram group command handler is not wired into webhook");
+if (!webhookSource.includes('ignored: "unknown_bang_command"')) failures.push("Unknown !commands are not hard-stopped in Telegram webhook");
 const gameSource = fs.readFileSync(path.join(root, "lib/game.ts"), "utf8");
 const communitySource = fs.readFileSync(path.join(root, "lib/community.ts"), "utf8");
 if (!gameSource.includes("getPlayerMemberSnapshot") || !gameSource.includes("isMissingDutyRoleError")) failures.push("Mini App bootstrap lacks duty-role migration compatibility");
@@ -164,6 +166,16 @@ if (!communitySource.includes("if (error && isMissingDutyRoleError(error)) retur
 const islandSource = fs.readFileSync(path.join(root, "lib/islands.ts"), "utf8");
 if (!islandSource.includes('.eq("is_beginner_island", true)')) failures.push("Beginner island is not force-included in world map data");
 if (!islandSource.includes("direct state query is a safe read-only fallback") || !islandSource.includes('String(row.id) === String(stateId)')) failures.push("Island world lacks RPC fallback or own-island injection");
+if (!islandSource.includes("Freeport is the second global landmark")) failures.push("Freeport is not force-included as a global map landmark");
+const islandMapSource = fs.readFileSync(path.join(root, "components/game/island-map.tsx"), "utf8");
+for (const marker of ["CAMERA_STORAGE_VERSION", "game-map-nearby", "DEFAULT_STATE_ZOOM", 'replace(/^@/, "")']) {
+  if (!islandMapSource.includes(marker)) failures.push(`Compact map UX is missing: ${marker}`);
+}
+const compactWorldMigration = fs.readFileSync(path.join(root, "supabase/migrations/025_compact_world_and_map_repair.sql"), "utf8");
+for (const marker of ["520.0", "row_number() over", "new.island_slot", "trg_gw_place_island"]) {
+  if (!compactWorldMigration.includes(marker)) failures.push(`Compact-world migration is missing: ${marker}`);
+}
+if (/greatest\s*\(\s*1\s*,\s*new\.island_slot\s*-\s*1/i.test(compactWorldMigration)) failures.push("Compact-world placement still overlaps island slots 1 and 2");
 const telegramBotSource = fs.readFileSync(path.join(root, "lib/telegram-bot.ts"), "utf8");
 if (!telegramBotSource.includes('getChatMember') || !telegramBotSource.includes('createStateJoinLink')) failures.push("Telegram membership gate or invite-link fallback is missing");
 if (!telegramBotSource.includes('assertTelegramChatOwner')) failures.push("Telegram owner gate for state deletion is missing");
@@ -171,6 +183,7 @@ const stateSwitchSource = fs.readFileSync(path.join(root, "app/api/game/state/sw
 if (!stateSwitchSource.includes("assertTelegramChatMembership") || !stateSwitchSource.includes("gw_switch_player_state")) failures.push("Explicit state switch membership gate is incomplete");
 const themeSource = fs.readFileSync(path.join(root, "app/game-theme.css"), "utf8");
 if (/\.game-world-layer\{[^}]*contain\s*:\s*layout style paint/i.test(themeSource)) failures.push("World layer still clips island nodes with paint containment");
+if (!themeSource.includes(".game-island-node{contain:layout style!important;overflow:visible!important}")) failures.push("Island node overflow-clipping repair is missing");
 const guideSource = fs.readFileSync(path.join(root, "lib/game-guide.ts"), "utf8");
 if (!guideSource.includes("GAME_GUIDE_SECTIONS") || !guideSource.includes("telegramGameGuideText")) failures.push("Detailed game guide is missing");
 const stateViewSource = fs.readFileSync(path.join(root, "components/game/state-view.tsx"), "utf8");
@@ -190,7 +203,7 @@ const requiredCommands = [
   "помощь","государство","статус","ресурсы","рейтинг","карта","альянсы","президент","замы","выборы","голосовать",
   "назначитьпрезидента","назначитьзама","снятьзама","казна","постройки","улучшить","налоги","война","бой","сдаться","разведка",
   "оборона","союз","разорватьсоюз","активность","миссия","награда","профиль","создатьюз","юз","название","найти",
-  "роли","роль","голосование","шпион","играть","как_играть","гайд","мойид","админ","диагностика",
+  "роли","роль","голосование","шпион","играть","как_играть","гайд","мойид","админ","диагностика","версия",
 ];
 for (const command of requiredCommands) if (!commandSource.includes(`"${command}"`) && !commandSource.includes(`'${command}'`)) failures.push(`Requested chat command is missing: !${command}`);
 

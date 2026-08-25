@@ -211,6 +211,12 @@ export async function POST(request: Request) {
       // Commands are the critical path. Never make a !command wait for optional
       // world maintenance, vote settlement or chat-farm bookkeeping.
       if (await handleGroupTextCommand(message)) return Response.json({ ok: true });
+      // A leading ! belongs to WARSTATE only when it exactly matches a registered
+      // command. Unknown bang-commands are a hard no-op so we never answer typos
+      // or commands intended for another bot in the same group.
+      if (String(message.text || "").trim().startsWith("!")) {
+        return Response.json({ ok: true, ignored: "unknown_bang_command" });
+      }
       const text = String(message.text || "").split("@")[0].trim();
       if (["/groupwars", "/gw", "/war"].includes(text)) {
         await registerTelegramState(Number(message.chat.id));

@@ -58,7 +58,7 @@ export async function getIslandWorld(
     p_limit: 120,
   });
 
-  const relationByState = new Map(diplomacy.map((item) => [item.otherStateId, item.status]));
+  const relationByState = new Map(diplomacy.map((item) => [String(item.otherStateId), item.status]));
   let islandRows: any[] = [];
   if (!error) {
     islandRows = [...(data || [])] as any[];
@@ -69,11 +69,17 @@ export async function getIslandWorld(
     const { data: fallbackRows, error: fallbackError } = await supabase
       .from("states")
       .select("id,name,color,emblem,world_x,world_y,telegram_member_count,rating,island_wins,island_losses,island_integrity,win_streak,last_battle_at,destroyed_until,shield_until,chat_avatar_file_id,is_freeport,is_beginner_island,game_level,max_level,influence,reputation,army_power,defense_power,active_player_count,state_size")
-      .eq("is_freeport", false)
-      .order("rating", { ascending: false })
-      .limit(120);
+      .gte("world_x", origin.x - radius)
+      .lte("world_x", origin.x + radius)
+      .gte("world_y", origin.y - radius)
+      .lte("world_y", origin.y + radius)
+      .limit(180);
     if (fallbackError) throw fallbackError;
-    islandRows = (fallbackRows || []).map((row: any) => ({ ...row, rank: 0 }));
+    islandRows = (fallbackRows || [])
+      .filter((row: any) => Math.hypot(safeNumber(row.world_x) - origin.x, safeNumber(row.world_y) - origin.y) <= radius)
+      .sort((a: any, b: any) => Math.hypot(safeNumber(a.world_x) - origin.x, safeNumber(a.world_y) - origin.y) - Math.hypot(safeNumber(b.world_x) - origin.x, safeNumber(b.world_y) - origin.y))
+      .slice(0, 120)
+      .map((row: any) => ({ ...row, rank: 0 }));
   }
 
   // The player's own island must always exist on the map even if it fell outside
@@ -85,7 +91,7 @@ export async function getIslandWorld(
       .eq("id", stateId)
       .maybeSingle();
     if (ownError) throw ownError;
-    if (ownRow && !ownRow.is_freeport) islandRows.unshift({ ...ownRow, rank: 0 });
+    if (ownRow) islandRows.unshift({ ...ownRow, rank: 0 });
   }
   // The protected beginner island is a global landmark. Radius-based world RPCs
   // used to omit it whenever it lived far from the current camera, which made
@@ -102,6 +108,18 @@ export async function getIslandWorld(
       if (!islandRows.some((item: any) => String(item.id) === String(row.id))) islandRows.push({ ...row, rank: 0 });
     }
   }
+  // Freeport is the second global landmark. Keep it visible in fallback/radius
+  // reads so navigation never depends on accidentally panning across it.
+  if (!islandRows.some((row: any) => row.is_freeport)) {
+    const { data: freeportRow, error: freeportError } = await supabase
+      .from("states")
+      .select("id,name,color,emblem,world_x,world_y,telegram_member_count,rating,island_wins,island_losses,island_integrity,win_streak,last_battle_at,destroyed_until,shield_until,chat_avatar_file_id,is_freeport,is_beginner_island,game_level,max_level,influence,reputation,army_power,defense_power,active_player_count,state_size")
+      .eq("is_freeport", true)
+      .maybeSingle();
+    if (freeportError) throw freeportError;
+    if (freeportRow) islandRows.push({ ...freeportRow, rank: 0 });
+  }
+  islandRows = [...new Map(islandRows.map((row: any) => [String(row.id), row])).values()];
   const ids = islandRows.map((row: any) => String(row.id)).filter(Boolean);
   const handles = new Map<string, string>();
   if (ids.length) {
@@ -128,8 +146,8 @@ export async function getIslandWorld(
     destroyedUntil: row.destroyed_until || null,
     shieldUntil: row.shield_until || null,
     avatarUrl: row.chat_avatar_file_id ? `/api/telegram/chat-photo?stateId=${encodeURIComponent(row.id)}` : null,
-    relation: relationByState.get(row.id) || null,
-    isMine: row.id === stateId,
+    relation: relationByState.get(String(row.id)) || null,
+    isMine: String(row.id) === String(stateId),
     isFreeport: Boolean(row.is_freeport),
     isBeginnerIsland: Boolean(row.is_beginner_island),
     level: Math.max(1, safeInteger(row.game_level, 1)),

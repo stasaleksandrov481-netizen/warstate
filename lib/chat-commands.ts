@@ -31,9 +31,11 @@ import { isProjectAdminTelegramId } from "@/lib/config";
 const LEADERS = new Set(["president", "minister", "deputy", "curator"]);
 const WAR_LEADERS = new Set(["president", "minister", "deputy"]);
 
+const WARSTATE_BUILD = "3.6-max";
+
 const WARSTATE_COMMANDS = new Set([
   "играть", "как_играть", "какиграть", "гайд", "guide",
-  "help", "помощь", "команды",
+  "help", "помощь", "команды", "версия", "version",
   "мойid", "мойид", "мой_id", "myid", "id", "админ", "admin", "проверка", "диагностика", "health",
   "государство", "state", "президент", "замы",
   "роли", "roles", "роль", "role",
@@ -42,26 +44,35 @@ const WARSTATE_COMMANDS = new Set([
   "найти", "рейтинг", "карта", "альянсы", "голосование", "vote",
   "статус", "status", "ресурсы", "resources", "профиль", "profile",
   "вклад", "contribution", "государства", "states", "казна", "налоги",
-  "постройки", "миссия", "награда", "активность", "activity",
+  "постройки", "постройка", "стройки", "buildings", "миссия", "миссии", "награда", "награды", "reward", "rewards", "активность", "activity",
   "бой", "battle", "оборона", "defense", "улучшить", "upgrade",
   "союз", "alliance", "разорватьсоюз", "разведка", "шпион", "spy",
   "война", "war", "поддержать", "support", "сдаться", "surrender",
 ]);
 
+function normalizeCommandName(value: string) {
+  return String(value || "")
+    .trim()
+    .toLocaleLowerCase("ru-RU")
+    .replace(/ё/g, "е")
+    .replace(/[-]+/g, "_");
+}
+
 function parseWarstateCommand(text: string) {
-  if (!text.startsWith("!")) return null;
-  const [rawCommand, ...args] = text.slice(1).trim().split(/\s+/);
+  const trimmed = String(text || "").trim();
+  if (!trimmed.startsWith("!")) return null;
+  const source = trimmed.slice(1).trim();
+  if (!source) return null;
+  const [rawCommand, ...args] = source.split(/\s+/);
   if (!rawCommand) return null;
 
   const [rawName, rawMention] = String(rawCommand).split("@", 2);
   if (rawMention) {
-    const ownUsername = String(process.env.TELEGRAM_BOT_USERNAME || "")
-      .replace(/^@/, "")
-      .toLocaleLowerCase("ru-RU");
-    if (!ownUsername || rawMention.toLocaleLowerCase("ru-RU") !== ownUsername) return null;
+    const ownUsername = normalizeCommandName(String(process.env.TELEGRAM_BOT_USERNAME || "").replace(/^@/, ""));
+    if (!ownUsername || normalizeCommandName(rawMention) !== ownUsername) return null;
   }
 
-  const command = rawName.toLocaleLowerCase("ru-RU");
+  const command = normalizeCommandName(rawName);
   if (!WARSTATE_COMMANDS.has(command)) return null;
   return { command, args };
 }
@@ -243,6 +254,11 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       return true;
     }
 
+    if (command === "версия" || command === "version") {
+      await send(chatId, `🧩 WARSTATE ${WARSTATE_BUILD}\n\nКомандный маршрутизатор: точный режим. Неизвестные !команды игнорируются.`);
+      return true;
+    }
+
     if (["help", "помощь", "команды"].includes(command)) {
       await send(chatId,
         "🧭 WARSTATE · ПОМОЩЬ\n\n" +
@@ -254,6 +270,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         "!карта — карта островов и переход в другое государство\n" +
         "!государства — список государств · !найти @state — поиск\n" +
         "!рейтинг — топ по ELO · !профиль — роль, XP и бои\n" +
+        "!мойид — Telegram ID · !версия — версия обработчика\n" +
         "!вклад — твой вклад в развитие страны\n\n" +
         "👑 УПРАВЛЕНИЕ\n" +
         "!президент / !замы — руководство государства\n" +
@@ -326,7 +343,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       }
       const health = (data || {}) as { ok?: boolean; missing?: string[] };
       await send(chatId, health.ok
-        ? "🧪 ДИАГНОСТИКА\n\nКритические RPC правительства на месте. Командный маршрутизатор активен."
+        ? `🧪 ДИАГНОСТИКА\n\nWARSTATE ${WARSTATE_BUILD}\nКритические RPC правительства на месте. Командный маршрутизатор активен. Неизвестные !команды игнорируются.`
         : `🧪 ДИАГНОСТИКА\n\nНе хватает SQL-функций: ${(health.missing || []).join(", ") || "неизвестно"}`);
       return true;
     }
@@ -615,17 +632,17 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       return true;
     }
 
-    if (command === "постройки") {
+    if (["постройки", "постройка", "стройки", "buildings"].includes(command)) {
       await send(chatId, `🏗 ПОСТРОЙКИ\n\n${snapshot.buildings.map((b) => `${b.label} · ур.${b.level}${b.upgradeTargetLevel ? ` → ${b.upgradeTargetLevel}` : ""}`).join("\n")}`, [[{ text: "🏝 Открыть остров", url: miniAppLink(chatId) }]]);
       return true;
     }
 
-    if (command === "миссия") {
+    if (command === "миссия" || command === "миссии") {
       await send(chatId, `🎖 МИССИИ\n\n${snapshot.dailyMissions.map((m) => `${m.claimed ? "✅" : m.progress >= m.target ? "🎁" : "•"} ${m.title}: ${m.progress}/${m.target} · ${m.rewardXp} XP${m.rewardCredits ? ` + ${m.rewardCredits} кредитов` : ""}`).join("\n")}`);
       return true;
     }
 
-    if (command === "награда") {
+    if (["награда", "награды", "reward", "rewards"].includes(command)) {
       const mission = snapshot.dailyMissions.find((m) => !m.claimed && m.progress >= m.target);
       if (!mission) throw new Error("Сейчас нет готовой награды. Выполните миссии через !миссия.");
       await claimDailyMission(snapshot.player.id, snapshot.state.id, mission.id);

@@ -408,7 +408,12 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
 
     if (command === "президент") {
       const p = snapshot.government.president;
-      await send(chatId, p ? `👑 Президент: ${p.displayName}${p.username ? ` (@${p.username})` : ""}` : "👑 Президент пока не назначен. Основатель может назначить его или запустить 2-минутные выборы.");
+      const botAdmin = projectAdmin
+        ? `\n\n🛡 Администратор Бота\n${from.first_name || from.username || from.id}`
+        : "";
+      await send(chatId, p
+        ? `👑 Президент: ${p.displayName}${p.username ? ` (@${p.username})` : ""}${botAdmin}`
+        : `👑 Президент пока не назначен. Основатель может назначить его или запустить 2-минутные выборы.${botAdmin}`);
       return true;
     }
 

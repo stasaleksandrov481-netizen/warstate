@@ -3,7 +3,7 @@ import { upgradeBuilding } from "@/lib/game";
 import type { BuildingType, WarType } from "@/lib/types";
 import { reconcileStateRuntime } from "@/lib/maintenance";
 
-const WAR_ROLES = new Set(["president", "deputy", "founder"]);
+const WAR_ROLES = new Set(["president"]);
 const UPGRADE_ROLES = new Set(["president", "minister", "deputy", "curator"]);
 
 export async function startWarAction(input: {
@@ -13,7 +13,7 @@ export async function startWarAction(input: {
   battleType: WarType;
   attackerIsFreeport?: boolean;
 }) {
-  if (!WAR_ROLES.has(input.actorRole)) throw new Error("Начинать войну может Президент, Заместитель или Основатель после одобренного голосования.");
+  if (!WAR_ROLES.has(input.actorRole)) throw new Error("Начинать войну может только Президент после одобренного голосования.");
   if (input.attackerIsFreeport) throw new Error("Freeport — нейтральная территория. Сначала вступите в государство.");
   await Promise.all([
     reconcileStateRuntime(input.attackerStateId, { force: true }),

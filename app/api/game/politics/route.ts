@@ -1,9 +1,9 @@
 import { authorizeStateAction, jsonError } from "@/lib/request-auth";
 import { castVote, finalizeElection, nominateCandidate } from "@/lib/politics";
-import { openGovernmentElection } from "@/lib/government";
+import { notifyStateChat, openGovernmentElection } from "@/lib/government";
 import { getGameSnapshot } from "@/lib/game";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { telegramApi } from "@/lib/telegram-bot";
+import { reconcileStateRuntime } from "@/lib/maintenance";
 
 export const runtime = "nodejs";
 
@@ -29,13 +29,12 @@ export async function POST(request: Request) {
 
     if (action === "open") {
       if (auth.member.role !== "founder") throw new Error("Внеочередные выборы запускает только Основатель.");
+      // Reconcile first so a previous, already-expired election is finalized
+      // instead of colliding with the new one (only one 'open' election per
+      // state is allowed at the database level).
+      await reconcileStateRuntime(stateId, { force: true });
       await openGovernmentElection(stateId, auth.player.id);
-      try {
-        const stateChatId = Number((auth.state as any).telegram_chat_id);
-        if (Number.isFinite(stateChatId) && stateChatId) {
-          await telegramApi("sendMessage", { chat_id: stateChatId, text: "🗳 Начались выборы президента! Откройте WARSTATE и выберите кандидата." });
-        }
-      } catch {}
+      await notifyStateChat(stateId, "🗳 Начались выборы президента! Откройте WARSTATE и выберите кандидата.");
     } else if (action === "nominate") {
       if (!body.electionId) throw new Error("electionId is required");
       await nominateCandidate(String(body.electionId), auth.player.id, String(body.statement || ""));
@@ -44,7 +43,10 @@ export async function POST(request: Request) {
       await castVote(String(body.electionId), auth.player.id, String(body.candidateId));
     } else if (action === "finalize") {
       if (!body.electionId) throw new Error("electionId is required");
-      await finalizeElection(String(body.electionId));
+      const result = await finalizeElection(String(body.electionId));
+      if ((result as { applied?: boolean } | null)?.applied) {
+        await notifyStateChat(stateId, "🗳 Выборы завершены. Итог подведён из Mini App.");
+      }
     } else {
       throw new Error("Неизвестное действие.");
     }

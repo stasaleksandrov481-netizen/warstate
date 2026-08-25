@@ -1,11 +1,29 @@
 import { authorizeStateAction, jsonError } from "@/lib/request-auth";
 import { bootstrapGame, getGameSnapshot } from "@/lib/game";
-import { appointPresident, deleteState, openGovernmentElection, removePresident, renameState, setDeputy, setStateUsername, voteForUsername } from "@/lib/government";
+import {
+  appointPresident,
+  deleteState,
+  notifyStateChat,
+  openGovernmentElection,
+  removePresident,
+  renameState,
+  setDeputy,
+  setStateUsername,
+  voteForUsername,
+} from "@/lib/government";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { reconcileStateRuntime } from "@/lib/maintenance";
 import { assertTelegramChatOwner } from "@/lib/telegram-bot";
 
 export const runtime = "nodejs";
+
+function actorLabel(player: { display_name?: string | null; username?: string | null }) {
+  return `${player.display_name || "Игрок"}${player.username ? ` (@${player.username})` : ""}`;
+}
+
+function targetLabel(target: { display_name?: string | null; username?: string | null }) {
+  return `${target.display_name || "Игрок"}${target.username ? ` (@${target.username})` : ""}`;
+}
 
 export async function POST(request: Request) {
   try {
@@ -17,30 +35,48 @@ export async function POST(request: Request) {
     if (auth.state.is_freeport) throw new Error("У Freeport нет собственного правительства.");
     await reconcileStateRuntime(stateId, { force: true });
 
+    const actor = actorLabel(auth.player);
+    // Every branch fills this in with the message shown in the state's
+    // Telegram group so Mini App actions are as visible as chat commands.
+    let notification: string | null = null;
+
     if (action === "open_election") {
       await openGovernmentElection(stateId, auth.player.id);
+      notification = `🗳 ВЫБОРЫ ПРЕЗИДЕНТА\n\n${actor} открыл(а) внеочередные выборы в Mini App. Голосование открыто на 30 минут — !голосовать @username.`;
     } else if (action === "vote_username") {
-      await voteForUsername(stateId, auth.player.id, String(body.username || ""));
+      const { target } = await voteForUsername(stateId, auth.player.id, String(body.username || ""));
+      notification = `🗳 ${actor} проголосовал(а) за ${targetLabel(target)} в Mini App.`;
     } else if (action === "appoint_president") {
-      await appointPresident(stateId, auth.player.id, String(body.username || ""));
+      const target = await appointPresident(stateId, auth.player.id, String(body.username || ""));
+      notification = `👑 ${actor} назначил(а) ${targetLabel(target)} президентом через Mini App.`;
     } else if (action === "remove_president") {
       await removePresident(stateId, auth.player.id);
+      notification = `👑 ${actor} снял(а) президента с должности через Mini App. Государство временно без президента.`;
     } else if (action === "appoint_deputy") {
-      await setDeputy(stateId, auth.player.id, String(body.username || ""), true);
+      const target = await setDeputy(stateId, auth.player.id, String(body.username || ""), true);
+      notification = `🛡 ${actor} назначил(а) ${targetLabel(target)} заместителем через Mini App.`;
     } else if (action === "remove_deputy") {
-      await setDeputy(stateId, auth.player.id, String(body.username || ""), false);
+      const target = await setDeputy(stateId, auth.player.id, String(body.username || ""), false);
+      notification = `🛡 ${actor} снял(а) ${targetLabel(target)} с поста заместителя через Mini App.`;
     } else if (action === "set_username") {
-      await setStateUsername(stateId, auth.player.id, String(body.username || ""));
+      const data = await setStateUsername(stateId, auth.player.id, String(body.username || ""));
+      const username = (data as { username?: string } | null)?.username;
+      notification = `🌐 ${actor} задал(а) игровой юз государства${username ? `: @${username}` : ""}.`;
     } else if (action === "rename_state") {
-      await renameState(stateId, auth.player.id, String(body.name || ""));
+      const data = await renameState(stateId, auth.player.id, String(body.name || ""));
+      const name = (data as { name?: string } | null)?.name;
+      notification = `🏛 ${actor} переименовал(а) государство${name ? ` в «${name}»` : ""}.`;
     } else if (action === "delete_state") {
       if (!auth.state.telegram_chat_id) throw new Error("У государства не привязан Telegram-чат.");
       await assertTelegramChatOwner(Number(auth.state.telegram_chat_id), auth.session.user.id);
+      await notifyStateChat(stateId, `⚠️ ${actor} удалил(а) государство через Mini App.`);
       await deleteState(stateId, auth.player.id);
       return Response.json(await bootstrapGame(auth.session.user, null));
     } else {
       throw new Error("Неизвестное действие правительства.");
     }
+
+    if (notification) await notifyStateChat(stateId, notification);
 
     const supabase = getSupabaseAdmin();
     const { data: latestMember, error } = await supabase.from("state_members").select("role").eq("state_id", stateId).eq("player_id", auth.player.id).single();

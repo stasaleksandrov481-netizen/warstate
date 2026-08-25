@@ -140,7 +140,9 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   const velocityRef = useRef({ x: 0, y: 0, at: 0 });
   const inertiaRafRef = useRef<number | null>(null);
   const cameraTweenRafRef = useRef<number | null>(null);
-  const cameraRef = useRef<Camera>({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: snapshot.state.isFreeport ? 0.72 : 0.88 });
+  // Zoomed further out by default so the nearest neighbouring islands are
+  // visible on open instead of requiring a long pan/scroll to reach them.
+  const cameraRef = useRef<Camera>({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: snapshot.state.isFreeport ? 0.40 : 0.50 });
   const [camera, setCamera] = useState<Camera>(cameraRef.current);
   const [viewport, setViewport] = useState({ width: 390, height: 620 });
   const [dragging, setDragging] = useState(false);
@@ -286,11 +288,11 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   }, [updateCamera, viewport.height, viewport.width]);
 
   const centerMine = useCallback(() => {
-    animateCameraTo({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: Math.max(snapshot.state.isFreeport ? 0.76 : 0.98, cameraRef.current.zoom) });
+    animateCameraTo({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: Math.max(snapshot.state.isFreeport ? 0.40 : 0.50, cameraRef.current.zoom) });
   }, [animateCameraTo, snapshot.state.isFreeport, snapshot.state.worldX, snapshot.state.worldY]);
 
   const focusIsland = useCallback((island: IslandView) => {
-    animateCameraTo({ x: island.worldX, y: island.worldY, zoom: Math.max(.96, cameraRef.current.zoom) });
+    animateCameraTo({ x: island.worldX, y: island.worldY, zoom: Math.max(.65, cameraRef.current.zoom) });
     onSelect(island);
     setRadarOpen(false);
   }, [animateCameraTo, onSelect]);

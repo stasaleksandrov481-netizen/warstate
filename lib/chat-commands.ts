@@ -337,7 +337,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       if (!snapshot.government.canFounderManage) throw new Error("Заместителей назначает и снимает только Основатель.");
       const enabled = command === "назначитьзама";
       const target = await setDeputy(snapshot.state.id, snapshot.player.id, String(args[0] || ""), enabled);
-      await publishStateEvent(snapshot.state.id, enabled ? "🛡 НАЗНАЧЕН ЗАМЕСТИТЕЛЬ" : "🛡 ЗАМЕСТИТЕЛЬ СНЯТ", `${target.displayName}${target.username ? ` (@${target.username})` : ""}`);
+      await publishStateEvent(snapshot.state.id, enabled ? "🛡 НАЗНАЧЕН ЗАМЕСТИТЕЛЬ" : "🛡 ЗАМЕСТИТЕЛЬ СНЯТ", `${target.display_name}${target.username ? ` (@${target.username})` : ""}`);
       await send(chatId, `${enabled ? "🛡 Назначен заместитель" : "🛡 Заместитель снят"}: ${target.display_name}${target.username ? ` (@${target.username})` : ""}.`);
       return true;
     }

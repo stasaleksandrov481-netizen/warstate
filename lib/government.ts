@@ -1,7 +1,26 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { getChat, getChatAdministrators, getChatMemberCount } from "@/lib/telegram-bot";
+import { getChat, getChatAdministrators, getChatMemberCount, telegramApi } from "@/lib/telegram-bot";
 import { getElection, finalizeElection } from "@/lib/politics";
 import type { GovernmentView } from "@/lib/types";
+
+// Any government action taken from the Mini App (as opposed to a Telegram
+// !command, which already replies in the chat itself) must still be visible
+// to the whole state chat. This is the single notification point every
+// Mini App government button routes through.
+export async function notifyStateChat(stateId: string, text: string) {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data: state, error } = await supabase.from("states").select("telegram_chat_id").eq("id", stateId).maybeSingle();
+    if (error || !state?.telegram_chat_id) return;
+    const chatId = Number(state.telegram_chat_id);
+    if (!Number.isFinite(chatId) || !chatId) return;
+    await telegramApi("sendMessage", { chat_id: chatId, text, link_preview_options: { is_disabled: true } });
+  } catch (notifyError) {
+    // A notification failure must never roll back or fail the underlying
+    // government action; it is best-effort visibility only.
+    console.warn("WARSTATE government chat notification skipped", notifyError);
+  }
+}
 
 const START_BUILDINGS = ["hq","barracks","mine","refinery","farm","lab","outpost","trade_chamber"] as const;
 
@@ -34,7 +53,11 @@ export async function registerTelegramState(chatId: number) {
 
   let state = existing;
   if (!state) {
-    const color = `hsl(${Math.abs(chatId) % 360} 72% 52%)`;
+    // A fixed, fairly dark lightness (regardless of hue) keeps the badges,
+    // emblems and letter avatars that always render light/white text on top
+    // of this color readable for every generated hue — a light hue (yellow,
+    // cyan, light green) at high lightness made that text nearly invisible.
+    const color = `hsl(${Math.abs(chatId) % 360} 62% 34%)`;
     const { data: created, error } = await supabase.from("states").insert({
       telegram_chat_id: chatId,
       telegram_chat_title: chat.title || `Chat ${Math.abs(chatId)}`,

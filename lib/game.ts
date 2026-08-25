@@ -334,7 +334,11 @@ async function getPlayerMemberSnapshot(stateId: string, playerId: string) {
   return { contribution: Number(fallback.data?.contribution || 0), dutyRole: null };
 }
 
-export async function bootstrapGame(user: TelegramUser, chatId: number | null, options: { preserveHomeState?: boolean; syntheticRole?: string } = {}): Promise<GameSnapshot> {
+export async function bootstrapGame(
+  user: TelegramUser,
+  chatId: number | null,
+  options: { preserveHomeState?: boolean; syntheticRole?: string; trustedChatMembership?: boolean } = {},
+): Promise<GameSnapshot> {
   const supabase = getSupabaseAdmin();
   const player = await upsertPlayer(user);
 
@@ -343,12 +347,22 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null, o
   let membershipVerifiedAt: string | null = null;
 
   if (chatId) {
-    await assertTelegramChatMembership(chatId, user.id, [user.first_name, user.last_name].filter(Boolean).join(" ") || user.username || "Игрок");
+    // Webhook-originated calls (group commands, callback queries) already prove
+    // membership: Telegram only delivers those updates from someone who can post
+    // in the chat right now, so re-checking via getChatMember is a redundant
+    // external round trip on the hot path. Only callers that derive chatId from
+    // untrusted input (e.g. a Mini App startapp param) still need the live check.
+    const membershipCheck = options.trustedChatMembership
+      ? Promise.resolve(null)
+      : assertTelegramChatMembership(chatId, user.id, [user.first_name, user.last_name].filter(Boolean).join(" ") || user.username || "Игрок");
 
-    state = await ensureStateForChat(chatId, player.id, user.id);
-    state = await syncStateChatMeta(state.id, chatId);
-
-    const home = await existingHomeState(player.id);
+    // ensureStateForChat does not depend on the membership check, so run them
+    // concurrently instead of paying for both round trips back to back.
+    const [, ensuredState] = await Promise.all([
+      membershipCheck,
+      ensureStateForChat(chatId, player.id, user.id),
+    ]);
+    state = await syncStateChatMeta(ensuredState.id, chatId);
 
     const { data: existingMember, error: existingMemberError } = await supabase
       .from("state_members")
@@ -410,7 +424,7 @@ export async function bootstrapGame(user: TelegramUser, chatId: number | null, o
       if (restoreFounderError) throw restoreFounderError;
     }
   }
-  if (options.syntheticRole) role = options.syntheticRole;
+  // Project admins never become in-game presidents. Their power is checked separately.\n  // Keep the real government role from Telegram state unchanged.
   if (state.is_beginner_island) {
     const { error: curatorError } = await supabase.rpc("gw_refresh_beginner_curator", { p_state_id: state.id });
     if (curatorError && curatorError.code !== "PGRST202") throw curatorError;
@@ -472,10 +486,15 @@ export async function getGameSnapshot(
   role: string,
 ): Promise<GameSnapshot> {
   const supabase = getSupabaseAdmin();
-  const { error: finishUpgradeError } = await supabase.rpc("gw_finish_building_upgrades", { p_state_id: stateId });
+  // These two maintenance RPCs touch different concerns (building upgrades vs.
+  // strategy cache) and neither reads the other's output, so run them together
+  // instead of paying for two sequential round trips.
+  const [{ error: finishUpgradeError }, { error: strategyRefreshError }] = await Promise.all([
+    supabase.rpc("gw_finish_building_upgrades", { p_state_id: stateId }),
+    supabase.rpc("gw_refresh_state_strategy", { p_state_id: stateId }),
+  ]);
   if (finishUpgradeError && finishUpgradeError.code !== "PGRST202") throw finishUpgradeError;
   if (finishUpgradeError) warnOptionalSnapshotPart("finish building upgrades", finishUpgradeError);
-  const { error: strategyRefreshError } = await supabase.rpc("gw_refresh_state_strategy", { p_state_id: stateId });
   if (strategyRefreshError && strategyRefreshError.code !== "PGRST202") throw strategyRefreshError;
   const [playerRes, stateRes, buildingsRes, membersRes, myMember] = await Promise.all([
     supabase.from("players").select("id,display_name,username,level,xp,energy").eq("id", playerId).single(),
@@ -506,7 +525,10 @@ export async function getGameSnapshot(
   const electionPromise = state.is_freeport ? null : getElection(stateId, playerId);
 
   const diplomacy = await optionalSnapshotPart("diplomacy", [], () => getDiplomacyForState(stateId));
-  const [rankRes, worldFeed, leaderboard, dailyMissions, activeBattle, season, election, recruitment, recentWars, strategy, government] = await Promise.all([
+  // getIslandWorld only needs `diplomacy` and `state`, both already resolved
+  // above, so it can run inside this same parallel batch instead of as an
+  // extra serial step tacked on after everything else finishes.
+  const [rankRes, worldFeed, leaderboard, dailyMissions, activeBattle, season, election, recruitment, recentWars, strategy, government, islands] = await Promise.all([
     rankPromise,
     optionalSnapshotPart("world feed", [], () => getWorldFeed(24)),
     optionalSnapshotPart("leaderboard", [], () => getLeaderboard(10)),
@@ -518,8 +540,8 @@ export async function getGameSnapshot(
     state.is_freeport ? Promise.resolve([] as WarView[]) : optionalSnapshotPart("recent wars", [] as WarView[], () => getRecentIslandWars(stateId)),
     optionalSnapshotPart("strategy", emptyStrategy(role, Boolean(state.is_beginner_island)), () => getStrategyView(playerId, stateId, role, Boolean(state.is_beginner_island))),
     optionalSnapshotPart("government", EMPTY_GOVERNMENT, () => getGovernmentView(stateId, playerId)),
+    optionalSnapshotPart("island world", [], () => getIslandWorld(stateId, diplomacy, { x: Number(state.world_x || 0), y: Number(state.world_y || 0) })),
   ]);
-  const islands = await optionalSnapshotPart("island world", [], () => getIslandWorld(stateId, diplomacy, { x: Number(state.world_x || 0), y: Number(state.world_y || 0) }));
   if (rankRes?.error) warnOptionalSnapshotPart("season rank", rankRes.error);
   if (!state.is_freeport) {
     await ensureMilestoneBadges(stateId, season?.id || null, state.rating, wins, state.best_win_streak || 0)

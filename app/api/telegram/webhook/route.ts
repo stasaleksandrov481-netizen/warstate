@@ -5,6 +5,7 @@ import { handleGroupCallback, handleGroupTextCommand, processDueGroupVotes } fro
 import { recordChatActivity, registerTelegramState } from "@/lib/government";
 import { bootstrapGame, markTelegramGroupMemberLeft, observeTelegramGroupMember } from "@/lib/game";
 import { reconcileStateRuntimeByChatId } from "@/lib/maintenance";
+import { markSeenOnce } from "@/lib/redis";
 
 export const runtime = "nodejs";
 // Command handling can chain several Supabase round-trips plus Telegram API
@@ -248,18 +249,34 @@ export async function POST(request: Request) {
       // Keep the sender known to WARSTATE without blindly moving citizens between
       // states. This makes reply-based government commands work even when the user
       // has never opened Mini App, while preserving the one-home-state invariant.
+      // This does ~5 sequential DB round trips, so on a busy chat it is throttled
+      // to once per user per window instead of running on literally every message;
+      // bootstrapGame() already does its own player/state upsert for real commands,
+      // so this is only a backstop for users who never trigger a command directly.
+      // It also runs concurrently with the command dispatch below instead of
+      // blocking it, so a slow command chat doesn't have to wait on it twice.
+      let observePromise: Promise<unknown> = Promise.resolve();
       if (message.from?.id && !message.from?.is_bot) {
-        await observeTelegramGroupMember({
-          id: Number(message.from.id),
-          first_name: String(message.from.first_name || "Игрок"),
-          last_name: message.from.last_name ? String(message.from.last_name) : undefined,
-          username: message.from.username ? String(message.from.username) : undefined,
-        }, Number(message.chat.id)).catch((error) => console.warn("WARSTATE sender observation skipped", error));
+        const senderId = Number(message.from.id);
+        const chatIdForSeen = Number(message.chat.id);
+        observePromise = markSeenOnce(`observe:${chatIdForSeen}:${senderId}`, 180)
+          .then((shouldObserve) => {
+            if (!shouldObserve) return undefined;
+            return observeTelegramGroupMember({
+              id: senderId,
+              first_name: String(message.from.first_name || "Игрок"),
+              last_name: message.from.last_name ? String(message.from.last_name) : undefined,
+              username: message.from.username ? String(message.from.username) : undefined,
+            }, chatIdForSeen);
+          })
+          .catch((error) => console.warn("WARSTATE sender observation skipped", error));
       }
 
       // Commands are the critical path. Never make a !command wait for optional
       // world maintenance, vote settlement or chat-farm bookkeeping.
-      if (await handleGroupTextCommand(message)) return Response.json({ ok: true });
+      const isCommand = await handleGroupTextCommand(message);
+      await observePromise;
+      if (isCommand) return Response.json({ ok: true });
       // A leading ! belongs to WARSTATE only when it exactly matches a registered
       // command. Unknown bang-commands are a hard no-op so we never answer typos
       // or commands intended for another bot in the same group.

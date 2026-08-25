@@ -110,6 +110,34 @@ async function releaseLock(key: string, token: string | null) {
   ]).catch(() => undefined);
 }
 
+const localSeen = new Map<string, number>();
+
+// Cheap "have we already done this recently" gate. Returns true only the
+// first time a given key is marked within the TTL window, false on every
+// repeat call until the window expires. Used to throttle maintenance work
+// that would otherwise repeat on every single incoming Telegram message.
+export async function markSeenOnce(key: string, ttlSeconds: number): Promise<boolean> {
+  const namespaced = `gw:seen:${key}`;
+  if (!redisConfigured()) {
+    const now = Date.now();
+    const expiresAt = localSeen.get(namespaced);
+    if (expiresAt && expiresAt > now) return false;
+    localSeen.set(namespaced, now + Math.max(1, ttlSeconds) * 1000);
+    if (localSeen.size > 5000) {
+      for (const [entry, value] of localSeen) if (value <= now) localSeen.delete(entry);
+    }
+    return true;
+  }
+  try {
+    const result = await command<string>(["SET", namespaced, "1", "NX", "EX", Math.max(1, ttlSeconds)]);
+    return result === "OK";
+  } catch {
+    // Availability first: if Redis is flaky, fall back to doing the work
+    // rather than silently dropping it.
+    return true;
+  }
+}
+
 export async function withActionLock<T>(key: string, ttlSeconds: number, task: () => Promise<T>): Promise<T> {
   const token = await acquireLock(key, ttlSeconds);
   try {

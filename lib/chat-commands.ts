@@ -1,6 +1,6 @@
 import { getBattleView } from "@/lib/battle";
 import { getAlliedStateChats, performDiplomacyAction } from "@/lib/diplomacy";
-import { bootstrapGame, tickState } from "@/lib/game";
+import { bootstrapGame, getGameSnapshot, tickState } from "@/lib/game";
 import { startWarAction, upgradeBuildingAction } from "@/lib/actions";
 import { addAllianceBattleSupport, completeDailyActivity, surrenderBattle } from "@/lib/strategy";
 import { appointPresident, appointPresidentByPlayerId, openGovernmentElection, removePresident, renameState, requestFounderSelfPresidency, resolveStateMemberByTelegramId, resolveStateMemberByUsername, resolveStateTarget, searchStates, setDeputy, setDeputyByPlayerId, setStateUsername, voteForUsername } from "@/lib/government";
@@ -270,7 +270,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         "!статус — уровень, армия, оборона и прочность\n" +
         "!ресурсы / !казна / !налоги — экономика и доход\n" +
         "!карта — карта островов и переход в другое государство\n" +
-        "!государства — список государств · !найти @state — поиск\n" +
+        "!государства — список государств · !найти @название_государства — поиск\n" +
         "!рейтинг — топ по ELO · !профиль — роль, XP и бои\n" +
         "!мойид — Telegram ID · !версия — версия обработчика\n" +
         "!вклад — твой вклад в развитие страны\n\n" +
@@ -284,18 +284,18 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         "!голосование — текущее решение войны/союза\n" +
         "!название ... / !юз ... — изменить имя и игровой @юз\n\n" +
         "⚔ ВОЙНА И РАЗВЕДКА\n" +
-        "!война @state raid|siege|territory — вынести атаку на голосование\n" +
+        "!война @название_государства raid|siege|territory — вынести атаку на голосование\n" +
         "!бой — состояние текущего сражения\n" +
-        "!разведка @state — оценка армии и обороны\n" +
-        "!шпион @state — личная спецоперация Шпиона\n" +
+        "!разведка @название_государства — оценка армии и обороны\n" +
+        "!шпион @название_государства — личная спецоперация Шпиона\n" +
         "!поддержать ID defense|attack — помочь союзнику\n" +
         "!сдаться — капитуляция в активном бою\n\n" +
         "🤝 ДИПЛОМАТИЯ\n" +
         "!альянсы — действующие союзы\n" +
-        "!союз @state — вынести союз на голосование\n" +
-        "!союз принять @state — голосование за принятие\n" +
-        "!союз отклонить @state — отклонить предложение\n" +
-        "!разорватьсоюз @state — завершить союз\n\n" +
+        "!союз @название_государства — вынести союз на голосование\n" +
+        "!союз принять @название_государства — голосование за принятие\n" +
+        "!союз отклонить @название_государства — отклонить предложение\n" +
+        "!разорватьсоюз @название_государства — завершить союз\n\n" +
         "🏗 РАЗВИТИЕ\n" +
         "!постройки — уровни инфраструктуры\n" +
         "!улучшить шахта — начать улучшение\n" +
@@ -321,7 +321,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (["вступить", "войти", "присоединиться"].includes(command)) {
-      const joined = await bootstrapGame(telegramUser(from), chatId);
+      const joined = await bootstrapGame(telegramUser(from), chatId, { trustedChatMembership: true });
       await send(chatId, `✅ ${joined.player.displayName} теперь числится гражданином государства «${joined.state.name}».\n\nMini App открывать для вступления не обязательно.`);
       return true;
     }
@@ -355,8 +355,8 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         return true;
       }
       try {
-        const adminSnapshot = await bootstrapGame(telegramUser(from), chatId, { preserveHomeState: true, syntheticRole: "president" });
-        await send(chatId, `🧪 РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА\n\nСтатус ID: включён\nРежим в этом чате: ${superAdminMode ? "включён" : "выключен"}\nГосударство: ${adminSnapshot.state.name}\nВы Основатель: ${adminSnapshot.government.canFounderManage ? "да" : "нет"}\n\nГлобальный доступ: включён. В любом чате с WARSTATE ваши команды выполняются с правами проекта без смены вашего государства. Ограничения игровых ролей для команд управления не применяются.`);
+        const adminSnapshot = await bootstrapGame(telegramUser(from), chatId, { preserveHomeState: true, trustedChatMembership: true });
+        await send(chatId, `🧪 РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА\n\nСтатус ID: включён\nРежим в этом чате: ${superAdminMode ? "включён" : "выключен"}\nГосударство: ${adminSnapshot.state.name}\nВы Основатель: ${adminSnapshot.government.canFounderManage ? "да" : "нет"}\n\nГлобальный доступ: включён. В этом чате ваши команды работают как админ бота. Игровая роль, президентство и гражданство не меняются.`);
       } catch (adminError) {
         await send(chatId, `🧪 РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА\n\nСтатус: включён\nНо игровая база сейчас отвечает ошибкой: ${commandErrorMessage(adminError)}`);
       }
@@ -384,7 +384,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       return true;
     }
 
-    const snapshot = await bootstrapGame(telegramUser(from), chatId, superAdminMode ? { preserveHomeState: true, syntheticRole: "president" } : {});
+    const snapshot = await bootstrapGame(telegramUser(from), chatId, superAdminMode ? { preserveHomeState: true, trustedChatMembership: true, /* admin mode without changing government role */ } : { trustedChatMembership: true });
     const effectiveActorPlayerId = superAdminMode
       ? String(snapshot.government.founder?.playerId || snapshot.government.president?.playerId || snapshot.player.id)
       : snapshot.player.id;
@@ -408,7 +408,12 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
 
     if (command === "президент") {
       const p = snapshot.government.president;
-      await send(chatId, p ? `👑 Президент: ${p.displayName}${p.username ? ` (@${p.username})` : ""}` : "👑 Президент пока не назначен. Основатель может назначить его или запустить 30-минутные выборы.");
+      const botAdmin = projectAdmin
+        ? `\n\n🛡 Администратор Бота\n${from.first_name || from.username || from.id}`
+        : "";
+      await send(chatId, p
+        ? `👑 Президент: ${p.displayName}${p.username ? ` (@${p.username})` : ""}${botAdmin}`
+        : `👑 Президент пока не назначен. Основатель может назначить его или запустить 2-минутные выборы.${botAdmin}`);
       return true;
     }
 
@@ -437,7 +442,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     if (command === "роль" || command === "role") {
       const targetRaw = String(args[0] || "");
       const roleRaw = String(args[1] || "");
-      if (!targetRaw || !roleRaw) throw new Error("Формат: !роль @username дипломат|шпион|шахтер|рабочий|снять");
+      if (!targetRaw || !roleRaw) throw new Error("Формат: !роль @игрок дипломат|шпион|шахтер|рабочий|снять");
       const target = await resolveStateMemberByUsername(snapshot.state.id, targetRaw);
       const clear = ["снять", "none", "clear", "нет"].includes(roleRaw.toLocaleLowerCase("ru-RU"));
       const dutyRole = clear ? null : parseDutyRole(roleRaw);
@@ -453,13 +458,13 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       if (!snapshot.government.canFounderManage && !superAdminMode) throw new Error("Внеочередные выборы запускает только Основатель.");
       const electionId = await openGovernmentElection(snapshot.state.id, effectiveActorPlayerId);
       await publishStateEvent(snapshot.state.id, "🗳 ВЫБОРЫ ПРЕЗИДЕНТА", "Началось голосование за нового президента государства.");
-      await send(chatId, `🗳 ВЫБОРЫ ПРЕЗИДЕНТА\n\nГолосование открыто на 30 минут.\nКоманда: !голосовать @username\n\nИтог будет подведён автоматически при следующей активности государства.`);
+      await send(chatId, `🗳 ВЫБОРЫ ПРЕЗИДЕНТА\n\nГолосование открыто на 2 минуты.\nКоманда: !голосовать @игрок\n\nИтог будет подведён автоматически при следующей активности государства.`);
       return true;
     }
 
     if (command === "голосовать") {
       const targetUsername = String(args[0] || "");
-      if (!targetUsername) throw new Error("Формат: !голосовать @username");
+      if (!targetUsername) throw new Error("Формат: !голосовать @игрок");
       const { target } = await voteForUsername(snapshot.state.id, snapshot.player.id, targetUsername);
       await send(chatId, `🗳 Голос принят за ${target.display_name}${target.username ? ` (@${target.username})` : ""}.`);
       return true;
@@ -474,7 +479,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       // to every Telegram chat owner.
       if (!targetRaw) {
         if (superAdminMode && !snapshot.government.canFounderManage) {
-          throw new Error("В чужом государстве укажите кандидата: !назначитьпрезидента @username. Глобальные права не делают вас гражданином этого государства.");
+          throw new Error("В чужом государстве укажите кандидата: !назначитьпрезидента @игрок. Глобальные права не делают вас гражданином этого государства.");
         }
         if (superAdminMode) {
           const founderActor = String(snapshot.government.founder?.playerId || snapshot.player.id);
@@ -482,7 +487,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
           await send(chatId, `🧪 ${target.display_name}${target.username ? ` (@${target.username})` : ""} назначен президентом без голосования · режим создателя проекта.`);
         } else {
           await requestFounderSelfPresidency(snapshot.state.id, effectiveActorPlayerId);
-          await send(chatId, `🗳 САМОВЫДВИЖЕНИЕ ОСНОВАТЕЛЯ\n\n${snapshot.player.displayName} выдвинул(а) себя в президенты. Голосование идёт 30 минут. Ваш собственный голос не засчитывается: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов. Граждане могут голосовать в Mini App${snapshot.player.username ? ` или командой !голосовать @${snapshot.player.username}` : ""}.`);
+          await send(chatId, `🗳 САМОВЫДВИЖЕНИЕ ОСНОВАТЕЛЯ\n\n${snapshot.player.displayName} выдвинул(а) себя в президенты. Голосование идёт 2 минуты. Ваш собственный голос не засчитывается: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов. Граждане могут голосовать в Mini App${snapshot.player.username ? ` или командой !голосовать @${snapshot.player.username}` : ""}.`);
         }
         return true;
       }
@@ -491,7 +496,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       const selfFounder = String(target.id) === String(snapshot.player.id);
       if (selfFounder && !superAdminMode) {
         await requestFounderSelfPresidency(snapshot.state.id, effectiveActorPlayerId);
-        await send(chatId, `🗳 САМОВЫДВИЖЕНИЕ ОСНОВАТЕЛЯ\n\n${snapshot.player.displayName} выдвинул(а) себя в президенты. Решение принимают граждане на 30-минутном голосовании: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов.`);
+        await send(chatId, `🗳 САМОВЫДВИЖЕНИЕ ОСНОВАТЕЛЯ\n\n${snapshot.player.displayName} выдвинул(а) себя в президенты. Решение принимают граждане на 2-минутном голосовании: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов.`);
         return true;
       }
       const founderActor = effectiveActorPlayerId;
@@ -520,7 +525,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         target = await setDeputyByPlayerId(snapshot.state.id, effectiveActorPlayerId, member.id, enabled);
       } else {
         const rawTarget = String(args[0] || "");
-        if (!rawTarget) throw new Error(`Ответьте этой командой на сообщение человека или укажите @username: !${command} @username`);
+        if (!rawTarget) throw new Error(`Ответьте этой командой на сообщение человека или укажите @игрок: !${command} @игрок`);
         target = await setDeputy(snapshot.state.id, effectiveActorPlayerId, rawTarget, enabled);
       }
       await publishStateEvent(snapshot.state.id, enabled ? "🛡 НАЗНАЧЕН ЗАМЕСТИТЕЛЬ" : "🛡 ЗАМЕСТИТЕЛЬ СНЯТ", `${target.display_name}${target.username ? ` (@${target.username})` : ""}`);
@@ -621,7 +626,10 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
 
     if (command === "ресурсы" || command === "resources") {
       await tickState(snapshot.state.id);
-      const fresh = await bootstrapGame(telegramUser(from), chatId);
+      // Only the treasury changed: re-read the snapshot directly instead of
+      // re-running the whole bootstrapGame chain (membership check, state
+      // lookup, home-state RPC, etc.) a second time for the same request.
+      const fresh = await getGameSnapshot(snapshot.player.id, snapshot.state.id, Number(from.id), snapshot.player.role);
       const p = fresh.state.productionPerHour;
       await send(chatId,
         `📦 КАЗНА ${fresh.state.name}\n\n${resourceLine(fresh)}\n\n` +
@@ -680,7 +688,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
 
     if (command === "казна" || command === "налоги") {
       await tickState(snapshot.state.id);
-      const fresh = await bootstrapGame(telegramUser(from), chatId);
+      const fresh = await getGameSnapshot(snapshot.player.id, snapshot.state.id, Number(from.id), snapshot.player.role);
       const p = fresh.state.productionPerHour;
       await send(chatId, `💰 КАЗНА И НАЛОГИ\n\n${resourceLine(fresh)}\n\nПассивное поступление/ч: 💰 +${p.credits} · ⚙️ +${p.steel} · ⛽ +${p.fuel} · 🌾 +${p.food} · 🔬 +${p.tech}.\nНалоги начисляются сервером автоматически вместе с экономическим тиком.`);
       return true;
@@ -925,7 +933,9 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
     const snapshot = await bootstrapGame(
       telegramUser(from),
       stateChatId,
-      superAdminMode ? { preserveHomeState: true, syntheticRole: "president" } : {},
+      superAdminMode
+        ? { preserveHomeState: true, trustedChatMembership: true, /* admin mode without changing government role */ }
+        : { trustedChatMembership: true },
     );
     const effectiveActorPlayerId = superAdminMode
       ? String(snapshot.government.founder?.playerId || snapshot.government.president?.playerId || snapshot.player.id)

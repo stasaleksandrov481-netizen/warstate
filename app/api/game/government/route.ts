@@ -45,7 +45,7 @@ export async function POST(request: Request) {
 
     if (action === "open_election") {
       await openGovernmentElection(stateId, auth.player.id);
-      notification = `🗳 ВЫБОРЫ ПРЕЗИДЕНТА\n\n${actor} открыл(а) внеочередные выборы в Mini App. Голосование открыто на 30 минут — !голосовать @username.`;
+      notification = `🗳 ВЫБОРЫ ПРЕЗИДЕНТА\n\n${actor} открыл(а) внеочередные выборы в Mini App. Голосование открыто на 2 минуты — !голосовать @игрок.`;
     } else if (action === "vote_username") {
       const { target } = await voteForUsername(stateId, auth.player.id, String(body.username || ""));
       notification = `🗳 ${actor} проголосовал(а) за ${targetLabel(target)} в Mini App.`;
@@ -61,16 +61,16 @@ export async function POST(request: Request) {
       const isFounder = String(founderState?.founder_player_id || "") === String(auth.player.id);
       if (isSelf && isFounder && !isProjectAdminTelegramId(auth.session.user.id)) {
         await requestFounderSelfPresidency(stateId, auth.player.id);
-        notification = `🗳 ${actor} выдвинул(а) себя в президенты. Решение принимают граждане на 30-минутном голосовании: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов.`;
+        notification = `🗳 ${actor} выдвинул(а) себя в президенты. Решение принимают граждане на 2-минутном голосовании: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов.`;
       } else {
         const appointed = await appointPresidentByPlayerId(stateId, auth.player.id, String(target.id));
         notification = `👑 ${actor} назначил(а) ${targetLabel(appointed)} президентом через Mini App.`;
       }
     } else if (action === "request_self_presidency") {
       await requestFounderSelfPresidency(stateId, auth.player.id);
-      notification = `🗳 ${actor} выдвинул(а) себя в президенты. Решение принимают граждане на 30-минутном голосовании: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов.`;
+      notification = `🗳 ${actor} выдвинул(а) себя в президенты. Решение принимают граждане на 2-минутном голосовании: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов.`;
     } else if (action === "admin_self_president") {
-      if (!isProjectAdminTelegramId(auth.session.user.id)) throw new Error("Режим создателя проекта недоступен этому аккаунту.");
+      throw new Error("Админ бота не становится президентом. Используйте права администратора бота или обычное назначение президента.");
       const { data: founderState, error: founderStateError } = await getSupabaseAdmin()
         .from("states")
         .select("founder_player_id")

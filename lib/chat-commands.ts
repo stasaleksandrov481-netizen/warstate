@@ -31,6 +31,41 @@ import { isProjectAdminTelegramId } from "@/lib/config";
 const LEADERS = new Set(["president", "minister", "deputy", "curator"]);
 const WAR_LEADERS = new Set(["president", "minister", "deputy"]);
 
+const WARSTATE_COMMANDS = new Set([
+  "играть", "как_играть", "какиграть", "гайд", "guide",
+  "help", "помощь", "команды",
+  "мойid", "myid", "админ", "admin",
+  "государство", "state", "президент", "замы",
+  "роли", "roles", "роль", "role",
+  "выборы", "голосовать", "назначитьпрезидента", "снятьпрезидента",
+  "назначитьзама", "снятьзама", "создатьюз", "юз", "название",
+  "найти", "рейтинг", "карта", "альянсы", "голосование", "vote",
+  "статус", "status", "ресурсы", "resources", "профиль", "profile",
+  "вклад", "contribution", "государства", "states", "казна", "налоги",
+  "постройки", "миссия", "награда", "активность", "activity",
+  "бой", "battle", "оборона", "defense", "улучшить", "upgrade",
+  "союз", "alliance", "разорватьсоюз", "разведка", "шпион", "spy",
+  "война", "war", "поддержать", "support", "сдаться", "surrender",
+]);
+
+function parseWarstateCommand(text: string) {
+  if (!text.startsWith("!")) return null;
+  const [rawCommand, ...args] = text.slice(1).trim().split(/\s+/);
+  if (!rawCommand) return null;
+
+  const [rawName, rawMention] = String(rawCommand).split("@", 2);
+  if (rawMention) {
+    const ownUsername = String(process.env.TELEGRAM_BOT_USERNAME || "")
+      .replace(/^@/, "")
+      .toLocaleLowerCase("ru-RU");
+    if (!ownUsername || rawMention.toLocaleLowerCase("ru-RU") !== ownUsername) return null;
+  }
+
+  const command = rawName.toLocaleLowerCase("ru-RU");
+  if (!WARSTATE_COMMANDS.has(command)) return null;
+  return { command, args };
+}
+
 function commandErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) return error.message;
   if (error && typeof error === "object") {
@@ -194,14 +229,13 @@ export async function processDueGroupVotes(chatId: number) {
 
 export async function handleGroupTextCommand(message: any): Promise<boolean> {
   const text = String(message?.text || "").trim();
-  if (!text.startsWith("!")) return false;
+  const parsed = parseWarstateCommand(text);
+  if (!parsed) return false;
+
   const chatId = Number(message?.chat?.id);
   const from = message?.from;
   if (!Number.isSafeInteger(chatId) || !from?.id) return false;
-
-  const [rawCommand, ...args] = text.slice(1).trim().split(/\s+/);
-  // Allow both !команда and !команда@botname in supergroups/topics.
-  const command = String(rawCommand || "").split("@")[0].toLocaleLowerCase("ru-RU");
+  const { command, args } = parsed;
 
   try {
     if (["играть", "как_играть", "какиграть", "гайд", "guide"].includes(command)) {
@@ -750,8 +784,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       return true;
     }
 
-    await send(chatId, "❔ КОМАНДА НЕ НАЙДЕНА\n\nПроверьте написание или откройте список команд: !помощь");
-    return true;
+    return false;
   } catch (error) {
     const messageText = commandErrorMessage(error);
     console.error("WARSTATE group command failed", { command, chatId, telegramId: Number(from?.id || 0), error });

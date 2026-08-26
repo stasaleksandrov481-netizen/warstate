@@ -82,6 +82,7 @@ const IslandNode = memo(function IslandNode({
   selectedId,
   detail,
   now,
+  onSelect,
   zoom,
 }: {
   island: IslandView;

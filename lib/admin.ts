@@ -22,29 +22,77 @@ export interface AdminBroadcastResult {
   failedChats: Array<{ name: string; error: string }>;
 }
 
-// Sends one message to every registered state's Telegram group chat.
-// Freeport (chat_id 0, not a real chat) and states whose bot was kicked
-// (bot_present=false — see markStateBotRemoved) are skipped, since Telegram
-// would just reject the send. Fired sequentially with a small delay between
-// sends to stay comfortably under Telegram's ~30 msg/sec global rate limit
-// without needing a queue for what is an occasional, admin-only action.
-export async function broadcastAdminMessage(text: string): Promise<AdminBroadcastResult> {
+export interface AdminBroadcastTarget {
+  id: string;
+  name: string;
+  stateUsername: string | null;
+  telegramChatId: number;
+}
+
+// Lists candidate chats for the admin panel's "pick specific chats" mode.
+// Only chats the bot can actually still reach are offered — a state hidden
+// by markStateBotRemoved() would just fail to send anyway.
+export async function searchBroadcastTargets(query: string, limit = 30): Promise<AdminBroadcastTarget[]> {
+  const supabase = getSupabaseAdmin();
+  const q = String(query || "").trim().replace(/^@/, "");
+  let builder = supabase
+    .from("states")
+    .select("id,name,state_username,telegram_chat_id")
+    .eq("is_freeport", false)
+    .eq("bot_present", true)
+    .not("telegram_chat_id", "is", null)
+    .order("name", { ascending: true })
+    .limit(Math.max(1, Math.min(50, limit)));
+  if (q.length >= 1) {
+    const safe = q.replace(/[^a-zA-Z0-9_а-яА-ЯёЁ -]/g, "").slice(0, 32);
+    builder = builder.or(`name.ilike.%${safe}%,state_username.ilike.%${safe}%`);
+  }
+  const { data, error } = await builder;
+  if (error) throw error;
+  return (data || []).map((row: any) => ({
+    id: String(row.id),
+    name: String(row.name),
+    stateUsername: row.state_username ? String(row.state_username) : null,
+    telegramChatId: Number(row.telegram_chat_id),
+  }));
+}
+
+// Sends one message to state Telegram group chats. By default every state
+// (minus Freeport and states whose bot was kicked — bot_present=false, see
+// markStateBotRemoved) is targeted; pass stateIds to send to a hand-picked
+// subset instead. `signed` prepends the standard "from administration"
+// header; when false the text goes out exactly as written. Fired
+// sequentially with a small delay between sends to stay comfortably under
+// Telegram's ~30 msg/sec global rate limit without needing a queue for what
+// is an occasional, admin-only action.
+export async function broadcastAdminMessage(
+  text: string,
+  options: { stateIds?: string[]; signed?: boolean } = {},
+): Promise<AdminBroadcastResult> {
   const message = String(text || "").trim();
   if (!message) throw new Error("Пустое сообщение.");
   if (message.length > 3500) throw new Error("Сообщение слишком длинное (максимум 3500 символов).");
 
   const supabase = getSupabaseAdmin();
-  const { data: states, error } = await supabase
+  let builder = supabase
     .from("states")
     .select("name,telegram_chat_id")
     .eq("is_freeport", false)
     .eq("bot_present", true)
     .not("telegram_chat_id", "is", null);
+  const stateIds = (options.stateIds || []).map((id) => String(id).trim()).filter(Boolean);
+  if (stateIds.length) builder = builder.in("id", stateIds);
+  const { data: states, error } = await builder;
   if (error) throw error;
 
   const targets = states || [];
+  if (stateIds.length && !targets.length) {
+    throw new Error("Ни один из выбранных чатов не доступен для отправки (проверьте, что бот в нём состоит).");
+  }
   const result: AdminBroadcastResult = { targeted: targets.length, sent: 0, failed: 0, failedChats: [] };
-  const body = `📣 СООБЩЕНИЕ ОТ АДМИНИСТРАЦИИ WARSTATE\n────────────\n${message}`;
+  const body = options.signed === false
+    ? message
+    : `📣 СООБЩЕНИЕ ОТ АДМИНИСТРАЦИИ WARSTATE\n────────────\n${message}`;
 
   for (const state of targets) {
     try {

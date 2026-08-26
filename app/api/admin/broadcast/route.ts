@@ -16,7 +16,9 @@ export async function POST(request: Request) {
     }
     const body = await request.json().catch(() => ({}));
     const text = String(body?.text || "");
-    const result = await broadcastAdminMessage(text);
+    const stateIds = Array.isArray(body?.stateIds) ? body.stateIds.map((id: unknown) => String(id)) : undefined;
+    const signed = body?.signed !== false;
+    const result = await broadcastAdminMessage(text, { stateIds, signed });
     return Response.json(result);
   } catch (error) {
     return jsonError(error);

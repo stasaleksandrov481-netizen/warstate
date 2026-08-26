@@ -52,13 +52,42 @@ button{font:inherit}
 }
 .game-header-avatar img{width:100%;height:100%;object-fit:cover}
 .game-header-name{min-width:0;margin:0!important}.game-header-name b{display:block;max-width:108px!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px!important;color:#fff8dc;line-height:1.05}.game-header-name small{display:block;margin-top:3px!important;color:#a9ced3!important;font-size:5.8px!important;text-transform:none!important}
-.game-header-stats{display:flex;gap:4px;flex:0 0 auto}
+
+/* --------------------------- HEADER STATS ---------------------------
+   Single source of truth for the ELO / members / treasury chips.
+   (Previously this was scattered across 19 conflicting media-query
+   overrides — some even inside prefers-reduced-motion blocks — which
+   made the chips flip between mismatched colors/sizes unpredictably
+   and overlap the content below. Consolidated into one definition.) */
+.game-header-stats{display:flex;gap:6px;flex:1 1 auto;min-width:0}
 .game-stat-chip{
-  min-width:51px;height:43px;padding:4px 6px;border-radius:11px;border:2px solid #0b293b;background:linear-gradient(180deg,#285b6d,#1a4357);
-  display:flex;align-items:center;gap:4px;color:#d8f1ec;box-shadow:0 3px 0 #092537
+  flex:1 1 0;min-width:0;height:44px;padding:6px 8px;border-radius:12px;
+  border:2px solid var(--ink-deep);background:linear-gradient(180deg,var(--panel-hi),var(--panel));
+  display:flex;align-items:center;gap:6px;color:var(--cream);
+  box-shadow:0 3px 0 var(--ink-deep);overflow:hidden;position:relative;z-index:1;
 }
-.game-stat-chip svg{width:13px;height:13px;color:#b6e2df}.game-stat-chip>div{display:grid;line-height:1}.game-stat-chip b{font-size:8.6px;color:#fff8d8}.game-stat-chip small{font-size:7px;margin-top:4px;color:#9fc3c5;text-transform:uppercase;letter-spacing:.06em}.game-stat-chip.coin{background:linear-gradient(180deg,#6e5b32,#4f432d)}
-.coin-mark{width:15px;height:15px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 35% 28%,#fff3a8,#f4ba3e 63%,#b8751e 100%);border:1px solid #704916;color:transparent;box-shadow:inset 0 1px 0 rgba(255,255,255,.65)}
+.game-stat-chip svg{width:14px;height:14px;flex:0 0 auto;color:#bfe6df}
+.game-stat-chip>div{display:grid;line-height:1;min-width:0}
+.game-stat-chip b{font-size:11px;color:#fff8d8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.game-stat-chip small{font-size:7.5px;margin-top:3px;color:#9fc3c5;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.game-stat-chip.coin{background:linear-gradient(180deg,#f3d998,#d8b25e);border-color:#7a5a1f}
+.game-stat-chip.coin b{color:#3a2c10}
+.game-stat-chip.coin small{color:#6b551f}
+.coin-mark{width:15px;height:15px;flex:0 0 auto;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 35% 28%,#fff3a8,#f4ba3e 63%,#b8751e 100%);border:1px solid #704916;box-shadow:inset 0 1px 0 rgba(255,255,255,.65)}
+.header-xp-mark{width:19px;height:16px;flex:0 0 auto;border-radius:6px;display:grid;place-items:center;background:#7db2a5;border:1px solid #315c59;color:#173d3e;font-size:6px;font-weight:1000}
+
+@media(max-width:400px){
+  .game-header-stats{gap:4px}
+  .game-stat-chip{height:39px;padding:4px 6px;border-radius:10px;gap:4px}
+  .game-stat-chip svg{width:12px;height:12px}
+  .game-stat-chip b{font-size:9.5px}
+  .game-stat-chip small{font-size:6.3px}
+  .coin-mark,.header-xp-mark{width:13px;height:13px}
+}
+@media(max-width:340px){
+  .game-stat-chip small{display:none}
+  .game-stat-chip{justify-content:center}
+}
 
 /* ------------------------------ OCEAN ------------------------------- */
 .game-map-screen{position:relative;height:100%;overflow:hidden;background:#0a5d7b}
@@ -187,13 +216,12 @@ button{font:inherit}
 /* --------------------------- RESPONSIVE ----------------------------- */
 @media(max-width:390px){
   .game-mobile-header{height:74px!important;padding:7px 7px!important}.island-viewport{height:calc(100dvh - 74px - 67px - env(safe-area-inset-top))!important}.island-bottom-nav{height:67px!important}
-  .game-brand-rune{width:28px;height:31px;flex-basis:28px}.game-header-avatar{width:34px!important;height:34px!important;flex-basis:34px!important}.game-header-name b{max-width:84px!important;font-size:9.4px!important}.game-header-stats{gap:2px}.game-stat-chip{min-width:44px;height:39px;padding-inline:4px}.game-stat-chip b{font-size:7.8px}.game-stat-chip small{font-size:4.2px}
+  .game-brand-rune{width:28px;height:31px;flex-basis:28px}.game-header-avatar{width:34px!important;height:34px!important;flex-basis:34px!important}.game-header-name b{max-width:84px!important;font-size:9.4px!important}
   .game-island-label{min-width:116px;max-width:150px;height:39px;padding-left:36px}.game-island-avatar{width:29px;height:29px}.game-island-copy strong{font-size:7.8px}.game-island-copy small{font-size:5.4px}
   .game-map-tools button{width:39px;height:39px}.game-minimap{width:83px;height:48px}.game-event-ticker{height:44px}.game-island-sheet{min-height:186px}
   .island-command-strip{gap:3px}.island-command-strip>span{padding-inline:3px}.island-command-strip b{font-size:7.7px}.home-island-art{width:278px;height:192px}.game-home-hero .my-island-identity{right:101px}
 }
-@media(max-width:350px){
-  .game-stat-chip:nth-child(2){display:none}.game-header-name b{max-width:95px!important}.island-command-strip{grid-template-columns:repeat(2,1fr)}.repair-card{grid-template-columns:1fr}.repair-card button{width:100%}
+@media(max-width:350px){.game-header-name b{max-width:95px!important}.island-command-strip{grid-template-columns:repeat(2,1fr)}.repair-card{grid-template-columns:1fr}.repair-card button{width:100%}
 }
 @media(prefers-reduced-motion:reduce){
   .ocean-pattern-a,.ocean-pattern-b,.water-glint,.island-foam,.island-foam-soft,.island-surf-lines,.island-boat,.island-svg-smoke{animation:none!important}.game-island-node,.island-bottom-nav button{transition:none!important}
@@ -247,7 +275,6 @@ button,input,textarea,select{font-family:inherit!important}
 .game-brand-rune{width:35px!important;height:38px!important;flex-basis:35px!important;font-size:9px!important;border-radius:12px!important;background:linear-gradient(180deg,#5fb6c5,#37899d)!important}
 .game-header-avatar{width:42px!important;height:42px!important;flex-basis:42px!important;border-radius:13px!important}
 .game-header-name b{max-width:132px!important;font-size:12.5px!important;line-height:1.1!important;letter-spacing:-.01em!important}.game-header-name small{font-size:7.5px!important;line-height:1.15!important;margin-top:4px!important;color:#c1ddd8!important}
-.game-header-stats{gap:5px!important}.game-stat-chip{min-width:57px!important;height:48px!important;padding:5px 7px!important;border-radius:12px!important;background:linear-gradient(180deg,#356a70,#25535e)!important;border:2px solid #123844!important;box-shadow:0 3px 0 #123844!important}.game-stat-chip.coin{background:linear-gradient(180deg,#806a3d,#5e4f32)!important}.game-stat-chip svg{width:15px!important;height:15px!important}.game-stat-chip b{font-size:10.5px!important;line-height:1!important}.game-stat-chip small{font-size:6.6px!important;line-height:1!important;margin-top:5px!important;letter-spacing:.03em!important}.coin-mark{width:17px!important;height:17px!important}.header-xp-mark{width:19px;height:16px;border-radius:6px;display:grid;place-items:center;background:#7db2a5;border:1px solid #315c59;color:#173d3e;font-size:6px;font-weight:1000}
 
 /* The ocean itself is now a world-space Canvas. Disable every old screen-space
    texture so the sea visibly moves under the camera when the user pans. */
@@ -277,7 +304,7 @@ button,input,textarea,select{font-family:inherit!important}
 .toast{font-size:10px!important;padding:10px 14px!important;border-radius:13px!important}
 
 @media(max-width:410px){
-  .game-mobile-header{height:84px!important;padding:8px!important}.island-viewport{height:calc(100dvh - 84px - 72px - env(safe-area-inset-top))!important}.island-bottom-nav{height:72px!important;padding-left:4px!important;padding-right:4px!important;gap:2px!important}.island-bottom-nav button{height:54px!important}.island-bottom-nav button small{font-size:6.6px!important}.game-header-name b{max-width:102px!important;font-size:11.5px!important}.game-header-name small{font-size:7px!important}.game-stat-chip{min-width:50px!important;padding:4px 5px!important}.game-stat-chip b{font-size:9.2px!important}.game-stat-chip small{font-size:5.8px!important}.game-island-label{min-width:136px!important}.game-island-copy strong{font-size:9.8px!important}.game-island-copy small{font-size:7px!important}
+  .game-mobile-header{height:84px!important;padding:8px!important}.island-viewport{height:calc(100dvh - 84px - 72px - env(safe-area-inset-top))!important}.island-bottom-nav{height:72px!important;padding-left:4px!important;padding-right:4px!important;gap:2px!important}.island-bottom-nav button{height:54px!important}.island-bottom-nav button small{font-size:6.6px!important}.game-header-name b{max-width:102px!important;font-size:11.5px!important}.game-header-name small{font-size:7px!important}.game-island-label{min-width:136px!important}.game-island-copy strong{font-size:9.8px!important}.game-island-copy small{font-size:7px!important}
 }
 
 @media(prefers-reduced-motion:reduce){.island-foam,.island-foam-soft{animation:none!important}}
@@ -299,7 +326,6 @@ html,body{font-family:"Trebuchet MS","Segoe UI",Arial,sans-serif!important;font-
 .game-header-avatar{width:45px!important;height:45px!important;flex-basis:45px!important;border:3px solid #173d43!important;border-radius:14px!important;box-shadow:0 3px 0 rgba(20,54,58,.55)!important}
 .game-header-name b{max-width:142px!important;font-size:15px!important;line-height:1.05!important;color:#fff5cf!important;text-shadow:0 2px 0 rgba(22,57,60,.5)!important}
 .game-header-name small{font-size:9.5px!important;line-height:1.2!important;margin-top:4px!important;color:#d9eee5!important;font-weight:800!important}
-.game-header-stats{gap:6px!important}.game-stat-chip{min-width:61px!important;height:50px!important;padding:6px 7px!important;border-radius:13px!important;background:linear-gradient(180deg,#f1dfaa,#d8bd7e)!important;border:2px solid #5e5235!important;box-shadow:0 3px 0 #5e5235!important;color:#334b45!important}.game-stat-chip.coin{background:linear-gradient(180deg,#ffe093,#e4b95b)!important}.game-stat-chip b{font-size:12px!important;line-height:1!important;color:#293f3c!important}.game-stat-chip small{font-size:8px!important;font-weight:800!important;color:#756444!important;margin-top:2px!important}.game-stat-chip svg{width:18px!important;height:18px!important}.coin-mark,.header-xp-mark{font-size:13px!important}
 
 .game-island-label{min-width:158px!important;max-width:205px!important;padding:7px 9px!important;gap:8px!important;border:2px solid #31545a!important;border-radius:15px!important;background:rgba(255,244,207,.95)!important;box-shadow:0 3px 0 rgba(24,63,68,.7)!important;color:#24413f!important;backdrop-filter:none!important}
 .game-island-avatar{width:37px!important;height:37px!important;flex:0 0 37px!important;border:2px solid #5e5237!important;border-radius:11px!important}.game-island-copy strong{font-size:12px!important;line-height:1.05!important;color:#28443f!important}.game-island-copy small{font-size:8.5px!important;gap:8px!important;color:#76664b!important;font-weight:800!important}.relation-tag{font-size:6.8px!important;border-radius:7px!important;padding:3px 5px!important}.game-status{width:9px!important;height:9px!important}
@@ -323,7 +349,7 @@ html,body{font-family:"Trebuchet MS","Segoe UI",Arial,sans-serif!important;font-
 
 
 @media(max-width:410px){
-  .game-mobile-header{height:90px!important;padding:9px!important}.island-viewport{height:calc(100dvh - 90px - 78px - env(safe-area-inset-top))!important}.island-bottom-nav{height:78px!important;padding-left:4px!important;padding-right:4px!important;gap:2px!important}.island-bottom-nav button{height:58px!important}.island-bottom-nav button small{font-size:8.6px!important}.game-header-name b{max-width:112px!important;font-size:13px!important}.game-header-name small{font-size:8.2px!important}.game-stat-chip{min-width:53px!important;padding:5px!important}.game-stat-chip b{font-size:10.5px!important}.game-stat-chip small{font-size:7px!important}.game-island-label{min-width:146px!important}.game-island-copy strong{font-size:11px!important}.game-island-copy small{font-size:8px!important}
+  .game-mobile-header{height:90px!important;padding:9px!important}.island-viewport{height:calc(100dvh - 90px - 78px - env(safe-area-inset-top))!important}.island-bottom-nav{height:78px!important;padding-left:4px!important;padding-right:4px!important;gap:2px!important}.island-bottom-nav button{height:58px!important}.island-bottom-nav button small{font-size:8.6px!important}.game-header-name b{max-width:112px!important;font-size:13px!important}.game-header-name small{font-size:8.2px!important}.game-island-label{min-width:146px!important}.game-island-copy strong{font-size:11px!important}.game-island-copy small{font-size:8px!important}
 }
 
 /* =====================================================================
@@ -342,9 +368,6 @@ html,body{font-family:"Trebuchet MS","Segoe UI",Arial,sans-serif!important;font-
 .game-header-name{flex:1 1 auto!important;min-width:0!important}
 .game-header-name b{max-width:none!important;font-size:16px!important;line-height:1.05!important}
 .game-header-name small{font-size:10px!important;margin-top:4px!important}
-.game-header-stats{width:100%!important;display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px!important}
-.game-stat-chip{width:100%!important;min-width:0!important;height:42px!important;justify-content:center!important;padding:5px 7px!important}
-.game-stat-chip b{font-size:12px!important}.game-stat-chip small{font-size:8px!important;white-space:nowrap!important}
 .island-viewport{height:calc(100dvh - 112px - 82px - env(safe-area-inset-top))!important}
 
 .game-island-label{
@@ -370,7 +393,6 @@ html,body{font-family:"Trebuchet MS","Segoe UI",Arial,sans-serif!important;font-
   .game-brand-rune{width:35px!important;height:38px!important;flex-basis:35px!important}
   .game-header-avatar{width:41px!important;height:41px!important;flex-basis:41px!important}
   .game-header-name b{max-width:none!important;font-size:14px!important}.game-header-name small{font-size:9px!important}
-  .game-stat-chip{height:40px!important}.game-stat-chip b{font-size:11px!important}.game-stat-chip small{font-size:7.4px!important}
   .game-island-label{height:49px!important;min-width:154px!important;padding:7px 10px 7px 51px!important}
   .game-island-avatar{width:36px!important;height:36px!important;left:7px!important;top:5px!important}
   .game-island-copy strong{font-size:11.5px!important}.game-island-copy small{font-size:8.3px!important}
@@ -489,9 +511,6 @@ button,input,textarea{font-family:inherit!important}
 .game-header-avatar{width:44px!important;height:44px!important;flex-basis:44px!important;border-radius:14px!important}
 .game-header-name b{font-size:17px!important;line-height:1.02!important;font-weight:900!important;letter-spacing:-.02em!important}
 .game-header-name small{font-size:10px!important;line-height:1.15!important;font-weight:750!important;color:#d8ece4!important}
-.game-header-stats{gap:7px!important}
-.game-stat-chip{height:44px!important;border-radius:13px!important;padding:6px 9px!important;justify-content:flex-start!important;gap:7px!important;background:linear-gradient(180deg,#fff0bd,#dcc27f)!important}
-.game-stat-chip b{font-size:12.5px!important;font-weight:950!important}.game-stat-chip small{font-size:8px!important;font-weight:800!important}.game-stat-chip svg{width:18px!important;height:18px!important}
 .island-viewport{height:calc(100dvh - 116px - 84px - env(safe-area-inset-top))!important}
 
 /* Bottom navigation: all six actions have equal visual weight. */
@@ -544,7 +563,6 @@ button,input,textarea{font-family:inherit!important}
   .game-mobile-header{height:110px!important;grid-template-rows:49px 43px!important;padding:6px 7px 8px!important}
   .island-viewport{height:calc(100dvh - 110px - 80px - env(safe-area-inset-top))!important}
   .game-header-name b{font-size:15px!important}.game-header-name small{font-size:9px!important}
-  .game-stat-chip{height:42px!important;padding:5px 7px!important}.game-stat-chip b{font-size:11.5px!important}.game-stat-chip small{font-size:7.5px!important}
   .game-island-label{height:66px!important;min-width:184px!important;max-width:230px!important;padding:7px 11px 7px 60px!important}
   .game-island-avatar{width:45px!important;height:45px!important;left:8px!important;top:8px!important}
   .game-island-copy strong{font-size:13.5px!important}.game-island-copy small{font-size:9px!important;margin-top:5px!important}.game-island-kicker em,.game-island-kicker b{font-size:7px!important}
@@ -656,18 +674,6 @@ body{
 .game-header-name{min-width:0!important}
 .game-header-name b{font-size:17px!important;line-height:1!important;color:#fff!important;font-weight:900!important;letter-spacing:-.025em!important}
 .game-header-name small{display:block!important;margin-top:5px!important;font-size:9px!important;color:#b9d0ca!important;font-weight:700!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-.game-header-stats{gap:7px!important}
-.game-stat-chip{
-  min-width:0!important;height:43px!important;padding:6px 8px!important;border-radius:13px!important;
-  border:1px solid rgba(255,232,167,.28)!important;
-  background:linear-gradient(180deg,rgba(255,231,156,.91),rgba(224,186,91,.88))!important;
-  box-shadow:0 8px 24px rgba(1,24,31,.14)!important;
-  color:#30443f!important;
-}
-.game-stat-chip b{font-size:12px!important;color:#263d39!important;font-weight:950!important}
-.game-stat-chip small{font-size:7px!important;color:#645c42!important;font-weight:850!important}
-.game-stat-chip svg{width:17px!important;height:17px!important}
-.header-xp-mark,.coin-mark{filter:none!important}
 
 .island-viewport{
   height:calc(100dvh - 108px - 82px - env(safe-area-inset-top))!important;
@@ -850,7 +856,6 @@ body{
   .game-mobile-header{height:104px!important;grid-template-rows:47px 41px!important;padding:6px 7px 8px!important}
   .island-viewport{height:calc(100dvh - 104px - 78px - env(safe-area-inset-top))!important}
   .game-header-name b{font-size:15px!important}.game-header-name small{font-size:8px!important}
-  .game-stat-chip{height:41px!important;padding:5px 6px!important}.game-stat-chip b{font-size:11px!important}.game-stat-chip small{font-size:6.5px!important}
   .game-island-label{height:59px!important;min-width:166px!important;max-width:218px!important;padding:6px 9px 6px 52px!important}
   .game-island-avatar{width:43px!important;height:43px!important;left:6px!important;top:7px!important}
   .game-island-copy strong{font-size:12.5px!important}.game-island-copy small{font-size:7.4px!important}
@@ -894,11 +899,7 @@ button:disabled{cursor:not-allowed}
 .game-sync.offline{color:#d9aaa2}.game-sync.offline i{background:#e98270;box-shadow:0 0 0 3px rgba(233,130,112,.1)}
 
 /* Header readability: no microscopic captions. */
-.game-stat-chip small{font-size:7.6px!important;letter-spacing:.015em!important}
 .game-header-name small{font-size:9.4px!important}
-.game-header-stats{min-width:0!important}
-.game-stat-chip{overflow:hidden!important}
-.game-stat-chip>div{min-width:0!important}.game-stat-chip b,.game-stat-chip small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* Map compositor and node paint budget. */
 .game-world-layer{will-change:transform;contain:layout style;transform-origin:0 0;overflow:visible}
@@ -973,7 +974,6 @@ button:disabled{cursor:not-allowed}
 @media(max-width:410px){
   .game-sync{display:none}
   .game-header-identity{padding-right:0!important}
-  .game-stat-chip small{font-size:7px!important}
   .map-radar-panel{left:7px;right:7px;top:7px;padding:10px;border-radius:17px}.map-filter-row{gap:4px}.map-filter-row button{height:37px;padding:4px 2px}.map-filter-row button b{font-size:8px}
   .game-map-status{right:8px;bottom:85px}
   .sheet-game-stats span small{font-size:7px!important}.sheet-status{font-size:7px!important}
@@ -988,7 +988,6 @@ button:disabled{cursor:not-allowed}
 }
 
 @media(max-width:355px){
-  .game-stat-chip:nth-child(2) small,.game-stat-chip:nth-child(3) small{display:none!important}
   .map-filter-row{grid-template-columns:repeat(2,minmax(0,1fr))}
   .sheet-game-stats{gap:4px!important}.sheet-game-stats span{padding-left:3px!important;padding-right:3px!important}.sheet-game-stats span b{font-size:13px!important}
   .state-resource-row>span,.strategy-resource-grid>span{min-width:58px}
@@ -1061,8 +1060,7 @@ body{background:radial-gradient(circle at 50% -15%,rgba(30,135,146,.22),transpar
 }
 .game-brand-rune{transform:none!important;width:34px!important;height:38px!important;border:1px solid rgba(255,225,139,.5)!important;border-radius:12px!important;background:linear-gradient(145deg,#e8c261,#9e732c)!important;color:#273a38!important;box-shadow:var(--ws-inset),0 5px 14px rgba(0,0,0,.16)!important}
 .game-header-avatar{border:1px solid rgba(244,218,139,.62)!important;box-shadow:0 0 0 3px rgba(244,218,139,.07)!important}
-.game-header-name b{font-size:12px!important;letter-spacing:-.02em!important;color:#fff!important}.game-header-name small{font-size:7px!important;color:#9bbab5!important}
-.game-header-stats{gap:5px!important}.game-stat-chip{min-width:56px!important;height:45px!important;border:1px solid rgba(205,235,224,.13)!important;border-radius:13px!important;background:linear-gradient(145deg,rgba(23,77,86,.78),rgba(8,42,54,.82))!important;box-shadow:var(--ws-inset)!important}.game-stat-chip.coin{background:linear-gradient(145deg,rgba(101,78,35,.62),rgba(52,49,37,.74))!important}.game-stat-chip b{font-size:10px!important}.game-stat-chip small{font-size:6px!important}.game-sync{height:25px!important;border:1px solid rgba(109,214,158,.22)!important;border-radius:999px!important;background:rgba(44,134,97,.14)!important;color:#9ae0b5!important;padding:0 7px!important;font-size:6px!important;font-weight:900!important}.game-sync i{width:5px!important;height:5px!important;background:#6fd89d!important;box-shadow:0 0 8px rgba(111,216,157,.75)!important}
+.game-header-name b{font-size:12px!important;letter-spacing:-.02em!important;color:#fff!important}.game-header-name small{font-size:7px!important;color:#9bbab5!important}.game-sync{height:25px!important;border:1px solid rgba(109,214,158,.22)!important;border-radius:999px!important;background:rgba(44,134,97,.14)!important;color:#9ae0b5!important;padding:0 7px!important;font-size:6px!important;font-weight:900!important}.game-sync i{width:5px!important;height:5px!important;background:#6fd89d!important;box-shadow:0 0 8px rgba(111,216,157,.75)!important}
 
 /* Exact close glyph. No font glyph, no stroke rasterisation, no optical drift. */
 .ui-close-icon{position:relative!important;display:block!important;width:16px!important;height:16px!important;flex:0 0 16px!important;transform:none!important}
@@ -1172,7 +1170,7 @@ body{background:radial-gradient(circle at 50% -15%,rgba(30,135,146,.22),transpar
 .toast{border:1px solid rgba(219,237,225,.18)!important;border-radius:14px!important;background:rgba(5,38,48,.92)!important;color:#f3f8f1!important;box-shadow:0 16px 42px rgba(0,18,26,.26),var(--ws-inset)!important;backdrop-filter:blur(14px)!important;animation:toastIn .28s cubic-bezier(.16,1.12,.32,1) both!important}.toast-success{border-color:rgba(112,214,157,.28)!important}.toast-error{border-color:rgba(238,118,101,.30)!important}@keyframes toastIn{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:none}}
 
 @media(max-width:390px){
-  .game-mobile-header{padding-left:8px!important;padding-right:8px!important}.game-brand-rune{width:31px!important;flex-basis:31px!important}.game-header-avatar{width:35px!important;height:35px!important;flex-basis:35px!important}.game-header-stats{gap:3px!important}.game-stat-chip{min-width:49px!important;padding:4px!important}.game-stat-chip small{font-size:5.2px!important}.game-header-name b{max-width:96px!important}
+  .game-mobile-header{padding-left:8px!important;padding-right:8px!important}.game-brand-rune{width:31px!important;flex-basis:31px!important}.game-header-avatar{width:35px!important;height:35px!important;flex-basis:35px!important}.game-header-name b{max-width:96px!important}
   .game-island-sheet{left:7px!important;right:7px!important;bottom:7px!important;padding-left:12px!important;padding-right:12px!important}.sheet-title-copy h3{font-size:19px!important}.sheet-game-stats span{padding-left:3px!important;padding-right:3px!important}.sheet-game-stats small{font-size:5.7px!important}
   .island-bottom-nav{padding-left:4px!important;padding-right:4px!important;gap:2px!important}.island-bottom-nav button small{font-size:6.7px!important}
   .ranking-hero-v2,.diplomacy-hero-v2{margin:7px!important}.ranking-podium{margin-left:7px!important;margin-right:7px!important}.stats-grid{margin-left:7px!important;margin-right:7px!important}
@@ -1583,7 +1581,7 @@ body{background:radial-gradient(circle at 50% -15%,rgba(30,135,146,.22),transpar
 .state-screen .daily-head>b{padding:4px 7px;border-radius:8px;background:rgba(242,207,114,.08)}
 
 /* Header resilience for narrow Telegram webviews and long state names. */
-.game-header-identity{overflow:hidden}.game-header-name{flex:1 1 auto!important}.game-header-name b{max-width:clamp(72px,24vw,118px)!important}.game-header-stats{min-width:0}.game-stat-chip{min-width:47px!important;padding-inline:5px!important}
+.game-header-identity{overflow:hidden}.game-header-name{flex:1 1 auto!important}.game-header-name b{max-width:clamp(72px,24vw,118px)!important}
 .game-sync{flex:0 0 auto}
 
 /* Touch targets without ballooning the visual layout. */
@@ -1597,7 +1595,6 @@ body{background:radial-gradient(circle at 50% -15%,rgba(30,135,146,.22),transpar
   .game-header-identity{gap:5px!important}
   .game-header-avatar{width:34px!important;height:34px!important;flex-basis:34px!important}
   .game-header-name b{max-width:78px!important;font-size:10.4px!important}.game-header-name small{font-size:6px!important}
-  .game-stat-chip{min-width:43px!important;height:40px!important;padding-inline:4px!important}.game-stat-chip svg{width:12px!important}.game-stat-chip b{font-size:8px!important}.game-stat-chip small{font-size:4.7px!important}
   .game-map-nearby{left:58px;right:58px;width:auto;transform:none;bottom:8px}.game-map-nearby button{flex-basis:126px}
   .state-screen .stats-grid .stat{min-height:62px!important}.state-screen .stats-grid .stat strong{font-size:17px!important}
 }

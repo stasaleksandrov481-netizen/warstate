@@ -82,7 +82,7 @@ const IslandNode = memo(function IslandNode({
   selectedId,
   detail,
   now,
-  onSelect,
+  onSelect: handleSelect,
   zoom,
 }: {
   island: IslandView;
@@ -103,7 +103,7 @@ const IslandNode = memo(function IslandNode({
       type="button"
       className={`game-island-node ${island.isFreeport ? "freeport" : ""} ${island.isMine ? "mine" : ""} ${ruined ? "ruined" : ""} ${selected ? "selected" : ""} ${island.relation ? `relation-${island.relation}` : ""}`}
       style={{ left: island.worldX, top: island.worldY, width: size, height: size * 0.69, ["--island-color" as string]: island.color }}
-      onClick={(event) => { event.stopPropagation(); onSelect(island); }}
+      onClick={(event) => { event.stopPropagation(); handleSelect(island); }}
       aria-label={`${island.name}, ${island.memberCount} участников, рейтинг ${island.rating}`}
     >
       <IslandArt id={island.id} members={island.memberCount} color={island.color} integrity={island.integrity} ruined={ruined} selected={selected} detail={detail} freeport={island.isFreeport} />

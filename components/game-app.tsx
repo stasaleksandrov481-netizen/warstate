@@ -21,6 +21,7 @@ const IslandRanking = dynamic(() => import("@/components/game/island-ranking").t
 const IslandAlliances = dynamic(() => import("@/components/game/island-alliances").then((m) => m.IslandAlliances), { ssr: false, loading: () => <SceneLoading label="Открываем дипломатию…" /> });
 
 const BattleScreen = dynamic(() => import("@/components/game/battle-screen").then((m) => m.BattleScreen), { ssr: false, loading: () => <SceneLoading label="Поднимаем фронт…" /> });
+const AdminPanel = dynamic(() => import("@/components/game/admin-panel").then((m) => m.AdminPanel), { ssr: false, loading: () => <SceneLoading label="Открываем админ-панель…" /> });
 const StateViewPanel = dynamic(() => import("@/components/game/state-view").then((m) => m.StateViewPanel), { ssr: false, loading: () => <SceneLoading label="Открываем профиль…" /> });
 const StrategyPanel = dynamic(() => import("@/components/game/strategy-panel").then((m) => m.StrategyPanel), { ssr: false, loading: () => <SceneLoading label="Открываем штаб…" /> });
 
@@ -132,6 +133,10 @@ export default function GameApp() {
   const navigationEnterTimerRef = useRef<number | null>(null);
   const telegram = typeof window !== "undefined" ? tg() : null;
   const initData = telegram?.initData || "";
+  // /admin deep link (see lib/telegram-bot.ts adminMiniAppLink()) opens a
+  // standalone admin panel instead of the game; the server re-checks the
+  // Telegram ID against WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS independently.
+  const isAdminEntry = telegram?.initDataUnsafe?.start_param === "admin";
 
   const acceptSnapshot = useCallback((fresh: GameSnapshot) => {
     setSnapshot((current) => ({
@@ -188,7 +193,7 @@ export default function GameApp() {
     }
   }, []);
 
-  useEffect(() => { void bootstrap(); }, [bootstrap]);
+  useEffect(() => { if (!isAdminEntry) void bootstrap(); }, [bootstrap, isAdminEntry]);
   useEffect(() => () => {
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     if (refreshLiveTimer.current) window.clearTimeout(refreshLiveTimer.current);
@@ -525,6 +530,11 @@ export default function GameApp() {
     } catch (e) {
       notify(e instanceof Error ? e.message : "Не удалось выполнить действие набора", "error");
     }
+  }
+
+  if (isAdminEntry) {
+    if (!initData) return <Splash text="Откройте live-версию игры внутри Telegram Mini App." />;
+    return <AdminPanel initData={initData} />;
   }
 
   if (loading) return <Splash text="Открываем мировой океан…" />;

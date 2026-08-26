@@ -33,6 +33,17 @@ export function miniAppLink(chatId?: number | string | null, stateId?: string | 
     : `https://t.me/${username}/${shortName}`;
 }
 
+// Dedicated deep link into the Mini App admin panel (see components/game/admin-panel.tsx).
+// Kept separate from miniAppLink() because "admin" is not a state/group start token.
+export function adminMiniAppLink() {
+  const username = process.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, "");
+  const shortName = process.env.TELEGRAM_MINI_APP_SHORT_NAME;
+  if (!username || !shortName) {
+    throw new Error("TELEGRAM_BOT_USERNAME and TELEGRAM_MINI_APP_SHORT_NAME must be configured for the live Mini App.");
+  }
+  return `https://t.me/${username}/${shortName}?startapp=admin`;
+}
+
 export type ChatMemberStatus = "creator" | "administrator" | "member" | "restricted" | "left" | "kicked";
 
 export async function getChatMember(chatId: number, userId: number) {

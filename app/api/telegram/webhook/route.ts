@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { miniAppLink, telegramApi } from "@/lib/telegram-bot";
+import { adminMiniAppLink, miniAppLink, telegramApi } from "@/lib/telegram-bot";
+import { isProjectAdminTelegramId } from "@/lib/config";
 import { getProduct } from "@/lib/products";
 import { handleGroupCallback, handleGroupTextCommand, processDueGroupVotes } from "@/lib/chat-commands";
 import { recordChatActivity, registerTelegramState } from "@/lib/government";
@@ -32,6 +33,19 @@ async function sendFreeportMessage(chatId: number) {
       `После вступления выбери остров и нажми «Перейти» — бот проверит членство автоматически.`,
     reply_markup: {
       inline_keyboard: [[{ text: "⚓ Войти в Freeport", url: miniAppLink() }]],
+    },
+  });
+}
+
+async function sendAdminPanelMessage(chatId: number) {
+  return telegramApi("sendMessage", {
+    chat_id: chatId,
+    text:
+      `🛠 АДМИН-ПАНЕЛЬ WARSTATE\n────────────\n` +
+      `Доступна только создателю проекта.\n\n` +
+      `Нажми кнопку ниже, чтобы открыть live-статистику: игроки, государства, битвы, платежи и активность бота.`,
+    reply_markup: {
+      inline_keyboard: [[{ text: "🛠 Открыть админ-панель", url: adminMiniAppLink() }]],
     },
   });
 }
@@ -224,6 +238,15 @@ export async function POST(request: Request) {
     const message = update.message;
     if (message?.chat?.id && message.chat.type === "private") {
       const text = String(message.text || "").trim();
+      if (text === "/admin") {
+        // Silently ignored for everyone except the project admin(s) configured via
+        // WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS / WARSTATE_SUPERADMIN_TELEGRAM_ID, so
+        // the command's existence isn't revealed to ordinary players.
+        if (isProjectAdminTelegramId(message.from?.id)) {
+          await sendAdminPanelMessage(message.chat.id);
+        }
+        return Response.json({ ok: true });
+      }
       if (text.startsWith("/start") || text === "/freeport") {
         await sendFreeportMessage(message.chat.id);
       }
@@ -313,12 +336,17 @@ export async function POST(request: Request) {
         }
       }
 
-      await processDueGroupVotes(Number(message.chat.id)).catch((voteError) => {
-        console.warn("WARSTATE vote settlement skipped", voteError);
-      });
-      await reconcileStateRuntimeByChatId(Number(message.chat.id)).catch((runtimeError) => {
-        console.warn("WARSTATE event-driven maintenance skipped", runtimeError);
-      });
+      // Vote settlement and battle/election/building runtime reconciliation touch
+      // disjoint tables and don't depend on each other's result, so run them
+      // together instead of paying for two sequential round trips per message.
+      await Promise.all([
+        processDueGroupVotes(Number(message.chat.id)).catch((voteError) => {
+          console.warn("WARSTATE vote settlement skipped", voteError);
+        }),
+        reconcileStateRuntimeByChatId(Number(message.chat.id)).catch((runtimeError) => {
+          console.warn("WARSTATE event-driven maintenance skipped", runtimeError);
+        }),
+      ]);
 
     }
   } catch (error) {

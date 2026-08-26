@@ -20,7 +20,10 @@ async function command<T = unknown>(args: Array<string | number>): Promise<T | n
   const cfg = config();
   if (!cfg) throw new Error("Redis is not configured.");
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 2500);
+  // Upstash typically answers in well under 200ms. Bot commands are on the
+  // user-facing latency path, so fail fast to the local in-process fallback
+  // instead of letting a degraded Redis add multiple seconds to a reply.
+  const timer = setTimeout(() => controller.abort(), 1200);
   try {
     const response = await fetch(cfg.url, {
       method: "POST",
@@ -61,8 +64,17 @@ export async function enforceRateLimit(key: string, limit: number, windowSeconds
     return;
   }
   try {
-    const count = Number(await command<number>(["INCR", `gw:rate:${key}`]) || 0);
-    if (count === 1) await command(["EXPIRE", `gw:rate:${key}`, Math.max(1, windowSeconds)]);
+    // A single atomic EVAL replaces the previous INCR-then-conditional-EXPIRE
+    // pair: one network round trip instead of up to two on every call, and no
+    // window where a crash/timeout between the two commands could leave the
+    // counter key without a TTL (which would have rate-limited forever).
+    const count = Number(await command<number>([
+      "EVAL",
+      "local c = redis.call('INCR', KEYS[1]) if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end return c",
+      1,
+      `gw:rate:${key}`,
+      Math.max(1, windowSeconds),
+    ]) || 0);
     if (count > limit) throw new Error("Слишком много действий подряд. Попробуйте чуть позже.");
   } catch (error) {
     // Availability first: SQL remains authoritative for balances, battles and

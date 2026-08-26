@@ -1343,6 +1343,8 @@ body{background:radial-gradient(circle at 50% -15%,rgba(30,135,146,.22),transpar
 .government-danger-zone>p{margin:5px 0 8px;color:#b9a09c;font-size:6.2px;line-height:1.45}
 .government-danger-zone button{width:100%;border:1px solid rgba(255,143,132,.34);border-radius:10px;background:rgba(138,48,43,.72);color:#ffe4df;padding:8px 10px;font-size:7px;font-weight:900}
 .government-delete-confirm{display:grid;gap:7px}.government-delete-confirm b{font-size:7px;color:#ffd4cf}.government-delete-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}.government-delete-actions .confirm-delete{background:#9a322d;color:white;border-color:#d3635b}
+.impeachment-section{margin-top:12px;padding:11px;border:1px solid rgba(239,180,93,.22);border-radius:13px;background:rgba(91,68,31,.18)}
+.impeachment-btn{width:100%;border:1px solid rgba(255,200,100,.34);border-radius:10px;background:rgba(138,95,43,.52);color:#fff4df;padding:8px 10px;font-size:7px;font-weight:900;cursor:pointer}
 
 /* v2.3 compact in-app game guide */
 .game-guide-panel{padding:0!important;overflow:hidden!important}

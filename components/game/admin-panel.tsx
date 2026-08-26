@@ -39,11 +39,22 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+interface BroadcastResult {
+  targeted: number;
+  sent: number;
+  failed: number;
+  failedChats: Array<{ name: string; error: string }>;
+}
+
 export function AdminPanel({ initData }: Props) {
   const [stats, setStats] = useState<AdminStatsView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [broadcastText, setBroadcastText] = useState("");
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [broadcastError, setBroadcastError] = useState<string | null>(null);
+  const [broadcastResult, setBroadcastResult] = useState<BroadcastResult | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true); else setLoading(true);
@@ -73,6 +84,31 @@ export function AdminPanel({ initData }: Props) {
     app?.setBackgroundColor?.("#0b2730");
     void load();
   }, [load]);
+
+  const sendBroadcast = useCallback(async () => {
+    const text = broadcastText.trim();
+    if (!text || broadcasting) return;
+    if (!window.confirm(`Отправить это сообщение во все ${stats?.states.total ?? ""} чатов государств?`)) return;
+    setBroadcasting(true);
+    setBroadcastError(null);
+    setBroadcastResult(null);
+    try {
+      const response = await fetch("/api/admin/broadcast", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-telegram-init-data": initData },
+        body: JSON.stringify({ text }),
+        cache: "no-store",
+      });
+      const json = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(json?.error || `Ошибка сервера (${response.status})`);
+      setBroadcastResult(json as BroadcastResult);
+      setBroadcastText("");
+    } catch (e) {
+      setBroadcastError(e instanceof Error ? e.message : "Не удалось отправить рассылку");
+    } finally {
+      setBroadcasting(false);
+    }
+  }, [broadcastText, broadcasting, initData, stats?.states.total]);
 
   return (
     <main className="app-shell" style={{ background: "#0b2730", overflowY: "auto", paddingBottom: 24 }}>
@@ -124,6 +160,72 @@ export function AdminPanel({ initData }: Props) {
               <StatCard label="Всего групп" value={formatRu(stats.states.total)} />
               <StatCard label="Новых за 7д" value={formatRu(stats.states.newLast7d)} />
             </div>
+          </div>
+
+          <div className="panel">
+            <h3><span>РАССЫЛКА ВО ВСЕ ЧАТЫ</span></h3>
+            <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
+              Сообщение уйдёт от имени бота во все Telegram-группы государств. Государства, из которых бот
+              был исключён, автоматически пропускаются.
+            </p>
+            <textarea
+              value={broadcastText}
+              onChange={(e) => setBroadcastText(e.target.value)}
+              placeholder="Текст сообщения для всех государств…"
+              rows={4}
+              disabled={broadcasting}
+              style={{
+                width: "100%",
+                marginTop: 10,
+                borderRadius: 10,
+                border: "1px solid var(--line)",
+                background: "rgba(255,255,255,.04)",
+                color: "var(--text)",
+                padding: 10,
+                fontSize: 13,
+                fontFamily: "inherit",
+                resize: "vertical",
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
+              <span style={{ fontSize: 10, color: "var(--muted)" }}>{broadcastText.length}/3500</span>
+              <button
+                type="button"
+                onClick={() => void sendBroadcast()}
+                disabled={broadcasting || !broadcastText.trim()}
+                style={{
+                  border: 0,
+                  borderRadius: 10,
+                  background: broadcasting || !broadcastText.trim() ? "rgba(255,255,255,.08)" : "var(--accent)",
+                  color: "#fff",
+                  padding: "9px 16px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {broadcasting ? "Отправка…" : "Отправить всем"}
+              </button>
+            </div>
+            {broadcastError && (
+              <p style={{ marginTop: 10, fontSize: 12, color: "#e98270" }}>{broadcastError}</p>
+            )}
+            {broadcastResult && (
+              <div style={{ marginTop: 10, fontSize: 12 }}>
+                <p>
+                  Отправлено: <b>{broadcastResult.sent}</b> из {broadcastResult.targeted}
+                  {broadcastResult.failed > 0 ? ` · ошибок: ${broadcastResult.failed}` : ""}
+                </p>
+                {broadcastResult.failedChats.length > 0 && (
+                  <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 4 }}>
+                    {broadcastResult.failedChats.slice(0, 8).map((item, index) => (
+                      <span key={index} style={{ color: "var(--muted)" }}>
+                        ⚠️ {item.name} — {item.error}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="panel">

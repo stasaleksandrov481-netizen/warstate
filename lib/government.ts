@@ -81,6 +81,8 @@ export async function registerTelegramState(chatId: number) {
       chat_avatar_file_id: chat.photo?.big_file_id || chat.photo?.small_file_id || null,
       chat_meta_synced_at: new Date().toISOString(),
       shield_until: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
+      bot_present: true,
+      bot_removed_at: null,
     }).select("*").single();
     if (error) throw error;
     state = created;
@@ -90,6 +92,11 @@ export async function registerTelegramState(chatId: number) {
       telegram_member_count: Math.max(1, memberCount || 1),
       chat_avatar_file_id: chat.photo?.big_file_id || chat.photo?.small_file_id || null,
       chat_meta_synced_at: new Date().toISOString(),
+      // The bot only reaches here via getChat/getChatAdministrators succeeding,
+      // i.e. it is currently in the group — so re-registration is also how a
+      // previously kicked state's island reappears on the map.
+      bot_present: true,
+      bot_removed_at: null,
     };
     if (!state.founder_player_id) {
       patch.founder_player_id = founder.id;
@@ -149,6 +156,20 @@ export async function registerTelegramState(chatId: number) {
   return state;
 }
 
+// Called when Telegram reports the bot itself left/was kicked from a group
+// (my_chat_member update). The state row is kept untouched — only hidden —
+// so nothing is lost and re-adding the bot (registerTelegramState) instantly
+// restores it everywhere the removal took it away from.
+export async function markStateBotRemoved(chatId: number) {
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase
+    .from("states")
+    .update({ bot_present: false, bot_removed_at: new Date().toISOString() })
+    .eq("telegram_chat_id", chatId)
+    .eq("is_freeport", false);
+  if (error) throw error;
+}
+
 export async function resolveStateTarget(raw: string) {
   const supabase = getSupabaseAdmin();
   const value = String(raw || "").trim();
@@ -184,6 +205,7 @@ export async function searchStates(query: string) {
   const { data, error } = await supabase.from("states")
     .select("id,name,state_username,rating,game_level")
     .eq("is_freeport", false)
+    .eq("bot_present", true)
     .or(`name.ilike.%${safe}%,state_username.ilike.%${safe}%`)
     .order("rating", { ascending: false })
     .limit(10);

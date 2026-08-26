@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { telegramApi } from "@/lib/telegram-bot";
 
 export interface AdminTopState {
   name: string;
@@ -12,6 +13,57 @@ export interface AdminRecentPayment {
   stars: number;
   createdAt: string;
   playerName: string | null;
+}
+
+export interface AdminBroadcastResult {
+  targeted: number;
+  sent: number;
+  failed: number;
+  failedChats: Array<{ name: string; error: string }>;
+}
+
+// Sends one message to every registered state's Telegram group chat.
+// Freeport (chat_id 0, not a real chat) and states whose bot was kicked
+// (bot_present=false — see markStateBotRemoved) are skipped, since Telegram
+// would just reject the send. Fired sequentially with a small delay between
+// sends to stay comfortably under Telegram's ~30 msg/sec global rate limit
+// without needing a queue for what is an occasional, admin-only action.
+export async function broadcastAdminMessage(text: string): Promise<AdminBroadcastResult> {
+  const message = String(text || "").trim();
+  if (!message) throw new Error("Пустое сообщение.");
+  if (message.length > 3500) throw new Error("Сообщение слишком длинное (максимум 3500 символов).");
+
+  const supabase = getSupabaseAdmin();
+  const { data: states, error } = await supabase
+    .from("states")
+    .select("name,telegram_chat_id")
+    .eq("is_freeport", false)
+    .eq("bot_present", true)
+    .not("telegram_chat_id", "is", null);
+  if (error) throw error;
+
+  const targets = states || [];
+  const result: AdminBroadcastResult = { targeted: targets.length, sent: 0, failed: 0, failedChats: [] };
+  const body = `📣 СООБЩЕНИЕ ОТ АДМИНИСТРАЦИИ WARSTATE\n────────────\n${message}`;
+
+  for (const state of targets) {
+    try {
+      await telegramApi("sendMessage", { chat_id: Number(state.telegram_chat_id), text: body });
+      result.sent += 1;
+    } catch (sendError) {
+      result.failed += 1;
+      result.failedChats.push({
+        name: String(state.name || state.telegram_chat_id),
+        error: sendError instanceof Error ? sendError.message : "Неизвестная ошибка",
+      });
+    }
+    // Telegram's global bot rate limit is roughly 30 messages/second across
+    // all chats. 40ms between sends keeps a large broadcast well under that
+    // without needing exponential backoff for a one-off admin action.
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+
+  return result;
 }
 
 export interface AdminStats {
@@ -85,7 +137,7 @@ export async function getAdminStats(): Promise<AdminStats> {
     // server-side aggregate here, and payment volume on a hobby bot is small.
     supabase.from("payments").select("stars,created_at").order("created_at", { ascending: false }).limit(2000),
     supabase.from("payments").select("sku,stars,created_at,players(display_name)").order("created_at", { ascending: false }).limit(5),
-    supabase.from("states").select("name,rating,active_player_count,telegram_chat_id").eq("is_freeport", false).order("rating", { ascending: false }).limit(5),
+    supabase.from("states").select("name,rating,active_player_count,telegram_chat_id").eq("is_freeport", false).eq("bot_present", true).order("rating", { ascending: false }).limit(5),
   ]);
 
   for (const result of [

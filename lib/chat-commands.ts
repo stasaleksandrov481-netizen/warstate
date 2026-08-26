@@ -751,7 +751,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
 
     if (command === "государства" || command === "states") {
       const supabase = getSupabaseAdmin();
-      const { data, error } = await supabase.from("states").select("name,state_username,game_level,rating,active_player_count,is_beginner_island").eq("is_freeport", false).order("rating", { ascending: false }).limit(15);
+      const { data, error } = await supabase.from("states").select("name,state_username,game_level,rating,active_player_count,is_beginner_island").eq("is_freeport", false).eq("bot_present", true).order("rating", { ascending: false }).limit(15);
       if (error) throw error;
       const lines = (data || []).map((state: any, index: number) => `${index + 1}. ${state.is_beginner_island ? "🧭 " : ""}${state.name}${state.state_username ? ` · @${state.state_username}` : ""} · ур.${state.game_level} · ${state.rating} ELO · ${state.active_player_count} активных`);
       await send(chatId, `🌍 ГОСУДАРСТВА\n\n${lines.join("\n") || "Других государств пока нет."}`);

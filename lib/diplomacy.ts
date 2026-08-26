@@ -118,6 +118,7 @@ export async function getLeaderboard(limit = 10): Promise<LeaderboardStateView[]
     .from("states")
     .select("id,name,state_username,color,rating,telegram_member_count,is_freeport")
     .eq("is_freeport", false)
+    .eq("bot_present", true)
     .order("rating", { ascending: false })
     .order("created_at", { ascending: true })
     .limit(limit);

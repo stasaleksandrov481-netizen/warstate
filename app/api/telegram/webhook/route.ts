@@ -3,7 +3,7 @@ import { adminMiniAppLink, miniAppLink, telegramApi } from "@/lib/telegram-bot";
 import { isProjectAdminTelegramId } from "@/lib/config";
 import { getProduct } from "@/lib/products";
 import { handleGroupCallback, handleGroupTextCommand, processDueGroupVotes } from "@/lib/chat-commands";
-import { recordChatActivity, finalizeDueElectionsForChat, registerTelegramState } from "@/lib/government";
+import { recordChatActivity, finalizeDueElectionsForChat, registerTelegramState, markStateBotRemoved } from "@/lib/government";
 import { bootstrapGame, markTelegramGroupMemberLeft, observeTelegramGroupMember } from "@/lib/game";
 import { reconcileStateRuntimeByChatId } from "@/lib/maintenance";
 import { markSeenOnce } from "@/lib/redis";
@@ -212,6 +212,13 @@ export async function POST(request: Request) {
       if (["member", "administrator"].includes(status)) {
         await registerTelegramState(Number(membership.chat.id));
         await sendLaunchMessage(membership.chat.id, membership.chat.title);
+      } else if (["left", "kicked"].includes(status)) {
+        // Bot was removed from the group: hide the state from the map,
+        // leaderboards, search and diplomacy everywhere else immediately.
+        // Nothing is deleted — re-adding the bot restores it via
+        // registerTelegramState() above.
+        await markStateBotRemoved(Number(membership.chat.id)).catch((error) =>
+          console.warn("WARSTATE bot-removed state hide skipped", error));
       }
       return Response.json({ ok: true });
     }

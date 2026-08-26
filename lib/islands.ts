@@ -69,6 +69,7 @@ export async function getIslandWorld(
     const { data: fallbackRows, error: fallbackError } = await supabase
       .from("states")
       .select("id,name,color,emblem,world_x,world_y,telegram_member_count,rating,island_wins,island_losses,island_integrity,win_streak,last_battle_at,destroyed_until,shield_until,chat_avatar_file_id,is_freeport,is_beginner_island,game_level,max_level,influence,reputation,army_power,defense_power,active_player_count,state_size")
+      .eq("bot_present", true)
       .gte("world_x", origin.x - radius)
       .lte("world_x", origin.x + radius)
       .gte("world_y", origin.y - radius)

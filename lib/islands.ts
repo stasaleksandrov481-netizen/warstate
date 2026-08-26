@@ -148,7 +148,7 @@ export async function getIslandWorld(
       const { data: presPlayers } = await supabase.from("players").select("id, display_name").in("id", presidentIds);
       const presMap = new Map((presPlayers || []).map((p: any) => [String(p.id), String(p.display_name || "")]));
       for (const row of presidentRows?.data || []) {
-        presidentNames.set(String(row.id), presMap.get(String(row.owner_player_id)) || null);
+        presidentNames.set(String(row.id), presMap.get(String(row.owner_player_id)) || "");
       }
     }
     // Count alliances per state

@@ -13,7 +13,6 @@ import {
   setStateUsername,
   voteForUsername,
 } from "@/lib/government";
-import { createStateVote } from "@/lib/community";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { reconcileStateRuntime } from "@/lib/maintenance";
 import { assertTelegramChatOwner } from "@/lib/telegram-bot";
@@ -69,7 +68,7 @@ export async function POST(request: Request) {
       }
     } else if (action === "request_self_presidency") {
       await requestFounderSelfPresidency(stateId, auth.player.id);
-      notification = `🗳 ${actor} выдвинул(а) себя в президенты. Решение принимают граждане на 15-минутном голосовании: нужен хотя бы один голос другого гражданина и большинства среди поданных голосов. Граждане могут голосовать в Mini App или командой !голосовать.`;
+      notification = `🗳 ${actor} выдвинул(а) себя в президенты. Решение принимают граждане на 15-минутном голосовании: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов. Граждане могут голосовать в Mini App${snapshot.player.username ? ` или командой !голосовать @${snapshot.player.username}` : ""}.`;
     } else if (action === "admin_self_president") {
       throw new Error("Админ бота не становится президентом. Используйте права администратора бота или обычное назначение президента.");
       const { data: founderState, error: founderStateError } = await getSupabaseAdmin()
@@ -104,20 +103,6 @@ export async function POST(request: Request) {
       await notifyStateChat(stateId, `⚠️ ${actor} удалил(а) государство через Mini App.`);
       await deleteState(stateId, auth.player.id);
       return Response.json(await bootstrapGame(auth.session.user, null));
-    } else if (action === "start_impeachment") {
-      if (!auth.state.owner_player_id) throw new Error("Президента нет — импичмент невозможен.");
-      const presidentPlayerId = String(auth.state.owner_player_id);
-      const { data: president } = await getSupabaseAdmin().from("players").select("display_name,username").eq("id", presidentPlayerId).maybeSingle();
-      const presidentName = president?.display_name || "президент";
-      await createStateVote({
-        stateId,
-        createdByPlayerId: auth.player.id,
-        kind: "impeachment",
-        targetStateId: stateId,
-        payload: { presidentPlayerId },
-        durationMinutes: 5,
-      });
-      notification = `⚖ ИМПИЧМЕНТ\n\n${actor} инициировал(а) голосование об отстранении ${presidentName} от должности президента. Голосование открыто на 5 минут. Голосуйте: !голосование`;
     } else {
       throw new Error("Неизвестное действие правительства.");
     }

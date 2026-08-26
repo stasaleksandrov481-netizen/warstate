@@ -55,7 +55,7 @@ export async function getIslandWorld(
     p_center_x: origin.x,
     p_center_y: origin.y,
     p_radius: radius,
-    p_limit: 120,
+    p_limit: 500,
   });
 
   const relationByState = new Map(diplomacy.map((item) => [String(item.otherStateId), item.status]));
@@ -78,7 +78,7 @@ export async function getIslandWorld(
     islandRows = (fallbackRows || [])
       .filter((row: any) => Math.hypot(safeNumber(row.world_x) - origin.x, safeNumber(row.world_y) - origin.y) <= radius)
       .sort((a: any, b: any) => Math.hypot(safeNumber(a.world_x) - origin.x, safeNumber(a.world_y) - origin.y) - Math.hypot(safeNumber(b.world_x) - origin.x, safeNumber(b.world_y) - origin.y))
-      .slice(0, 120)
+      .slice(0, 500)
       .map((row: any) => ({ ...row, rank: 0 }));
   }
 

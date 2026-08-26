@@ -50,7 +50,7 @@ function CloseIcon() {
 type Camera = { x: number; y: number; zoom: number };
 type MapFilter = "all" | "enemy" | "ally" | "neutral";
 
-const MIN_ZOOM = 0.34;
+const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 1.55;
 const DEFAULT_STATE_ZOOM = 0.58;
 const DEFAULT_FREEPORT_ZOOM = 0.50;
@@ -82,19 +82,20 @@ const IslandNode = memo(function IslandNode({
   selectedId,
   detail,
   now,
-  onSelect,
+  zoom,
 }: {
   island: IslandView;
   selectedId: string | null;
   detail: "far" | "mid" | "near";
   now: number;
   onSelect: (island: IslandView) => void;
+  zoom: number;
 }) {
   const size = islandSize(island.memberCount, island.isFreeport);
   const ruined = Boolean(island.destroyedUntil && new Date(island.destroyedUntil).getTime() > now);
   const selected = selectedId === island.id;
   const league = eloLeague(island.rating);
-  const showLabel = detail !== "far" || island.isMine || selected || (island.rank > 0 && island.rank <= 5);
+  const showLabel = true;
   const relationLabel = island.isBeginnerIsland ? "НОВИЧКИ" : island.isFreeport ? "НЕЙТРАЛЬНО" : island.relation === "war" ? "ВРАГ" : island.relation === "allied" ? "СОЮЗ" : island.relation === "truce" ? "МИР" : null;
   return (
     <button
@@ -106,7 +107,7 @@ const IslandNode = memo(function IslandNode({
     >
       <IslandArt id={island.id} members={island.memberCount} color={island.color} integrity={island.integrity} ruined={ruined} selected={selected} detail={detail} freeport={island.isFreeport} />
       {showLabel && (
-        <span className="game-island-label">
+        <span className="game-island-label" style={{ transform: "translate(-50%,-100%)" }}>
           <span className="game-island-avatar" style={{ background: island.color }}>
             {island.avatarUrl ? <Image src={island.avatarUrl} alt="" width={42} height={42} unoptimized draggable={false} /> : <b>{island.emblem || island.name.slice(0, 1)}</b>}
           </span>
@@ -213,9 +214,37 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
     if (exploreKickRef.current) window.clearTimeout(exploreKickRef.current);
     exploreKickRef.current = window.setTimeout(() => {
       const current = cameraRef.current;
-      onExplore(current.x, current.y, Math.min(5600, 2800 / current.zoom));
+      onExplore(current.x, current.y, Math.min(6500, 3000 / current.zoom));
     }, delay);
   }, [onExplore]);
+
+  const worldBounds = useMemo(() => {
+    const points = snapshot.islands;
+    if (!points.length) return { minX: 0, maxX: 0, minY: 0, maxY: 0, centerX: snapshot.state.worldX, centerY: snapshot.state.worldY };
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const island of points) {
+      minX = Math.min(minX, island.worldX);
+      maxX = Math.max(maxX, island.worldX);
+      minY = Math.min(minY, island.worldY);
+      maxY = Math.max(maxY, island.worldY);
+    }
+    const pad = 620;
+    return {
+      minX: minX - pad, maxX: maxX + pad, minY: minY - pad, maxY: maxY + pad,
+      centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2,
+    };
+  }, [snapshot.islands, snapshot.state.worldX, snapshot.state.worldY]);
+
+  const fitWorldCamera = useCallback((): Camera => {
+    const spanX = Math.max(1, worldBounds.maxX - worldBounds.minX);
+    const spanY = Math.max(1, worldBounds.maxY - worldBounds.minY);
+    const fitZoom = Math.min((viewport.width * 0.94) / spanX, (viewport.height * 0.82) / spanY);
+    return {
+      x: worldBounds.centerX,
+      y: worldBounds.centerY,
+      zoom: Math.max(0.018, Math.min(MAX_ZOOM, fitZoom)),
+    };
+  }, [viewport.height, viewport.width, worldBounds]);
 
   const commitCameraState = useCallback((force = false) => {
     const pending = pendingCameraRef.current || cameraRef.current;
@@ -240,7 +269,10 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   }, []);
 
   const updateCamera = useCallback((next: Camera, explore = false, forceCommit = false) => {
-    const normalized = { ...next, zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next.zoom)) };
+    const clampedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next.zoom));
+    const normalized = clampedZoom <= MIN_ZOOM + 0.0001
+      ? fitWorldCamera()
+      : { ...next, zoom: clampedZoom };
     cameraRef.current = normalized;
     pendingCameraRef.current = normalized;
 
@@ -255,7 +287,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
     }
     commitCameraState(forceCommit);
     if (explore) kickExplore(120);
-  }, [commitCameraState, kickExplore]);
+  }, [commitCameraState, fitWorldCamera, kickExplore]);
 
   const animateCameraTo = useCallback((target: Camera, duration = 420) => {
     if (cameraTweenRafRef.current) window.cancelAnimationFrame(cameraTweenRafRef.current);
@@ -464,7 +496,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
     const halfH = viewport.height / (2 * camera.zoom) + 720;
     const matchesFilter = (island: IslandView) => island.isMine || selected?.id === island.id || mapFilter === "all" || (mapFilter === "enemy" && island.relation === "war") || (mapFilter === "ally" && island.relation === "allied") || (mapFilter === "neutral" && !island.relation && !island.isMine);
     const candidates = sortedIslands.filter((island) => matchesFilter(island) && Math.abs(island.worldX - camera.x) <= halfW && Math.abs(island.worldY - camera.y) <= halfH);
-    const cap = detail === "far" ? 72 : detail === "mid" ? 118 : 168;
+    const cap = detail === "far" ? 240 : detail === "mid" ? 240 : 300;
     if (candidates.length <= cap) return candidates;
     const nearest = [...candidates].sort((a, b) => Math.hypot(a.worldX - camera.x, a.worldY - camera.y) - Math.hypot(b.worldX - camera.x, b.worldY - camera.y)).slice(0, cap);
     for (const special of candidates.filter((island) => island.isMine || island.id === selected?.id)) if (!nearest.some((item) => item.id === special.id)) nearest.push(special);
@@ -587,6 +619,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
               detail={detail}
               now={now}
               onSelect={onSelect}
+              zoom={camera.zoom}
             />
           ))}
         </div>

@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     const rawRadius = Number(url.searchParams.get("radius") || 2600);
     const x = Number.isFinite(rawX) ? Math.max(-1_000_000, Math.min(1_000_000, rawX)) : 0;
     const y = Number.isFinite(rawY) ? Math.max(-1_000_000, Math.min(1_000_000, rawY)) : 0;
-    const radius = Number.isFinite(rawRadius) ? Math.min(6000, Math.max(1000, rawRadius)) : 2600;
+    const radius = Number.isFinite(rawRadius) ? Math.min(9000, Math.max(1000, rawRadius)) : 2600;
     const diplomacy = await getDiplomacyForState(stateId);
     const islands = await getIslandWorld(stateId, diplomacy, { x, y }, radius);
     return Response.json({ islands });

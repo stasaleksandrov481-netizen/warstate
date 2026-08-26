@@ -121,6 +121,7 @@ export default function GameApp() {
   const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
   const [lastSyncAt, setLastSyncAt] = useState(() => Date.now());
   const [syncing, setSyncing] = useState(false);
+  const [telegramReady, setTelegramReady] = useState(false);
   const refreshLiveTimer = useRef<number | null>(null);
   const refreshBattleTimer = useRef<number | null>(null);
   const toastTimer = useRef<number | null>(null);
@@ -133,10 +134,17 @@ export default function GameApp() {
   const navigationEnterTimerRef = useRef<number | null>(null);
   const telegram = typeof window !== "undefined" ? tg() : null;
   const initData = telegram?.initData || "";
-  // /admin deep link (see lib/telegram-bot.ts adminMiniAppLink()) opens a
-  // standalone admin panel instead of the game; the server re-checks the
-  // Telegram ID against WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS independently.
-  const isAdminEntry = telegram?.initDataUnsafe?.start_param === "admin";
+  const urlStartParam = typeof window !== "undefined"
+    ? (new URLSearchParams(window.location.search).get("tgWebAppStartParam")
+      || new URLSearchParams(window.location.search).get("startapp")
+      || (new URLSearchParams(window.location.hash.replace(/^#/, "")).get("tgWebAppStartParam"))
+      || "")
+    : "";
+  // Telegram can expose the start parameter through initDataUnsafe or through
+  // tgWebAppStartParam depending on client/version. Accept both forms so the
+  // admin deep-link cannot accidentally boot the normal game.
+  const startParam = telegram?.initDataUnsafe?.start_param || urlStartParam;
+  const isAdminEntry = startParam === "admin" || (typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("admin") === "1" || window.location.hash.includes("admin")));
 
   const acceptSnapshot = useCallback((fresh: GameSnapshot) => {
     setSnapshot((current) => ({
@@ -193,7 +201,25 @@ export default function GameApp() {
     }
   }, []);
 
-  useEffect(() => { if (!isAdminEntry) void bootstrap(); }, [bootstrap, isAdminEntry]);
+  useEffect(() => {
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      attempts += 1;
+      if (tg()) {
+        setTelegramReady(true);
+        window.clearInterval(timer);
+      } else if (attempts >= 30) {
+        setTelegramReady(true);
+        window.clearInterval(timer);
+      }
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!telegramReady || isAdminEntry) return;
+    void bootstrap();
+  }, [bootstrap, isAdminEntry, telegramReady]);
   useEffect(() => () => {
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     if (refreshLiveTimer.current) window.clearTimeout(refreshLiveTimer.current);
@@ -471,7 +497,8 @@ export default function GameApp() {
         body: JSON.stringify({ stateId: snapshot.state.id, battleId: snapshot.activeBattle.id }),
       });
       acceptSnapshot(fresh);
-      notify("Капитуляция подтверждена", "success");
+      setSnapshot((current) => current ? { ...current, activeBattle: null } : current);
+      notify("Бой завершён", "success");
     } catch (e) { notify(e instanceof Error ? e.message : "Не удалось завершить бой", "error"); }
   }
 
@@ -532,8 +559,9 @@ export default function GameApp() {
     }
   }
 
+  if (!telegramReady) return <Splash text="Подключаем Telegram Mini App…" />;
   if (isAdminEntry) {
-    if (!initData) return <Splash text="Откройте live-версию игры внутри Telegram Mini App." />;
+    if (!initData) return <Splash text="Не удалось получить Telegram-сессию. Закройте и снова откройте Mini App из Telegram." />;
     return <AdminPanel initData={initData} />;
   }
 
@@ -575,7 +603,7 @@ export default function GameApp() {
         {availableNav.map((item) => (
           <button type="button" key={item.key} aria-current={view === item.key ? "page" : undefined} aria-label={item.label} className={(view === item.key || (view === "strategy" && item.key === "island")) ? "active" : ""} onClick={() => navigate(item.key)}>
             <span className="nav-icon-wrap"><NavIcon type={item.key} />
-              {item.key === "battle" && snapshot.activeBattle ? <i className="nav-live-dot" /> : null}
+              {item.key === "battle" && snapshot.activeBattle && snapshot.activeBattle.status !== "resolved" && new Date(snapshot.activeBattle.endsAt).getTime() > Date.now() ? <i className="nav-live-dot" /> : null}
               {item.key === "alliances" && snapshot.diplomacy.some((rel) => rel.status.endsWith("_pending") && rel.requestedByStateId !== snapshot.state.id) ? <i className="nav-pending-dot" /> : null}
               {item.key === "island" && snapshot.buildings.some((building) => building.upgradeFinishesAt && new Date(building.upgradeFinishesAt).getTime() > Date.now()) ? <i className="nav-build-dot" /> : null}
               {item.key === "profile" && snapshot.dailyMissions.some((mission) => !mission.claimed && mission.progress >= mission.target) ? <i className="nav-reward-dot" /> : null}
@@ -594,7 +622,11 @@ function Splash({ text, action, onAction }: { text: string; action?: string; onA
 
 function hasActiveWorldPulse(snapshot: GameSnapshot) {
   const now = Date.now();
-  const activeBattle = Boolean(snapshot.activeBattle && snapshot.activeBattle.status !== "resolved");
+  const activeBattle = Boolean(
+    snapshot.activeBattle &&
+    snapshot.activeBattle.status !== "resolved" &&
+    new Date(snapshot.activeBattle.endsAt).getTime() > now
+  );
   const activeConstruction = snapshot.buildings.some((building) => building.upgradeFinishesAt && new Date(building.upgradeFinishesAt).getTime() > now);
   const activeElection = Boolean(snapshot.election?.status === "open" && new Date(snapshot.election.endsAt).getTime() > now);
   const readyReward = snapshot.dailyMissions.some((mission) => !mission.claimed && mission.progress >= mission.target);
@@ -608,7 +640,11 @@ function WorldPulseBar({ snapshot, onBattle, onIsland, onProfile }: { snapshot: 
     return () => window.clearInterval(timer);
   }, []);
   const now = Date.now();
-  const battle = snapshot.activeBattle && snapshot.activeBattle.status !== "resolved" ? snapshot.activeBattle : null;
+  const battle = snapshot.activeBattle &&
+    snapshot.activeBattle.status !== "resolved" &&
+    new Date(snapshot.activeBattle.endsAt).getTime() > now
+    ? snapshot.activeBattle
+    : null;
   const construction = snapshot.buildings
     .filter((building) => building.upgradeFinishesAt && new Date(building.upgradeFinishesAt).getTime() > now)
     .sort((a, b) => new Date(a.upgradeFinishesAt || 0).getTime() - new Date(b.upgradeFinishesAt || 0).getTime())[0];

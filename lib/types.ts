@@ -288,6 +288,8 @@ export interface IslandView {
   defensePower: number;
   activePlayers: number;
   stateSize: number;
+  presidentName?: string | null;
+  allianceCount: number;
 }
 
 export interface DailyMissionView {

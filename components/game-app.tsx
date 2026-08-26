@@ -134,17 +134,36 @@ export default function GameApp() {
   const navigationEnterTimerRef = useRef<number | null>(null);
   const telegram = typeof window !== "undefined" ? tg() : null;
   const initData = telegram?.initData || "";
-  const urlStartParam = typeof window !== "undefined"
-    ? (new URLSearchParams(window.location.search).get("tgWebAppStartParam")
-      || new URLSearchParams(window.location.search).get("startapp")
-      || (new URLSearchParams(window.location.hash.replace(/^#/, "")).get("tgWebAppStartParam"))
-      || "")
-    : "";
   // Telegram can expose the start parameter through initDataUnsafe or through
   // tgWebAppStartParam depending on client/version. Accept both forms so the
   // admin deep-link cannot accidentally boot the normal game.
-  const startParam = telegram?.initDataUnsafe?.start_param || urlStartParam;
-  const isAdminEntry = startParam === "admin" || (typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("admin") === "1" || window.location.hash.includes("admin")));
+  // Fixed: compute isAdminEntry reactively so it re-evaluates once the
+  // Telegram WebApp SDK is ready and initDataUnsafe.start_param is populated.
+  const [isAdminEntry, setIsAdminEntry] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const urlSP = new URLSearchParams(window.location.search);
+    const hashSP = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    return urlSP.get("admin") === "1"
+      || window.location.hash.includes("admin")
+      || urlSP.get("tgWebAppStartParam") === "admin"
+      || urlSP.get("startapp") === "admin"
+      || hashSP.get("tgWebAppStartParam") === "admin";
+  });
+
+  useEffect(() => {
+    if (!telegramReady) return;
+    const app = tg();
+    const sp = app?.initDataUnsafe?.start_param;
+    if (sp === "admin") { setIsAdminEntry(true); return; }
+    // Double-check URL params in case the SDK didn't parse them
+    if (typeof window !== "undefined") {
+      const urlSP = new URLSearchParams(window.location.search);
+      const hashSP = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      if (urlSP.get("tgWebAppStartParam") === "admin" || urlSP.get("startapp") === "admin" || hashSP.get("tgWebAppStartParam") === "admin") {
+        setIsAdminEntry(true);
+      }
+    }
+  }, [telegramReady]);
 
   const acceptSnapshot = useCallback((fresh: GameSnapshot) => {
     setSnapshot((current) => ({
@@ -308,9 +327,15 @@ export default function GameApp() {
     refreshBattleInFlightRef.current = true;
     try {
       const battle = await api<BattleView>(`/api/game/battle?battleId=${battleId}`, initData);
-      setSnapshot((current) => current ? { ...current, activeBattle: battle } : current);
+      if (battle.status === "resolved") {
+        // Clear the battle from snapshot so LIVE badge disappears immediately.
+        // A full snapshot refresh will follow via scheduleRefreshLive.
+        setSnapshot((current) => current ? { ...current, activeBattle: null } : current);
+        window.setTimeout(() => scheduleRefreshLive(), 300);
+      } else {
+        setSnapshot((current) => current ? { ...current, activeBattle: battle } : current);
+      }
       setLastSyncAt(Date.now());
-      if (battle.status === "resolved") window.setTimeout(() => scheduleRefreshLive(), 500);
     } catch { /* realtime can race with resolution */ }
     finally { refreshBattleInFlightRef.current = false; }
   }, [snapshot?.activeBattle?.id, initData, scheduleRefreshLive]);
@@ -603,7 +628,7 @@ export default function GameApp() {
         {availableNav.map((item) => (
           <button type="button" key={item.key} aria-current={view === item.key ? "page" : undefined} aria-label={item.label} className={(view === item.key || (view === "strategy" && item.key === "island")) ? "active" : ""} onClick={() => navigate(item.key)}>
             <span className="nav-icon-wrap"><NavIcon type={item.key} />
-              {item.key === "battle" && snapshot.activeBattle && snapshot.activeBattle.status !== "resolved" && new Date(snapshot.activeBattle.endsAt).getTime() > Date.now() ? <i className="nav-live-dot" /> : null}
+              {item.key === "battle" && snapshot.activeBattle && snapshot.activeBattle.status !== "resolved" && new Date(snapshot.activeBattle.endsAt).getTime() > Date.now() && new Date(snapshot.activeBattle.startsAt || 0).getTime() < Date.now() + 24 * 60 * 60 * 1000 ? <i className="nav-live-dot" /> : null}
               {item.key === "alliances" && snapshot.diplomacy.some((rel) => rel.status.endsWith("_pending") && rel.requestedByStateId !== snapshot.state.id) ? <i className="nav-pending-dot" /> : null}
               {item.key === "island" && snapshot.buildings.some((building) => building.upgradeFinishesAt && new Date(building.upgradeFinishesAt).getTime() > Date.now()) ? <i className="nav-build-dot" /> : null}
               {item.key === "profile" && snapshot.dailyMissions.some((mission) => !mission.claimed && mission.progress >= mission.target) ? <i className="nav-reward-dot" /> : null}

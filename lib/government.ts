@@ -433,6 +433,31 @@ export async function finalizeDueElections() {
   return results;
 }
 
+/** Finalize due elections for a specific state chat and send results to the chat. */
+export async function finalizeDueElectionsForChat(chatId: number) {
+  const supabase = getSupabaseAdmin();
+  const { data: state } = await supabase.from("states").select("id,telegram_chat_id").eq("telegram_chat_id", chatId).maybeSingle();
+  if (!state?.id) return [];
+  const { data, error } = await supabase.from("state_elections").select("id,state_id").eq("state_id", state.id).eq("status", "open").lte("ends_at", new Date().toISOString()).limit(10);
+  if (error || !data?.length) return [];
+  const results: Array<{ electionId: string; stateId: string; result: any }> = [];
+  for (const row of data) {
+    const result = await finalizeElection(row.id);
+    results.push({ electionId: row.id, stateId: row.state_id, result });
+    // Send notification to chat
+    const winnerId = result?.winnerPlayerId ? String(result.winnerPlayerId) : null;
+    let text = `🗳 Выборы завершены.`;
+    if (winnerId) {
+      const { data: winner } = await supabase.from("players").select("display_name,username").eq("id", winnerId).maybeSingle();
+      text += ` Новый президент: ${winner?.display_name || "кандидат"}${winner?.username ? ` (@${winner.username})` : ""}.`;
+    } else {
+      text += " Президент не избран: голосование завершилось без кандидата.";
+    }
+    try { await telegramApi("sendMessage", { chat_id: chatId, text }); } catch { /* notification best-effort */ }
+  }
+  return results;
+}
+
 export async function getCurrentElection(stateId: string, playerId: string) {
   return getElection(stateId, playerId);
 }

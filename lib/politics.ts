@@ -79,7 +79,7 @@ export async function openElection(stateId: string, playerId: string) {
   const { data, error } = await supabase.from("state_elections").insert({
     state_id: stateId,
     season_id: season?.id || null,
-    ends_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+    ends_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
     created_by_player_id: playerId,
   }).select("id").single();
   if (error) {

@@ -127,6 +127,38 @@ export async function getIslandWorld(
     if (handleError) throw handleError;
     for (const row of handleRows || []) if (row.state_username) handles.set(String(row.id), String(row.state_username));
   }
+  // Enrich with president names and alliance counts in a single batch
+  const presidentNames = new Map<string, string>();
+  const allianceCounts = new Map<string, number>();
+  if (ids.length) {
+    const [presidentRows, allianceRows] = await Promise.all([
+      supabase
+        .from("states")
+        .select("id, owner_player_id")
+        .in("id", ids)
+        .not("owner_player_id", "is", null),
+      supabase
+        .from("diplomacy_relations")
+        .select("state_a_id, state_b_id, status")
+        .eq("status", "allied"),
+    ]);
+    // Batch-resolve president display names
+    const presidentIds = [...new Set((presidentRows?.data || []).map((r: any) => String(r.owner_player_id)).filter(Boolean))];
+    if (presidentIds.length) {
+      const { data: presPlayers } = await supabase.from("players").select("id, display_name").in("id", presidentIds);
+      const presMap = new Map((presPlayers || []).map((p: any) => [String(p.id), String(p.display_name || "")]));
+      for (const row of presidentRows?.data || []) {
+        presidentNames.set(String(row.id), presMap.get(String(row.owner_player_id)) || null);
+      }
+    }
+    // Count alliances per state
+    const idSet = new Set(ids);
+    for (const row of allianceRows?.data || []) {
+      if (idSet.has(String(row.state_a_id))) allianceCounts.set(String(row.state_a_id), (allianceCounts.get(String(row.state_a_id)) || 0) + 1);
+      if (idSet.has(String(row.state_b_id))) allianceCounts.set(String(row.state_b_id), (allianceCounts.get(String(row.state_b_id)) || 0) + 1);
+    }
+  }
+
   return islandRows.map((row: any) => ({
     id: row.id,
     name: row.name,
@@ -158,6 +190,8 @@ export async function getIslandWorld(
     defensePower: Math.max(0, safeInteger(row.defense_power)),
     activePlayers: Math.max(0, safeInteger(row.active_player_count)),
     stateSize: Math.max(0.0001, safeNumber(row.state_size, 1)),
+    presidentName: presidentNames.get(String(row.id)) || null,
+    allianceCount: allianceCounts.get(String(row.id)) || 0,
   }));
 }
 

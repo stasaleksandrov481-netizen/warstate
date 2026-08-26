@@ -118,6 +118,30 @@ button{font:inherit}
 .game-integrity{position:absolute;left:25%;right:25%;bottom:1%;height:6px;border-radius:999px;background:#0b2939;border:1px solid #082333;overflow:hidden}.game-integrity i{display:block;height:100%;background:linear-gradient(90deg,#e65a4f,#f1bc4b 50%,#68c88c);border-radius:inherit}.game-ruins-timer{position:absolute;left:50%;bottom:0;transform:translate(-50%,110%);padding:4px 7px;border-radius:7px;border:2px solid #492e28;background:#7b4e40;color:#fff0d5;font-size:5.4px;font-weight:1000;white-space:nowrap;box-shadow:0 2px 0 #3d2925}
 .detail-far .game-island-label{transform:translate(-50%,-100%) scale(.84);transform-origin:center bottom}.detail-far .game-island-node:not(.mine):not(.selected) .game-island-label{opacity:.86}.detail-near .game-island-label{min-width:138px}
 
+/* LOD: far badge — compact icon + name strip */
+.lod-badge{min-width:auto!important;max-width:180px!important;height:auto!important;padding:4px 6px!important;display:flex!important;align-items:center;gap:4px;white-space:nowrap;background:transparent!important;border:none!important;box-shadow:none!important}
+.lod-badge-icon{flex-shrink:0;display:grid;place-items:center;overflow:hidden;border:2px solid #fff0c4;color:#fff;font-weight:1000;box-shadow:0 2px 0 #0a2b3c}
+.lod-badge-icon img{width:100%;height:100%;object-fit:cover}
+.lod-badge-name{display:block;overflow:hidden;text-overflow:ellipsis;color:#fff8d7;text-shadow:0 1px 3px rgba(0,0,0,.55);font-weight:1000;line-height:1.2;max-width:120px}
+
+/* LOD: mid card — medium info */
+.lod-mid-card{min-width:140px!important;max-width:210px!important;height:auto!important;padding:5px var(--pad-h,8px) 5px calc(var(--avatar-size,36px) + 12px)!important;display:block!important;white-space:normal}
+.lod-mid-card .game-island-copy strong{font-size:var(--label-font,10px)!important}
+.lod-mid-card .game-island-copy small{font-size:var(--small-font,6.5px)!important;gap:5px!important;flex-wrap:wrap}
+.lod-mid-card .game-island-kicker{font-size:var(--kicker-font,7px)!important}
+.lod-president{display:block;margin-top:2px;font-style:normal;color:#f0d87a;font-size:inherit!important;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* LOD: near full card */
+.lod-full-card{min-width:180px!important;max-width:260px!important}
+.lod-full-card .lod-president{display:block;margin-top:2px;font-style:normal;color:#f0d87a;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lod-stats-row{display:flex!important;gap:6px!important;margin-top:3px;color:#b0d0cc!important}
+.lod-stats-row span{white-space:nowrap}
+
+/* Smooth zoom + LOD transition for island nodes and labels */
+.game-island-label{transition:opacity .22s cubic-bezier(.4,0,.2,1),transform .22s cubic-bezier(.4,0,.2,1),min-width .22s cubic-bezier(.4,0,.2,1),max-width .22s cubic-bezier(.4,0,.2,1),height .22s cubic-bezier(.4,0,.2,1),padding .22s cubic-bezier(.4,0,.2,1)}
+.game-island-node{transition:filter .22s cubic-bezier(.4,0,.2,1)}
+.lod-badge,.lod-mid-card,.lod-full-card{transition:opacity .22s cubic-bezier(.4,0,.2,1),transform .22s cubic-bezier(.4,0,.2,1),min-width .22s cubic-bezier(.4,0,.2,1),max-width .22s cubic-bezier(.4,0,.2,1),height .22s cubic-bezier(.4,0,.2,1),padding .22s cubic-bezier(.4,0,.2,1)}
+
 /* --------------------------- MAP CONTROLS --------------------------- */
 .game-map-tools{position:absolute;z-index:30;display:flex;flex-direction:column;gap:7px}.game-map-tools-left{left:10px;top:14px}.game-war-banner~.game-ocean .game-map-tools-left{top:75px}.game-map-tools-right{right:10px;bottom:118px}
 .game-map-tools button{width:42px;height:42px;border-radius:14px;border:2px solid #0a2a3a;background:linear-gradient(180deg,#fff0bd,#dfc071);color:#173848;font-size:20px;font-weight:1000;box-shadow:0 4px 0 #0a2a3a,0 7px 13px rgba(4,31,42,.18);display:grid;place-items:center}.game-map-tools button:active{transform:translateY(2px);box-shadow:0 2px 0 #0a2a3a}.game-map-tools button span{line-height:1}.game-map-tools-right button:last-child{background:linear-gradient(180deg,#d8eee2,#9fcbbe)}

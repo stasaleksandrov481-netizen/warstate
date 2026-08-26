@@ -4,7 +4,7 @@ import { startWarAction } from "@/lib/actions";
 import type { WarType } from "@/lib/types";
 
 export type DutyRole = "diplomat" | "spy" | "miner" | "worker";
-export type StateVoteKind = "war" | "alliance";
+export type StateVoteKind = "war" | "alliance" | "impeachment";
 
 export const DUTY_ROLE_LABELS: Record<DutyRole, string> = {
   diplomat: "Дипломат",
@@ -257,6 +257,15 @@ export async function executeApprovedStateVote(voteId: string) {
       const battleType = String(vote.payload?.battleType || "raid") as WarType;
       const battleId = await startWarAction({ actorRole: "president", attackerStateId: vote.state_id, defenderStateId: vote.target_state_id, battleType });
       return { executed: true as const, kind: "war" as const, battleId, battleType, vote };
+    }
+    if (vote.vote_kind === "impeachment") {
+      const { removePresident } = await import("@/lib/government");
+      const presidentPlayerId = String(vote.payload?.presidentPlayerId || "");
+      if (!presidentPlayerId) throw new Error("В голосовании импичмента не указан президент.");
+      const { data: state } = await supabase.from("states").select("founder_player_id").eq("id", vote.state_id).single();
+      if (!state) throw new Error("Государство не найдено.");
+      await removePresident(vote.state_id, String(state.founder_player_id));
+      return { executed: true as const, kind: "impeachment" as const, vote };
     }
     const action = String(vote.payload?.action || "propose");
     await performDiplomacyAction(vote.state_id, vote.target_state_id, action === "accept" ? "accept_alliance" : "propose_alliance");

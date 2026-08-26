@@ -3,7 +3,7 @@ import { adminMiniAppLink, miniAppLink, telegramApi } from "@/lib/telegram-bot";
 import { isProjectAdminTelegramId } from "@/lib/config";
 import { getProduct } from "@/lib/products";
 import { handleGroupCallback, handleGroupTextCommand, processDueGroupVotes } from "@/lib/chat-commands";
-import { recordChatActivity, registerTelegramState } from "@/lib/government";
+import { recordChatActivity, finalizeDueElectionsForChat, registerTelegramState } from "@/lib/government";
 import { bootstrapGame, markTelegramGroupMemberLeft, observeTelegramGroupMember } from "@/lib/game";
 import { reconcileStateRuntimeByChatId } from "@/lib/maintenance";
 import { markSeenOnce } from "@/lib/redis";
@@ -342,6 +342,9 @@ export async function POST(request: Request) {
       await Promise.all([
         processDueGroupVotes(Number(message.chat.id)).catch((voteError) => {
           console.warn("WARSTATE vote settlement skipped", voteError);
+        }),
+        finalizeDueElectionsForChat(Number(message.chat.id)).catch((electionError) => {
+          console.warn("WARSTATE election settlement skipped", electionError);
         }),
         reconcileStateRuntimeByChatId(Number(message.chat.id)).catch((runtimeError) => {
           console.warn("WARSTATE event-driven maintenance skipped", runtimeError);

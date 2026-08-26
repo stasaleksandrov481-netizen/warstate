@@ -96,19 +96,71 @@ const IslandNode = memo(function IslandNode({
   const ruined = Boolean(island.destroyedUntil && new Date(island.destroyedUntil).getTime() > now);
   const selected = selectedId === island.id;
   const league = eloLeague(island.rating);
-  const showLabel = true;
   const relationLabel = island.isBeginnerIsland ? "НОВИЧКИ" : island.isFreeport ? "НЕЙТРАЛЬНО" : island.relation === "war" ? "ВРАГ" : island.relation === "allied" ? "СОЮЗ" : island.relation === "truce" ? "МИР" : null;
+
+  // LOD: compute inverse scale factor to counteract zoom and keep label readable
+  // At min zoom (0.05) labels would be 20x smaller; we clamp to a readable size
+  const labelScale = Math.max(0.55, Math.min(1.35, 1 / Math.pow(zoom, 0.38)));
+  const labelFontSize = Math.max(7.5, Math.min(13.5, 10 * labelScale));
+  const kickerFontSize = Math.max(5.5, Math.min(9, 7 * labelScale));
+  const smallFontSize = Math.max(5, Math.min(8.5, 6.5 * labelScale));
+  const avatarSize = Math.max(22, Math.min(48, 36 * labelScale));
+  const padH = Math.max(4, Math.min(12, 8 * labelScale));
+  const padV = Math.max(3, Math.min(8, 5.5 * labelScale));
+  const gap = Math.max(1, Math.min(4, 2.5 * labelScale));
+
+  // far: compact badge; mid: medium card; near: full card
+  const showFar = detail === "far";
+  const showMid = detail === "mid";
+  const showNear = detail === "near";
+
   return (
     <button
       type="button"
-      className={`game-island-node ${island.isFreeport ? "freeport" : ""} ${island.isMine ? "mine" : ""} ${ruined ? "ruined" : ""} ${selected ? "selected" : ""} ${island.relation ? `relation-${island.relation}` : ""}`}
-      style={{ left: island.worldX, top: island.worldY, width: size, height: size * 0.69, ["--island-color" as string]: island.color }}
+      className={`game-island-node ${island.isFreeport ? "freeport" : ""} ${island.isMine ? "mine" : ""} ${ruined ? "ruined" : ""} ${selected ? "selected" : ""} ${island.relation ? `relation-${island.relation}` : ""} lod-${detail}`}
+      style={{ left: island.worldX, top: island.worldY, width: size, height: size * 0.69, ["--island-color" as string]: island.color, ["--label-scale" as string]: String(labelScale), ["--label-font" as string]: `${labelFontSize}px`, ["--kicker-font" as string]: `${kickerFontSize}px`, ["--small-font" as string]: `${smallFontSize}px`, ["--avatar-size" as string]: `${avatarSize}px`, ["--pad-h" as string]: `${padH}px`, ["--pad-v" as string]: `${padV}px`, ["--label-gap" as string]: `${gap}px` }}
       onClick={(event) => { event.stopPropagation(); handleSelect(island); }}
       aria-label={`${island.name}, ${island.memberCount} участников, рейтинг ${island.rating}`}
     >
       <IslandArt id={island.id} members={island.memberCount} color={island.color} integrity={island.integrity} ruined={ruined} selected={selected} detail={detail} freeport={island.isFreeport} />
-      {showLabel && (
-        <span className="game-island-label" style={{ transform: "translate(-50%,-100%)" }}>
+
+      {/* LOD far: minimal badge — icon + name only */}
+      {showFar && !selected && (
+        <span className="game-island-label lod-badge" style={{ transform: "translate(-50%,-100%)" }}>
+          <span className="lod-badge-icon" style={{ background: island.color, width: avatarSize, height: avatarSize, borderRadius: Math.max(4, avatarSize * 0.26) }}>
+            {island.avatarUrl ? <Image src={island.avatarUrl} alt="" width={Math.round(avatarSize)} height={Math.round(avatarSize)} unoptimized draggable={false} /> : <b style={{ fontSize: Math.max(8, avatarSize * 0.48) }}>{island.emblem || island.name.slice(0, 1)}</b>}
+          </span>
+          {!island.isFreeport && <strong className="lod-badge-name" style={{ fontSize: labelFontSize }}>{island.name}</strong>}
+        </span>
+      )}
+
+      {/* LOD mid: medium card — name, key stats, president */}
+      {showMid && !selected && (
+        <span className="game-island-label lod-mid-card" style={{ transform: "translate(-50%,-100%)" }}>
+          <span className="game-island-avatar" style={{ background: island.color, width: avatarSize, height: avatarSize, borderRadius: Math.max(4, avatarSize * 0.26) }}>
+            {island.avatarUrl ? <Image src={island.avatarUrl} alt="" width={Math.round(avatarSize)} height={Math.round(avatarSize)} unoptimized draggable={false} /> : <b style={{ fontSize: Math.max(8, avatarSize * 0.48) }}>{island.emblem || island.name.slice(0, 1)}</b>}
+          </span>
+          <span className="game-island-copy" style={{ fontSize: labelFontSize }}>
+            <span className="game-island-kicker" style={{ fontSize: kickerFontSize }}>
+              <em>{island.isMine ? "МОЙ ОСТРОВ" : island.isBeginnerIsland ? "ОСТРОВ НОВИЧКОВ" : island.isFreeport ? "FREEPORT" : league.label.toUpperCase()}</em>
+              {island.rank > 0 && <b>#{island.rank}</b>}
+            </span>
+            <strong>{island.name}</strong>
+            <small style={{ fontSize: smallFontSize }}>
+              <span>👥 {COMPACT_NUMBER.format(island.memberCount)}</span>
+              <span>{league.icon} {island.rating}</span>
+              <span>⚔ {island.armyPower}</span>
+            </small>
+            {island.presidentName && <em className="lod-president" style={{ fontSize: smallFontSize }}>👑 {island.presidentName}</em>}
+          </span>
+          {relationLabel && <em className={`relation-tag ${island.isBeginnerIsland ? "tag-beginner" : `tag-${island.relation}`}`}>{relationLabel}</em>}
+          <i className={`game-status ${island.isFreeport ? "freeport" : ruined ? "ruins" : island.relation === "war" ? "enemy" : island.relation === "allied" ? "ally" : "neutral"}`} />
+        </span>
+      )}
+
+      {/* LOD near (or selected at any level): full card with all info */}
+      {(showNear || selected) && (
+        <span className="game-island-label lod-full-card" style={{ transform: "translate(-50%,-100%)" }}>
           <span className="game-island-avatar" style={{ background: island.color }}>
             {island.avatarUrl ? <Image src={island.avatarUrl} alt="" width={42} height={42} unoptimized draggable={false} /> : <b>{island.emblem || island.name.slice(0, 1)}</b>}
           </span>
@@ -119,11 +171,14 @@ const IslandNode = memo(function IslandNode({
             </span>
             <strong>{island.name}</strong>{island.stateUsername && <em className="game-island-handle">@{island.stateUsername}</em>}
             <small><span>👥 {COMPACT_NUMBER.format(island.memberCount)}</span><span>{league.icon} {island.rating} ELO</span></small>
+            {island.presidentName && <em className="lod-president">👑 {island.presidentName}</em>}
+            <small className="lod-stats-row"><span>⚔ {island.armyPower}</span><span>🛡 {island.defensePower}</span>{island.allianceCount > 0 && <span>🤝 {island.allianceCount}</span>}<span>🏆 {island.wins}/{island.losses}</span></small>
           </span>
           {relationLabel && <em className={`relation-tag ${island.isBeginnerIsland ? "tag-beginner" : `tag-${island.relation}`}`}>{relationLabel}</em>}
           <i className={`game-status ${island.isFreeport ? "freeport" : ruined ? "ruins" : island.relation === "war" ? "enemy" : island.relation === "allied" ? "ally" : "neutral"}`} />
         </span>
       )}
+
       {island.integrity < 100 && !ruined && <span className="game-integrity"><i style={{ width: `${island.integrity}%` }} /></span>}
       {ruined && <span className="game-ruins-timer">РУИНЫ · {timeLeft(island.destroyedUntil, now) || "восстановление"}</span>}
     </button>
@@ -720,13 +775,19 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
         </section>
       )}
 
-      {!selected && snapshot.worldFeed[0] && (
-        <div className="game-event-ticker">
-          <span>{snapshot.worldFeed[0].kind.includes("alliance") ? "🤝" : snapshot.worldFeed[0].kind.includes("destroy") ? "☠" : "⚔"}</span>
-          <p>{snapshot.worldFeed[0].text}</p>
-          <small>LIVE</small>
-        </div>
-      )}
+      {!selected && (() => {
+        const feed = snapshot.worldFeed[0];
+        if (!feed) return null;
+        const age = Date.now() - new Date(feed.createdAt).getTime();
+        if (age > 5 * 60 * 1000) return null;
+        return (
+          <div className="game-event-ticker">
+            <span>{feed.kind.includes("alliance") ? "🤝" : feed.kind.includes("destroy") ? "☠" : "⚔"}</span>
+            <p>{feed.text}</p>
+            <small>LIVE</small>
+          </div>
+        );
+      })()}
     </div>
   );
 }

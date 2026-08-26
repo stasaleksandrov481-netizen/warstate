@@ -5,7 +5,7 @@ import { startWarAction, upgradeBuildingAction } from "@/lib/actions";
 import { addAllianceBattleSupport, completeDailyActivity, surrenderBattle } from "@/lib/strategy";
 import { appointPresident, appointPresidentByPlayerId, openGovernmentElection, removePresident, renameState, requestFounderSelfPresidency, resolveStateMemberByTelegramId, resolveStateMemberByUsername, resolveStateTarget, searchStates, setDeputy, setDeputyByPlayerId, setStateUsername, voteForUsername } from "@/lib/government";
 import { claimDailyMission } from "@/lib/missions";
-import { miniAppLink, telegramApi } from "@/lib/telegram-bot";
+import { adminMiniAppLink, miniAppLink, telegramApi } from "@/lib/telegram-bot";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import {
   DUTY_ROLE_LABELS,
@@ -34,6 +34,42 @@ const WAR_LEADERS = new Set(["president", "minister", "deputy"]);
 
 const WARSTATE_BUILD = "3.9-stable";
 
+// Russian alias mappings for !активность command
+// activity_key → Russian alias, option_key → Russian alias
+const ACTIVITY_ALIASES: Record<string, string> = {
+  "border_patrol": "патруль",
+  "negotiations": "переговоры",
+  "road_repair": "ремонт",
+  "tax_collection": "налоги",
+  "supply_run": "поставка",
+  "espionage": "шпионаж",
+  "diplomatic_mission": "дипломатия",
+};
+const ACTIVITY_OPTION_ALIASES: Record<string, string> = {
+  "forest": "лес", "road": "дорога", "locals": "жители",
+  "hard": "жёстко", "neutral": "нейтрально", "friendly": "дружелюбно",
+  "fast": "быстро", "balanced": "обычно", "quality": "капитально",
+  "careful": "аккуратно",
+  "speed": "катер", "armored": "броня", "cargo": "грузовик",
+  "quiet": "тихо", "deep": "глубоко",
+};
+// Reverse lookup: Russian alias → internal key
+const ACTIVITY_ALIAS_REVERSE = Object.fromEntries(Object.entries(ACTIVITY_ALIASES).map(([k, v]) => [v, k]));
+const ACTIVITY_OPTION_ALIAS_REVERSE = Object.fromEntries(Object.entries(ACTIVITY_OPTION_ALIASES).map(([k, v]) => [v, k]));
+
+function resolveActivityKey(raw: string): string {
+  return ACTIVITY_ALIAS_REVERSE[raw.toLowerCase()] || raw.toLowerCase();
+}
+function resolveOptionKey(raw: string): string {
+  return ACTIVITY_OPTION_ALIAS_REVERSE[raw.toLowerCase()] || raw.toLowerCase();
+}
+function activityDisplayKey(key: string): string {
+  return ACTIVITY_ALIASES[key] || key;
+}
+function optionDisplayKey(key: string): string {
+  return ACTIVITY_OPTION_ALIASES[key] || key;
+}
+
 const WARSTATE_COMMANDS = new Set([
   "играть", "как_играть", "какиграть", "гайд", "guide",
   "help", "помощь", "команды", "версия", "version",
@@ -44,6 +80,7 @@ const WARSTATE_COMMANDS = new Set([
   "выборы", "голосовать", "назначитьпрезидента", "снятьпрезидента",
   "назначитьзама", "снятьзама", "создатьюз", "юз", "название",
   "найти", "рейтинг", "карта", "альянсы", "голосование", "vote",
+  "импичмент", "impeach",
   "статус", "status", "ресурсы", "resources", "профиль", "profile",
   "вклад", "contribution", "государства", "states", "казна", "налоги",
   "постройки", "постройка", "стройки", "buildings", "миссия", "миссии", "награда", "награды", "reward", "rewards", "активность", "activity",
@@ -219,6 +256,12 @@ async function announceApprovedVoteExecution(result: any) {
       Number.isSafeInteger(targetChatId) ? send(targetChatId, targetText, [[{ text: "🤝 Дипломатия", url: miniAppLink(targetChatId) }]]) : Promise.resolve(),
     ]);
   }
+
+  if (result.kind === "impeachment") {
+    const text = `⚖ ГОЛОСОВАНИЕ ПРИНЯТО · ИМПИЧМЕНТ\n\nГолосование об отстранении президента одобрено. Президент снят с должности. Государство временно управляется без президента до назначения или выборов.`;
+    if (Number.isSafeInteger(actorChatId)) await send(actorChatId, text);
+    return;
+  }
 }
 
 export async function processDueGroupVotes(chatId: number) {
@@ -278,6 +321,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         "!президент / !замы — руководство государства\n!вступить — стать гражданином государства текущей группы без Mini App\n!полныеправа — включить режим создателя в текущем чате (только ваш Telegram ID)\n" +
         "!назначитьпрезидента @user / !снятьпрезидента\n" +
         "!назначитьпрезидента — самовыдвижение Основателя через голосование\n" +
+        "!импичмент — инициировать голосование об отстранении президента (5 мин)\n" +
         "!назначитьзама @user / !снятьзама @user — Основатель или Президент; можно ответом на сообщение\n" +
         "!роли — список специализаций · !роль @user роль — назначить\n" +
         "!выборы — открыть выборы · !голосовать @user — отдать голос\n" +
@@ -301,7 +345,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         "!улучшить шахта — начать улучшение\n" +
         "!миссия — ежедневные задачи\n" +
         "!награда — забрать готовую награду\n" +
-        "!активность — доступные операции дня\n\n" +
+        "!активность — доступные операции дня (принимает русские алиасы, например: !активность патруль лес)\n\n" +
         "🧪 Создатель проекта: в любом чате напишите !полныеправа, чтобы включить глобальные права команд именно в этом чате. !снятьдоступ — отключить.\n\n" +
         "💬 За общение: +2 XP и +1 вклад не чаще раза в минуту. Каждые 10 обычных сообщений граждан дают государству +1 ко всем ресурсам.\n\n" +
         "⇄ Смена государства: открой !карта → выбери остров → «Перейти». Бот обязательно проверит, что ты состоишь в Telegram-чате выбранного государства."
@@ -358,7 +402,10 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       }
       try {
         const adminSnapshot = await bootstrapGame(telegramUser(from), chatId, { preserveHomeState: true, trustedChatMembership: true });
-        await send(chatId, `🧪 РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА\n\nСтатус ID: включён\nРежим в этом чате: ${superAdminMode ? "включён" : "выключен"}\nГосударство: ${adminSnapshot.state.name}\nВы Основатель: ${adminSnapshot.government.canFounderManage ? "да" : "нет"}\n\nГлобальный доступ: включён. В этом чате ваши команды работают как админ бота. Игровая роль, президентство и гражданство не меняются.`);
+        let adminLink: string;
+        try { adminLink = adminMiniAppLink(); } catch { adminLink = ""; }
+        const adminButton = adminLink ? [[{ text: "🛠 Открыть админ-панель", url: adminLink }]] : undefined;
+        await send(chatId, `🧪 РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА\n\nСтатус ID: включён\nРежим в этом чате: ${superAdminMode ? "включён" : "выключен"}\nГосударство: ${adminSnapshot.state.name}\nВы Основатель: ${adminSnapshot.government.canFounderManage ? "да" : "нет"}\n\nГлобальный доступ: включён. В этом чате ваши команды работают как админ бота. Игровая роль, президентство и гражданство не меняются.`, adminButton);
       } catch (adminError) {
         await send(chatId, `🧪 РЕЖИМ СОЗДАТЕЛЯ ПРОЕКТА\n\nСтатус: включён\nНо игровая база сейчас отвечает ошибкой: ${commandErrorMessage(adminError)}`);
       }
@@ -460,7 +507,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       if (!snapshot.government.canFounderManage && !superAdminMode) throw new Error("Внеочередные выборы запускает только Основатель.");
       const electionId = await openGovernmentElection(snapshot.state.id, effectiveActorPlayerId);
       await publishStateEvent(snapshot.state.id, "🗳 ВЫБОРЫ ПРЕЗИДЕНТА", "Началось голосование за нового президента государства.");
-      await send(chatId, `🗳 ВЫБОРЫ ПРЕЗИДЕНТА\n\nГолосование открыто на 2 минуты.\nКоманда: !голосовать @игрок\n\nИтог будет подведён автоматически при следующей активности государства.`);
+      await send(chatId, `🗳 ВЫБОРЫ ПРЕЗИДЕНТА\n\nГолосование открыто на 15 минут.\nКоманда: !голосовать @игрок\n\nБот будет напоминать о выборах каждые 5 минут. Итог будет подведён автоматически.`);
       return true;
     }
 
@@ -489,7 +536,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
           await send(chatId, `🧪 ${target.display_name}${target.username ? ` (@${target.username})` : ""} назначен президентом без голосования · режим создателя проекта.`);
         } else {
           await requestFounderSelfPresidency(snapshot.state.id, effectiveActorPlayerId);
-          await send(chatId, `🗳 САМОВЫДВИЖЕНИЕ ОСНОВАТЕЛЯ\n\n${snapshot.player.displayName} выдвинул(а) себя в президенты. Голосование идёт 2 минуты. Ваш собственный голос не засчитывается: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов. Граждане могут голосовать в Mini App${snapshot.player.username ? ` или командой !голосовать @${snapshot.player.username}` : ""}.`);
+          await send(chatId, `🗳 САМОВЫДВИЖЕНИЕ ОСНОВАТЕЛЯ\n\n${snapshot.player.displayName} выдвинул(а) себя в президенты. Голосование идёт 15 минут. Ваш собственный голос не засчитывается: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов. Граждане могут голосовать в Mini App${snapshot.player.username ? ` или командой !голосовать @${snapshot.player.username}` : ""}.`);
         }
         return true;
       }
@@ -513,6 +560,29 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       if (!snapshot.government.canFounderManage && !superAdminMode) throw new Error("Президента снимает только Основатель.");
       await removePresident(snapshot.state.id, effectiveActorPlayerId);
       await send(chatId, "👑 Президент снят с должности. Государство временно управляется без президента до назначения или выборов.");
+      return true;
+    }
+
+    if (command === "импичмент" || command === "impeach") {
+      if (!snapshot.government.president?.playerId) throw new Error("Президента нет — импичмент невозможен.");
+      if (snapshot.state.isFreeport || snapshot.state.isBeginnerIsland) throw new Error("Импичмент недоступен на защищённой территории.");
+      const presidentPlayerId = snapshot.government.president.playerId;
+      const presidentName = snapshot.government.president.displayName;
+      const vote = await createStateVote({
+        stateId: snapshot.state.id,
+        createdByPlayerId: snapshot.player.id,
+        kind: "impeachment",
+        targetStateId: snapshot.state.id,
+        payload: { presidentPlayerId },
+        durationMinutes: 5,
+      });
+      await publishStateEvent(snapshot.state.id, "⚖ ИМПИЧМЕНТ", `Инициировано голосование об отстранении ${presidentName} от должности президента.`);
+      await send(chatId, `⚖ ИМПИЧМЕНТ
+
+Голосование об отстранении ${presidentName} открыто на 5 минут.
+Необходимо большинство голосов «За» для отстранения.
+
+Голосуйте кнопками ниже:`, voteKeyboard(vote.id));
       return true;
     }
 
@@ -715,8 +785,11 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "активность" || command === "activity") {
-      const activityKey = String(args[0] || "").toLowerCase();
-      const optionKey = String(args[1] || "").toLowerCase();
+      const rawActivityKey = String(args[0] || "").toLowerCase();
+      const rawOptionKey = String(args[1] || "").toLowerCase();
+      // Resolve Russian aliases to internal keys
+      const activityKey = rawActivityKey ? resolveActivityKey(rawActivityKey) : "";
+      const optionKey = rawOptionKey ? resolveOptionKey(rawOptionKey) : "";
       if (activityKey && optionKey) {
         const result: any = await completeDailyActivity(snapshot.player.id, snapshot.state.id, activityKey, optionKey);
         const resultText =
@@ -726,8 +799,6 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
           await send(Number(from.id), resultText);
           await send(chatId, `🎯 ${snapshot.player.displayName}, результат активности отправлен вам в личный чат.`);
         } catch {
-          // Telegram does not allow a bot to initiate a private chat. Keep the
-          // completed activity visible instead of losing the authoritative result.
           await send(chatId, `${resultText}\n\nЧтобы дальше получать результаты лично, сначала откройте диалог с ботом и нажмите /start.`);
         }
         return true;
@@ -735,9 +806,9 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
 
       const available = snapshot.strategy.activities.filter((activity) => !activity.completed).slice(0, 4);
       const lines = available.flatMap((activity) => [
-        `\n${activity.title} [${activity.key}]`,
+        `\n${activity.title}`,
         activity.description,
-        ...activity.options.map((option) => `• ${option.label}: !активность ${activity.key} ${option.key} · риск ${Math.round(option.risk * 100)}%`),
+        ...activity.options.map((option) => `• ${option.label}: !активность ${activityDisplayKey(activity.key)} ${optionDisplayKey(option.key)} · риск ${Math.round(option.risk * 100)}%`),
       ]);
       await send(chatId,
         `🎯 АКТИВНОСТИ · ${snapshot.strategy.completedToday}/${snapshot.strategy.rules.maxDailyActivities}\n${lines.join("\n") || "\nНа сегодня всё выполнено."}`,

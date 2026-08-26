@@ -68,7 +68,7 @@ export async function POST(request: Request) {
       }
     } else if (action === "request_self_presidency") {
       await requestFounderSelfPresidency(stateId, auth.player.id);
-      notification = `🗳 ${actor} выдвинул(а) себя в президенты. Решение принимают граждане на 15-минутном голосовании: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов. Граждане могут голосовать в Mini App${snapshot.player.username ? ` или командой !голосовать @${snapshot.player.username}` : ""}.`;
+      notification = `🗳 ${actor} выдвинул(а) себя в президенты. Решение принимают граждане на 15-минутном голосовании: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов. Граждане могут голосовать в Mini App${auth.player.username ? ` или командой !голосовать @${auth.player.username}` : ""}.`;
     } else if (action === "admin_self_president") {
       throw new Error("Админ бота не становится президентом. Используйте права администратора бота или обычное назначение президента.");
       const { data: founderState, error: founderStateError } = await getSupabaseAdmin()

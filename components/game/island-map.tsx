@@ -98,16 +98,22 @@ const IslandNode = memo(function IslandNode({
   const league = eloLeague(island.rating);
   const relationLabel = island.isBeginnerIsland ? "НОВИЧКИ" : island.isFreeport ? "НЕЙТРАЛЬНО" : island.relation === "war" ? "ВРАГ" : island.relation === "allied" ? "СОЮЗ" : island.relation === "truce" ? "МИР" : null;
 
-  // LOD: compute inverse scale factor to counteract zoom and keep label readable
-  // At min zoom (0.05) labels would be 20x smaller; we clamp to a readable size
-  const labelScale = Math.max(0.55, Math.min(1.35, 1 / Math.pow(zoom, 0.38)));
-  const labelFontSize = Math.max(7.5, Math.min(13.5, 10 * labelScale));
-  const kickerFontSize = Math.max(5.5, Math.min(9, 7 * labelScale));
-  const smallFontSize = Math.max(5, Math.min(8.5, 6.5 * labelScale));
-  const avatarSize = Math.max(22, Math.min(48, 36 * labelScale));
-  const padH = Math.max(4, Math.min(12, 8 * labelScale));
-  const padV = Math.max(3, Math.min(8, 5.5 * labelScale));
-  const gap = Math.max(1, Math.min(4, 2.5 * labelScale));
+  // LOD: the card lives inside `.game-world-layer`, which is itself scaled by
+  // `camera.zoom` (see cameraTransform). Any px value we set here therefore
+  // renders on screen at `value * zoom` — so partially compensating (the old
+  // `zoom^0.38` curve) still let on-screen size collapse toward zero as the
+  // player zoomed all the way out (at MIN_ZOOM it was under 1 on-screen px).
+  // Counteracting zoom fully (1 / zoom) cancels the parent's scale exactly,
+  // so every size below renders at its base on-screen pixel value no matter
+  // how far out the camera is.
+  const labelScale = Math.max(1 / MAX_ZOOM, Math.min(1 / MIN_ZOOM, 1 / zoom));
+  const labelFontSize = Math.max(6, Math.min(220, 10 * labelScale));
+  const kickerFontSize = Math.max(4.5, Math.min(160, 7 * labelScale));
+  const smallFontSize = Math.max(4, Math.min(150, 6.5 * labelScale));
+  const avatarSize = Math.max(18, Math.min(820, 36 * labelScale));
+  const padH = Math.max(3, Math.min(190, 8 * labelScale));
+  const padV = Math.max(2, Math.min(130, 5.5 * labelScale));
+  const gap = Math.max(1, Math.min(60, 2.5 * labelScale));
 
   // far: compact badge; mid: medium card; near: full card
   const showFar = detail === "far";

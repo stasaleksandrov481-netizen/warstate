@@ -1643,3 +1643,26 @@ body{background:radial-gradient(circle at 50% -15%,rgba(30,135,146,.22),transpar
   transform: scale(.78);
   transform-origin: center;
 }
+
+/* v3.11 — several earlier passes above each added their own bare
+   `.game-island-label{...!important}` override at the same specificity, so
+   later ones silently clobbered the compact "far" badge / "mid" card sizing
+   with the full-card banner's fixed dimensions (72px height, gold
+   background, border, etc). The selectors below chain extra classes purely
+   to win specificity over all of them, restoring the intended compact,
+   transparent badge/card box so the zoom-compensated sizing from
+   island-map.tsx (labelScale) is what actually reaches the screen. */
+.game-island-node.game-island-node .game-island-label.lod-badge {
+  width: auto !important; height: auto !important;
+  min-width: auto !important; max-width: none !important;
+  padding: 4px 6px !important;
+  border: none !important; border-radius: 10px !important;
+  background: transparent !important; box-shadow: none !important;
+  transform: translate(-50%,-100%) !important; transform-origin: center bottom !important;
+}
+.game-island-node.game-island-node .game-island-label.lod-mid-card {
+  width: auto !important; height: auto !important;
+  min-width: 140px !important; max-width: 220px !important;
+  padding: 5px var(--pad-h, 8px) 5px calc(var(--avatar-size, 36px) + 12px) !important;
+  transform: translate(-50%,-100%) !important; transform-origin: center bottom !important;
+}

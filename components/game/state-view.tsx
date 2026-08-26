@@ -126,6 +126,12 @@ function GovernmentPanel({ snapshot, onGovernment }: Pick<Props, "snapshot" | "o
         <button type="button" onClick={() => onGovernment("remove_deputy", { username: target })}>Снять зама</button>
       </div>
     </div>}
+    {!gov.canFounderManage && gov.president?.playerId && snapshot.player.role !== "curator" && (
+      <div className="government-console impeachment-section">
+        <div className="founder-self-rule"><div><small>ИМПИЧМЕНТ</small><b>Голосование об отстранении президента</b><span>Любой гражданин может инициировать импичмент. Голосование длится 5 минут, необходимо большинство «За».</span></div></div>
+        <button type="button" className="impeachment-btn" onClick={() => onGovernment("start_impeachment")}>⚖ Инициировать импичмент</button>
+      </div>
+    )}
   </div>;
 }
 

@@ -611,7 +611,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
 
   return (
     <div className="island-map-screen game-map-screen">
-      {war && (
+      {war && war.status !== "resolved" && new Date(war.endsAt).getTime() > now && (
         <button className="game-war-banner" type="button" onClick={onOpenBattle}>
           <span className="war-swords">⚔</span>
           <div><b>Идёт война</b><small>{war.attackerName} против {war.defenderName}</small></div>
@@ -780,6 +780,11 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
         if (!feed) return null;
         const age = Date.now() - new Date(feed.createdAt).getTime();
         if (age > 5 * 60 * 1000) return null;
+        // Don't show LIVE ticker for battle events if the battle is already resolved
+        if (feed.kind.includes("battle") || feed.kind.includes("destroy")) {
+          const battle = snapshot.activeBattle;
+          if (battle && battle.status === "resolved") return null;
+        }
         return (
           <div className="game-event-ticker">
             <span>{feed.kind.includes("alliance") ? "🤝" : feed.kind.includes("destroy") ? "☠" : "⚔"}</span>

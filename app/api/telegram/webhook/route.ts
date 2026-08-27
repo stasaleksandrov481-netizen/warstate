@@ -6,6 +6,7 @@ import { handleGroupCallback, handleGroupTextCommand, processDueGroupVotes } fro
 import { recordChatActivity, finalizeDueElectionsForChat, registerTelegramState, markStateBotRemoved } from "@/lib/government";
 import { bootstrapGame, markTelegramGroupMemberLeft, observeTelegramGroupMember } from "@/lib/game";
 import { reconcileStateRuntimeByChatId } from "@/lib/maintenance";
+import { initializeDynamicTrackers, reconcileDynamicEventsForChat } from "@/lib/dynamic-events";
 import { markSeenOnce } from "@/lib/redis";
 
 export const runtime = "nodejs";
@@ -56,9 +57,16 @@ async function sendLaunchMessage(chatId: number, title?: string) {
     chat_id: chatId,
     text:
       `⚔️ WARSTATE · ГОСУДАРСТВО ПОДКЛЮЧЕНО\n────────────\n` +
-      `${title ? `«${title}»` : "Этот чат"} теперь участвует в общем мире WARSTATE.\n\n` +
-      `WARSTATE превращает Telegram-группы в государства: экономика, правительство, карта островов, дипломатия, выборы и войны.\n\n` +
-      `🚪 !вступить — стать гражданином без Mini App\n📖 !играть — подробный старт\n🧭 !помощь — все команды\n🌐 !создатьюз название — игровой юз государства\n🗺 !карта — соседи и мировая карта\n\n` +
+      `${title ? `«${title}»` : "Этот чат"} теперь участвует в общем мире WARSTATE: экономика, правительство, карта островов, дипломатия, выборы и войны.\n\n` +
+      `🚀 БЫСТРЫЙ СТАРТ — 5 ШАГОВ\n` +
+      `1️⃣ Первым делом выберите лидера государства — Президента. Чтобы начать выборы, отправьте команду !выборы\n` +
+      `2️⃣ Голосуйте за кандидата командой !голосовать @игрок\n` +
+      `3️⃣ Станьте гражданами: каждый участник пишет !вступить\n` +
+      `4️⃣ Лидер назначит профессии: !роль @игрок шахтер (также шпион, дипломат или рабочий)\n` +
+      `5️⃣ Управляйте страной: !государство · !ресурсы · !карта · !помощь\n\n` +
+      `⚠️ ВАЖНО: если в течение 30 минут не выбрать Президента, в государстве начнётся анархия — оно понесёт потери и уйдёт в минус.\n\n` +
+      `🌙 С 23:00 до 08:00 в государстве ночь: войска отдыхают, ЧП прекращаются.\n` +
+      `🚨 Днём каждые 3 часа (08:00–23:00) случаются ЧП: набеги, бунты, катаклизмы, интриги. Реагируйте кнопками в течение 10 минут, иначе казна уйдёт в минус.\n\n` +
       `Mini App нужен только для удобного визуального управления: основные механики доступны прямо в группе.`,
     reply_markup: {
       inline_keyboard: [[{ text: "🌊 Открыть остров", url: link }]],
@@ -212,6 +220,11 @@ export async function POST(request: Request) {
       if (["member", "administrator"].includes(status)) {
         await registerTelegramState(Number(membership.chat.id));
         await sendLaunchMessage(membership.chat.id, membership.chat.title);
+        // Arm the dynamic-events engine right at add-time: the 30-minute
+        // President vacancy countdown and the daytime emergency scheduler
+        // start together with the welcome message.
+        await initializeDynamicTrackers(Number(membership.chat.id)).catch((error) =>
+          console.warn("WARSTATE dynamic tracker initialization skipped", error));
       } else if (["left", "kicked"].includes(status)) {
         // Bot was removed from the group: hide the state from the map,
         // leaderboards, search and diplomacy everywhere else immediately.
@@ -343,9 +356,10 @@ export async function POST(request: Request) {
         }
       }
 
-      // Vote settlement and battle/election/building runtime reconciliation touch
+      // Vote settlement, battle/election/building runtime reconciliation and
+      // the dynamic chat-events engine (anarchy timer, night mode, ЧП) touch
       // disjoint tables and don't depend on each other's result, so run them
-      // together instead of paying for two sequential round trips per message.
+      // together instead of paying for sequential round trips per message.
       await Promise.all([
         processDueGroupVotes(Number(message.chat.id)).catch((voteError) => {
           console.warn("WARSTATE vote settlement skipped", voteError);
@@ -355,6 +369,9 @@ export async function POST(request: Request) {
         }),
         reconcileStateRuntimeByChatId(Number(message.chat.id)).catch((runtimeError) => {
           console.warn("WARSTATE event-driven maintenance skipped", runtimeError);
+        }),
+        reconcileDynamicEventsForChat(Number(message.chat.id)).catch((dynamicError) => {
+          console.warn("WARSTATE dynamic events reconciliation skipped", dynamicError);
         }),
       ]);
 

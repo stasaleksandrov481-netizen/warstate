@@ -13,6 +13,7 @@ import {
   createStateVote,
   executeApprovedStateVote,
   getDueVotesForChat,
+  getLaborMinister,
   getOpenStateVote,
   getVoteSummary,
   listDutyRoles,
@@ -20,8 +21,10 @@ import {
   parseDutyRole,
   resolveSpyQuest,
   setDutyRole,
+  setLaborMinister,
   startSpyQuest,
 } from "@/lib/community";
+import { getOpenThreatForChat, resolveThreatEvent } from "@/lib/dynamic-events";
 import type { BuildingType, WarType } from "@/lib/types";
 import type { TelegramUser } from "@/lib/telegram";
 import { telegramGameGuideText } from "@/lib/game-guide";
@@ -76,7 +79,7 @@ const WARSTATE_COMMANDS = new Set([
   "мойid", "мойид", "мой_id", "myid", "id", "админ", "admin", "суперадмин", "режимадмина", "админрежим", "полныеправа", "всеправа", "снятьдоступ", "отключитьправа", "проверка", "диагностика", "health",
   "вступить", "войти", "присоединиться", "оботе", "о_боте", "чтоэтобот",
   "государство", "state", "президент", "замы",
-  "роли", "roles", "роль", "role",
+  "роли", "roles", "роль", "role", "министртруда", "снятьминистра", "чп",
   "выборы", "голосовать", "назначитьпрезидента", "снятьпрезидента",
   "назначитьзама", "снятьзама", "создатьюз", "юз", "название",
   "найти", "рейтинг", "карта", "альянсы", "голосование", "vote",
@@ -323,10 +326,15 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         "!назначитьпрезидента — самовыдвижение Основателя через голосование\n" +
         "!импичмент — инициировать голосование об отстранении президента (5 мин)\n" +
         "!назначитьзама @user / !снятьзама @user — Основатель или Президент; можно ответом на сообщение\n" +
-        "!роли — список специализаций · !роль @user роль — назначить\n" +
+        "!роли — список специализаций · !роль @user роль — назначить (Президент, Замы, Министр труда)\n" +
+        "!министртруда @user / !снятьминистра — назначение Министра труда (Президент и Замы)\n" +
         "!выборы — открыть выборы · !голосовать @user — отдать голос\n" +
         "!голосование — текущее решение войны/союза\n" +
         "!название ... / !юз ... — изменить имя и игровой @юз\n\n" +
+        "⚠️ ДИНАМИЧЕСКИЕ СОБЫТИЯ\n" +
+        "Без Президента через 30 минут в государстве начинается анархия — казна уходит в минус.\n" +
+        "🌙 Ночь с 23:00 до 08:00: войска отдыхают, ЧП прекращаются.\n" +
+        "🚨 Днём каждые 3 часа (08:00–23:00) случаются ЧП: набеги, бунты, катаклизмы и интриги. У вас 10 минут, чтобы нажать кнопку реакции. !чп — активная угроза и остаток времени.\n\n" +
         "⚔ ВОЙНА И РАЗВЕДКА\n" +
         "!война @название_государства raid|siege|territory — вынести атаку на голосование\n" +
         "!бой — состояние текущего сражения\n" +
@@ -462,7 +470,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         : "";
       await send(chatId, p
         ? `👑 Президент: ${p.displayName}${p.username ? ` (@${p.username})` : ""}${botAdmin}`
-        : `👑 Президент пока не назначен. Основатель может назначить его или запустить 2-минутные выборы.${botAdmin}`);
+        : `👑 Президент пока не назначен.\n\n⚠️ Пока пост пуст, идёт 30-минутный отсчёт: если не выбрать лидера, в государстве начнётся анархия и казна уйдёт в минус.\n\nЧтобы начать выборы, отправьте команду !выборы${botAdmin}`);
       return true;
     }
 
@@ -473,17 +481,23 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "роли" || command === "roles") {
-      const duties = await listDutyRoles(snapshot.state.id);
+      const [duties, laborMinister] = await Promise.all([
+        listDutyRoles(snapshot.state.id),
+        getLaborMinister(snapshot.state.id).catch(() => null),
+      ]);
       const dutyLines = duties.length
         ? duties.map((item) => `• ${DUTY_ROLE_LABELS[item.dutyRole]} — ${item.displayName}${item.username ? ` (@${item.username})` : ""}`).join("\n")
         : "Специализации пока не назначены.";
       const president = snapshot.government.president;
       await send(chatId,
         `🎖 РОЛИ ГОСУДАРСТВА\n\n` +
-        `👑 Президент — ${president ? `${president.displayName}${president.username ? ` (@${president.username})` : ""}` : "не назначен"}\n\n` +
+        `👑 Президент — ${president ? `${president.displayName}${president.username ? ` (@${president.username})` : ""}` : "не назначен"}\n` +
+        `🧰 Министр труда — ${laborMinister ? `${laborMinister.displayName}${laborMinister.username ? ` (@${laborMinister.username})` : ""}` : "не назначен"}\n\n` +
         `${dutyLines}\n\n` +
         `⛏ Шахтёр: +8% к стали за каждого, максимум +40%.\n` +
-        `🏗 Рабочий: +4% ко всей добыче за каждого, максимум +20%.`
+        `🏗 Рабочий: +4% ко всей добыче за каждого, максимум +20%.\n\n` +
+        `Специализации назначают Президент, Заместители и Министр труда: !роль @игрок шахтер\n` +
+        `Министра труда назначают Президент и Замы: !министртруда @игрок`
       );
       return true;
     }
@@ -503,11 +517,53 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       return true;
     }
 
+    if (command === "министртруда" || command === "снятьминистра") {
+      const enabled = command === "министртруда";
+      const replyTelegramId = Number(message?.reply_to_message?.from?.id || 0);
+      let target: { id: string; display_name: string; username: string | null };
+      if (Number.isSafeInteger(replyTelegramId) && replyTelegramId > 0) {
+        const member = await resolveStateMemberByTelegramId(snapshot.state.id, replyTelegramId);
+        target = { id: member.id, display_name: member.display_name, username: member.username || null };
+      } else {
+        const rawTarget = String(args[0] || "");
+        if (!rawTarget) throw new Error(`Ответьте этой командой на сообщение человека или укажите @игрок: !${command} @игрок`);
+        const member = await resolveStateMemberByUsername(snapshot.state.id, rawTarget);
+        target = { id: member.id, display_name: member.display_name, username: member.username || null };
+      }
+      await setLaborMinister({ stateId: snapshot.state.id, actorPlayerId: effectiveActorPlayerId, targetPlayerId: target.id, enabled });
+      const label = `${target.display_name}${target.username ? ` (@${target.username})` : ""}`;
+      await send(chatId, enabled
+        ? `🧰 ${label} назначен(а) Министром труда.\n\nТеперь он(а) может распределять специализации: !роль @игрок шахтер|шпион|дипломат|рабочий`
+        : `🧰 ${label} больше не Министр труда.`);
+      return true;
+    }
+
+    if (command === "чп") {
+      const open = await getOpenThreatForChat(chatId);
+      if (!open) {
+        await send(chatId, "🚨 АКТИВНЫХ ЧП НЕТ\n\nДнём (08:00–23:00) чрезвычайные ситуации случаются каждые 3 часа. Реагируйте кнопками в течение 10 минут, иначе государство понесёт убытки и уйдёт в минус.");
+        return true;
+      }
+      await send(chatId,
+        `🚨 АКТИВНОЕ ЧП · ${open.template.shortTitle}\n\n` +
+        `${open.template.body(snapshot.state.name)}\n\n` +
+        `⏱ Осталось времени: ~${open.minutesLeft} мин.\n` +
+        `Нажмите кнопку под исходным сообщением ЧП, чтобы отразить угрозу.`);
+      return true;
+    }
+
     if (command === "выборы") {
-      if (!snapshot.government.canFounderManage && !superAdminMode) throw new Error("Внеочередные выборы запускает только Основатель.");
+      // While the presidency is vacant, any citizen may start the election
+      // (the onboarding instructions tell every participant to do exactly
+      // this). Extraordinary elections with a sitting President stay
+      // Founder-only.
+      const presidentAppointed = Boolean(snapshot.government.president?.playerId);
+      if (!snapshot.government.canFounderManage && !superAdminMode && presidentAppointed) {
+        throw new Error("Внеочередные выборы запускает только Основатель.");
+      }
       const electionId = await openGovernmentElection(snapshot.state.id, effectiveActorPlayerId);
       await publishStateEvent(snapshot.state.id, "🗳 ВЫБОРЫ ПРЕЗИДЕНТА", "Началось голосование за нового президента государства.");
-      await send(chatId, `🗳 ВЫБОРЫ ПРЕЗИДЕНТА\n\nГолосование открыто на 15 минут.\nКоманда: !голосовать @игрок\n\nБот будет напоминать о выборах каждые 5 минут. Итог будет подведён автоматически.`);
+      await send(chatId, `🗳 ВЫБОРЫ ПРЕЗИДЕНТА\n\nГолосование открыто на 30 минут.\nКоманда: !голосовать @игрок\n\n⚠️ Помните: пока Президент не избран, 30-минутный отсчёт до анархии не останавливается.\n\nБот будет напоминать о выборах каждые 5 минут. Итог будет подведён автоматически.`);
       return true;
     }
 
@@ -536,7 +592,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
           await send(chatId, `🧪 ${target.display_name}${target.username ? ` (@${target.username})` : ""} назначен президентом без голосования · режим создателя проекта.`);
         } else {
           await requestFounderSelfPresidency(snapshot.state.id, effectiveActorPlayerId);
-          await send(chatId, `🗳 САМОВЫДВИЖЕНИЕ ОСНОВАТЕЛЯ\n\n${snapshot.player.displayName} выдвинул(а) себя в президенты. Голосование идёт 15 минут. Ваш собственный голос не засчитывается: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов. Граждане могут голосовать в Mini App${snapshot.player.username ? ` или командой !голосовать @${snapshot.player.username}` : ""}.`);
+          await send(chatId, `🗳 САМОВЫДВИЖЕНИЕ ОСНОВАТЕЛЯ\n\n${snapshot.player.displayName} выдвинул(а) себя в президенты. Голосование идёт 30 минут. Ваш собственный голос не засчитывается: нужен хотя бы один голос другого гражданина и большинство среди поданных голосов. Граждане могут голосовать в Mini App${snapshot.player.username ? ` или командой !голосовать @${snapshot.player.username}` : ""}.`);
         }
         return true;
       }
@@ -716,6 +772,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         : snapshot.government.founder?.playerId === snapshot.player.id ? "Основатель"
         : snapshot.player.role === "president" ? "Президент"
         : ["minister", "deputy"].includes(snapshot.player.role) ? "Заместитель"
+        : snapshot.player.role === "labor_minister" ? "Министр труда"
         : snapshot.player.role === "curator" ? "Куратор"
         : snapshot.player.role === "general" ? "Генерал" : "Гражданин";
       const dutyLabel = snapshot.player.dutyRole ? DUTY_ROLE_LABELS[snapshot.player.dutyRole] : null;
@@ -973,7 +1030,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
 
 export async function handleGroupCallback(query: any): Promise<boolean> {
   const data = String(query?.data || "");
-  if (!["gw:battle:", "gw:support:", "gw:vote:", "gw:spy:", "gw:map:"].some((prefix) => data.startsWith(prefix))) return false;
+  if (!["gw:battle:", "gw:support:", "gw:vote:", "gw:spy:", "gw:map:", "gw:thr:"].some((prefix) => data.startsWith(prefix))) return false;
   const chatId = Number(query?.message?.chat?.id);
   const from = query?.from;
   if (!Number.isSafeInteger(chatId) || !from?.id) return false;
@@ -1026,6 +1083,37 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
         } else {
           await send(chatId, `🗳 Голосование завершено: решение отклонено. ${voteProgressText(result)}`);
         }
+      }
+      return true;
+    }
+
+    if (scope === "thr") {
+      // Interactive reaction to a daytime emergency (ЧП). Any citizen of the
+      // state may press the button; the first press resolves the threat.
+      // Callback format: gw:thr:R:<threatId>:<optionAction>
+      if (action !== "R") return false;
+      const threatId = String(parts[3] || "");
+      const optionAction = String(parts[4] || "");
+      if (!threatId || !optionAction) return false;
+      if (!stateChatId) return false;
+      const resolution = await resolveThreatEvent({
+        threatId,
+        optionAction,
+        stateId: snapshot.state.id,
+        playerId: snapshot.player.id,
+        resolverName: snapshot.player.displayName,
+        chatId,
+      });
+      if (resolution.outcome === "resolved") {
+        await answer(`Угроза отражена: ${resolution.option.label.replace(/^[^\p{L}\p{N}]+/u, "").trim()}`);
+      } else if (resolution.outcome === "bad_option") {
+        await answer("Неизвестный вариант реакции.", true);
+      } else if (resolution.outcome === "not_found") {
+        await answer("Это ЧП больше не активно.", true);
+      } else if (resolution.status === "resolved") {
+        await answer("Эта угроза уже отражена другим гражданином.", true);
+      } else {
+        await answer("Время на реакцию истекло — государство уже понесло убытки.", true);
       }
       return true;
     }

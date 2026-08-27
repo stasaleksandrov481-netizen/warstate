@@ -24,6 +24,16 @@ export function parseDutyRole(raw: unknown): DutyRole | null {
   return DUTY_ALIASES[String(raw || "").trim().toLocaleLowerCase("ru-RU")] || null;
 }
 
+/**
+ * Duty specializations (Шахтёр, Шпион, Дипломат, Рабочий) are assigned by the
+ * President, his Deputies and the Minister of Labor. The Founder retains the
+ * ability as the state's ultimate authority (he can appoint/remove the
+ * President himself).
+ */
+const DUTY_ASSIGNER_ROLES = new Set(["founder", "president", "deputy", "labor_minister"]);
+/** The Minister of Labor office is granted/revoked by President, Deputies (and Founder). */
+const LABOR_MINISTER_ASSIGNER_ROLES = new Set(["founder", "president", "deputy"]);
+
 export async function setDutyRole(params: {
   stateId: string;
   actorPlayerId: string;
@@ -37,7 +47,9 @@ export async function setDutyRole(params: {
   ]);
   if (actorError) throw actorError;
   if (targetError) throw targetError;
-  if (!actor || !["founder", "president"].includes(String(actor.role))) throw new Error("Специализации назначает Президент или Основатель.");
+  if (!actor || !DUTY_ASSIGNER_ROLES.has(String(actor.role))) {
+    throw new Error("Специализации назначает Президент, Заместители или Министр труда.");
+  }
   if (!target) throw new Error("Игрок не является гражданином этого государства.");
 
   const { error } = await supabase
@@ -47,6 +59,73 @@ export async function setDutyRole(params: {
     .eq("player_id", params.targetPlayerId);
   if (error) throw error;
   return params.dutyRole;
+}
+
+/**
+ * Grant or revoke the Minister of Labor (Министр труда) office. Only the
+ * President and his Deputies may do this (plus the Founder as the ultimate
+ * authority). The target must be a plain citizen so the office never stacks
+ * with founder/president/deputy/curator roles.
+ */
+export async function setLaborMinister(params: {
+  stateId: string;
+  actorPlayerId: string;
+  targetPlayerId: string;
+  enabled: boolean;
+}) {
+  const supabase = getSupabaseAdmin();
+  const [{ data: actor, error: actorError }, { data: target, error: targetError }] = await Promise.all([
+    supabase.from("state_members").select("role").eq("state_id", params.stateId).eq("player_id", params.actorPlayerId).maybeSingle(),
+    supabase.from("state_members").select("role").eq("state_id", params.stateId).eq("player_id", params.targetPlayerId).maybeSingle(),
+  ]);
+  if (actorError) throw actorError;
+  if (targetError) throw targetError;
+  if (!actor || !LABOR_MINISTER_ASSIGNER_ROLES.has(String(actor.role))) {
+    throw new Error("Министра труда назначает Президент или его Заместители.");
+  }
+  if (!target) throw new Error("Игрок не является гражданином этого государства.");
+  const targetRole = String(target.role);
+  if (params.enabled && !["citizen", "labor_minister"].includes(targetRole)) {
+    throw new Error("Министром труда может стать только обычный гражданин (не Основатель, Президент, Зам или Куратор).");
+  }
+  if (!params.enabled && targetRole !== "labor_minister") {
+    throw new Error("Этот игрок не является Министром труда.");
+  }
+  if (params.enabled) {
+    // One Minister of Labor per state: release the previous office holder.
+    const { error: releaseError } = await supabase
+      .from("state_members")
+      .update({ role: "citizen" })
+      .eq("state_id", params.stateId)
+      .eq("role", "labor_minister")
+      .neq("player_id", params.targetPlayerId);
+    if (releaseError) throw releaseError;
+  }
+  const { error } = await supabase
+    .from("state_members")
+    .update({ role: params.enabled ? "labor_minister" : "citizen" })
+    .eq("state_id", params.stateId)
+    .eq("player_id", params.targetPlayerId);
+  if (error) throw error;
+  return params.enabled;
+}
+
+export async function getLaborMinister(stateId: string): Promise<{ playerId: string; displayName: string; username: string | null } | null> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("state_members")
+    .select("player_id,player:players!state_members_player_id_fkey(display_name,username)")
+    .eq("state_id", stateId)
+    .eq("role", "labor_minister")
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    playerId: String((data as any).player_id),
+    displayName: String((data as any).player?.display_name || "Игрок"),
+    username: (data as any).player?.username ? String((data as any).player.username) : null,
+  };
 }
 
 export async function listDutyRoles(stateId: string): Promise<Array<{ playerId: string; dutyRole: DutyRole; displayName: string; username: string | null }>> {

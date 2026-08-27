@@ -2,6 +2,44 @@
 
 Telegram Mini App strategy where every real Telegram group becomes a persistent island-state in one shared ocean world.
 
+## Dynamic chat-events engine (v4.0)
+
+The bot keeps every state chat alive with a pressure loop. All of it is
+event-driven: ordinary Telegram activity triggers reconciliation, every state
+mutation is an atomic PostgreSQL claim, and `supabase/migrations/032_dynamic_events.sql`
+is the only required schema change.
+
+- **Welcome & first steps.** When the bot is added to a group it sends a
+  step-by-step quick-start guide. Step 1 is always the leader election with the
+  direct instruction: «Чтобы начать выборы, отправьте команду !выборы».
+- **30-minute President vacancy timer.** While the presidency is vacant (at
+  bot-add time or any later power vacuum) a 30-minute countdown runs. When it
+  expires the chat receives a provocative anarchy notification: the state took
+  real percentage losses and its running deficit (`anarchy_debt`) grew. The
+  wave repeats every further 30 minutes until a President is elected.
+- **Roles & professions.** Duty specializations (Шахтёр, Шпион, Дипломат,
+  Рабочий) are assigned by the President, his Deputies and the **Министр
+  труда** (`!министртруда @игрок`, granted/revoked only by President, Deputies
+  or Founder). While key specializations are unassigned the bot periodically
+  reminds the chat that resources are mined slower and reconnaissance/espionage
+  do not work.
+- **Night mode.** At 23:00 (game timezone, `WARSTATE_TIMEZONE`, default
+  Europe/Moscow) the chat receives the night announcement; emergencies pause
+  until 08:00.
+- **Daytime emergencies (ЧП).** Every 3 hours between 08:00 and 23:00
+  (slots 08/11/14/17/20) a random emergency spawns: рейдерский набег, редкое
+  явление, бунт, экономическая интрига or природный катаклизм. Citizens must
+  press one of the two reaction buttons within 10 minutes. Success praises the
+  resolver; an ignored emergency costs the state real losses and the chat is
+  told the state went into the minus (exact figures are never revealed).
+  `!чп` shows the active emergency and remaining time.
+
+The optional backup endpoint `GET /api/cron/dynamic-events`
+(`Authorization: Bearer $CRON_SECRET`) reconciles all eligible states in one
+call. It is useful for quiet chats and near-exact 23:00 night announcements
+when scheduled externally every 5–15 minutes; no schedule is added to
+`vercel.json`.
+
 ## What changed in v2.0
 
 ### No mandatory Vercel Cron
@@ -126,6 +164,9 @@ Handles can be used in war, alliance, reconnaissance and search commands.
 !профиль
 !роли
 !роль @username <дипломат|шпион|шахтер|рабочий|снять>
+!министртруда @username      # назначить Министра труда (Президент и Замы)
+!снятьминистра @username     # снять Министра труда
+!чп                          # активная угроза и остаток времени
 !голосование
 !шпион @название_государства
 
@@ -247,7 +288,7 @@ CRON_SECRET=
 
 ## Supabase migrations
 
-Fresh database: apply `001` through `025` in numeric order.
+Fresh database: apply `001` through `032` in numeric order.
 
 Existing v1.9 database: apply sequentially:
 
@@ -263,9 +304,10 @@ supabase/migrations/022_fix_state_color_contrast.sql
 supabase/migrations/023_founder_president_admin.sql
 supabase/migrations/024_repair_government_commands.sql
 supabase/migrations/025_compact_world_and_map_repair.sql
+supabase/migrations/032_dynamic_events.sql
 ```
 
-Migration `016` adds member specializations, civic war/alliance votes, the 10-message resource farm, and spy quests. Migration `017` makes Telegram update claims retry-safe. Migration `018` adds explicit state switching and owner-only state deletion. Migration `023` lets a Founder also hold the President office, restores the Founder role when that presidency ends, and keeps Founder self-promotion inside elections unless the account is explicitly configured as the project testing admin. Migration `024` restores the government command RPCs with stable PostgREST argument names. Migration `025` compacts the island world, repairs island-slot placement, and keeps future islands close to the active cluster. If your database is older, apply every missing migration sequentially. Do not skip intermediate migrations.
+Migration `016` adds member specializations, civic war/alliance votes, the 10-message resource farm, and spy quests. Migration `017` makes Telegram update claims retry-safe. Migration `018` adds explicit state switching and owner-only state deletion. Migration `023` lets a Founder also hold the President office, restores the Founder role when that presidency ends, and keeps Founder self-promotion inside elections unless the account is explicitly configured as the project testing admin. Migration `024` restores the government command RPCs with stable PostgREST argument names. Migration `025` compacts the island world, repairs island-slot placement, and keeps future islands close to the active cluster. Migration `032` adds the dynamic chat-events engine: President-vacancy/anarchy bookkeeping, the Minister of Labor role, the `state_threat_events` table, atomic loss application and citizen-driven first elections. If your database is older, apply every missing migration sequentially. Do not skip intermediate migrations.
 
 ## Project creator testing admin
 

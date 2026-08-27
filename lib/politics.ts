@@ -73,13 +73,24 @@ export async function getElection(stateId: string, playerId: string): Promise<El
   return data ? data as ElectionView : null;
 }
 
+// NOTE: not currently called anywhere — the live election-opening path is
+// lib/government.ts openGovernmentElection() → the gw_open_30m_election RPC,
+// which is the actual source of truth for election duration (30 minutes) and
+// for the "no re-election while a President sits" guard. This function used
+// to insert directly with a 15-minute duration, which silently disagreed
+// with the real 30-minute elections if anything ever called it. Fixed to
+// match, and it also now needs the RPC's guards duplicated here so it can't
+// reopen elections behind the government's back if it's ever wired up again.
 export async function openElection(stateId: string, playerId: string) {
   const supabase = getSupabaseAdmin();
+  const { data: state, error: stateError } = await supabase.from("states").select("owner_player_id").eq("id", stateId).single();
+  if (stateError) throw stateError;
+  if (state?.owner_player_id) throw new Error("В государстве уже есть президент. Сначала снимите его или начните импичмент.");
   const season = await getActiveSeason();
   const { data, error } = await supabase.from("state_elections").insert({
     state_id: stateId,
     season_id: season?.id || null,
-    ends_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    ends_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
     created_by_player_id: playerId,
   }).select("id").single();
   if (error) {

@@ -5,7 +5,7 @@ import { telegramApi } from "@/lib/telegram-bot";
  * WARSTATE dynamic events engine (v4.0).
  *
  * Chat-driven pressure loop that keeps every state chat alive:
- *  - 30-minute President vacancy timer → anarchy notification + real losses;
+ *  - 2-hour President vacancy timer → anarchy notification + real losses;
  *  - night mode announcement at 23:00 (ЧП paused until 08:00);
  *  - random daytime emergencies every 3 hours with interactive button
  *    reactions and a limited response window;
@@ -21,10 +21,11 @@ import { telegramApi } from "@/lib/telegram-bot";
 // ---------------------------------------------------------------------------
 // Timing rules
 // ---------------------------------------------------------------------------
-export const PRESIDENT_VACANCY_GRACE_MS = 30 * 60_000;
-export const ANARCHY_REPEAT_MS = 30 * 60_000;
+export const PRESIDENT_VACANCY_GRACE_MS = 2 * 60 * 60_000;
+export const ANARCHY_REPEAT_MS = 2 * 60 * 60_000;
 export const THREAT_RESPONSE_WINDOW_MS = 10 * 60_000;
 export const ROLE_NUDGE_INTERVAL_MS = 2 * 60 * 60_000;
+export const ELECTION_REMINDER_INTERVAL_MS = 5 * 60_000;
 
 /** Local hours (game timezone) when a new emergency may spawn: 08/11/14/17/20. */
 const THREAT_SLOT_HOURS = [8, 11, 14, 17, 20] as const;
@@ -277,6 +278,7 @@ export interface DynamicEventsSummary {
   threatsExpired: number;
   threatSpawned: boolean;
   roleNudgeSent: boolean;
+  electionReminderSent: boolean;
 }
 
 const EMPTY_SUMMARY: DynamicEventsSummary = {
@@ -285,6 +287,7 @@ const EMPTY_SUMMARY: DynamicEventsSummary = {
   threatsExpired: 0,
   threatSpawned: false,
   roleNudgeSent: false,
+  electionReminderSent: false,
 };
 
 /** Load the state row for a Telegram chat, or null when unregistered. */
@@ -311,7 +314,7 @@ export function dynamicEventsEligible(state: DynamicStateRow): boolean {
 
 /**
  * Initialize trackers right after the bot is added to a chat:
- * the 30-minute President vacancy countdown starts at add-time, and the
+ * the 2-hour President vacancy countdown starts at add-time, and the
  * emergency scheduler is armed with the next daytime slot.
  */
 export async function initializeDynamicTrackers(chatId: number) {
@@ -384,6 +387,10 @@ export async function reconcileDynamicEventsForState(
   // 2. Anarchy: the vacancy timer does not sleep at night.
   summary.anarchyFired = await maybeApplyAnarchy(state, chatId, now);
 
+  // 2b. Election reminders: while a vote is open, nudge the chat every 5
+  //     minutes (this also does not sleep at night — same reasoning as anarchy).
+  summary.electionReminderSent = await maybeRemindElection(state, chatId, now);
+
   // 3. Night mode: announce once per night and pause ЧП until 08:00.
   const nightId = currentNightId(now, timeZone);
   if (nightId) {
@@ -444,7 +451,7 @@ async function syncPresidentVacancy(state: DynamicStateRow) {
   try {
     const supabase = getSupabaseAdmin();
     if (!state.owner_player_id && !state.president_vacant_since) {
-      // The post is vacant and no countdown is running: start the 30-minute
+      // The post is vacant and no countdown is running: start the 2-hour
       // timer now (covers both first bot-add and any later power vacuum).
       await supabase
         .from("states")
@@ -455,7 +462,7 @@ async function syncPresidentVacancy(state: DynamicStateRow) {
       state.president_vacant_since = new Date().toISOString();
     } else if (state.owner_player_id && state.president_vacant_since) {
       // A President is in office: cancel the countdown and reset the anarchy
-      // clock so a future vacancy starts a fresh 30-minute grace period.
+      // clock so a future vacancy starts a fresh 2-hour grace period.
       await supabase
         .from("states")
         .update({ president_vacant_since: null, last_anarchy_at: null })
@@ -477,8 +484,8 @@ async function maybeApplyAnarchy(state: DynamicStateRow, chatId: number, now: Da
     const graceCutoff = new Date(now.getTime() - PRESIDENT_VACANCY_GRACE_MS).toISOString();
     const repeatCutoff = new Date(now.getTime() - ANARCHY_REPEAT_MS).toISOString();
 
-    // Atomic claim: fires once when the 30-minute grace expires and then at
-    // most once every further 30 minutes while the vacuum persists. Two
+    // Atomic claim: fires once when the 2-hour grace expires and then at
+    // most once every further 2 hours while the vacuum persists. Two
     // guarded UPDATEs are used instead of an OR filter so no PostgREST
     // filter-value parsing can ever cause a double fire.
     const claimFilters = (query: any) => query
@@ -499,7 +506,7 @@ async function maybeApplyAnarchy(state: DynamicStateRow, chatId: number, now: Da
     if (first.data) {
       claimed = first.data as { id: string; name?: string };
     } else {
-      // Path 2: previous wave fired more than 30 minutes ago (NULL never
+      // Path 2: previous wave fired more than 2 hours ago (NULL never
       // matches .lte, so this cannot double-fire after path 1).
       const repeat = await claimFilters(supabase.from("states").update({ last_anarchy_at: now.toISOString() }))
         .lte("last_anarchy_at", repeatCutoff)
@@ -524,8 +531,8 @@ async function maybeApplyAnarchy(state: DynamicStateRow, chatId: number, now: Da
     const stateName = String(claimed.name || state.name);
     const text =
       `🔥 АНАРХИЯ В ГОСУДАРСТВЕ «${stateName}»\n${MESSAGE_DIVIDER}\n` +
-      `Прошло 30 минут, а Президент так и не избран. Из-за отсутствия власти в стране началась анархия: мародёры грабят склады, чиновники разбежались, экономика парализована.\n\n` +
-      `Государство понесло потери и ушло в минус. С каждыми новыми 30 минутами безвластия потери будут расти.\n\n` +
+      `Прошло 2 часа, а Президент так и не избран. Из-за отсутствия власти в стране началась анархия: мародёры грабят склады, чиновники разбежались, экономика парализована.\n\n` +
+      `Государство понесло потери и ушло в минус. С каждыми новыми 2 часами безвластия потери будут расти.\n\n` +
       `🏛 Наведите порядок: чтобы начать выборы, отправьте команду !выборы`;
     try {
       await sendChatMessage(chatId, text);
@@ -898,6 +905,82 @@ async function maybeNudgeRoles(state: DynamicStateRow, chatId: number, now: Date
     return true;
   } catch (error) {
     warnOptional("role nudge", error);
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Election reminders
+// ---------------------------------------------------------------------------
+/**
+ * While a state election is open, nudge the chat every 5 minutes so voters
+ * don't forget. This used to be promised in the !выборы message text
+ * ("Бот будет напоминать о выборах каждые 5 минут") but nothing actually
+ * sent the reminder — this closes that gap using the same atomic-claim
+ * pattern as maybeNudgeRoles, keyed on state_elections.last_reminder_at.
+ */
+async function maybeRemindElection(state: DynamicStateRow, chatId: number, now: Date): Promise<boolean> {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data: election, error: electionError } = await supabase
+      .from("state_elections")
+      .select("id,ends_at,last_reminder_at")
+      .eq("state_id", state.id)
+      .eq("status", "open")
+      .gt("ends_at", now.toISOString())
+      .order("ends_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (electionError) {
+      warnOptional("election reminder lookup", electionError);
+      return false;
+    }
+    if (!election) return false;
+
+    const lastReminder = election.last_reminder_at ? new Date(election.last_reminder_at).getTime() : 0;
+    if (now.getTime() - lastReminder < ELECTION_REMINDER_INTERVAL_MS) return false;
+
+    // Atomic claim of the reminder window (two guarded UPDATEs, no OR filter).
+    const cutoff = new Date(now.getTime() - ELECTION_REMINDER_INTERVAL_MS).toISOString();
+    const baseFilters = (query: any) => query.eq("id", election.id).eq("status", "open");
+    let claimed: { id: string } | null = null;
+    const first = await baseFilters(supabase.from("state_elections").update({ last_reminder_at: now.toISOString() }))
+      .is("last_reminder_at", null)
+      .select("id")
+      .maybeSingle();
+    if (first.error) {
+      warnOptional("election reminder claim", first.error);
+      return false;
+    }
+    if (first.data) {
+      claimed = first.data as { id: string };
+    } else {
+      const repeat = await baseFilters(supabase.from("state_elections").update({ last_reminder_at: now.toISOString() }))
+        .lte("last_reminder_at", cutoff)
+        .select("id")
+        .maybeSingle();
+      if (repeat.error) {
+        warnOptional("election reminder re-claim", repeat.error);
+        return false;
+      }
+      claimed = (repeat.data || null) as { id: string } | null;
+    }
+    if (!claimed) return false;
+
+    const minutesLeft = Math.max(0, Math.round((new Date(election.ends_at).getTime() - now.getTime()) / 60_000));
+    const text =
+      `🗳 ВЫБОРЫ ИДУТ\n${MESSAGE_DIVIDER}\n` +
+      `В государстве «${state.name}» ещё не выбран президент.\n` +
+      `⏱ Осталось примерно ${minutesLeft} мин.\n\n` +
+      `Голосуйте: !голосовать @игрок`;
+    try {
+      await sendChatMessage(chatId, text);
+    } catch (sendError) {
+      console.warn("WARSTATE election reminder skipped", sendError);
+    }
+    return true;
+  } catch (error) {
+    warnOptional("election reminder", error);
     return false;
   }
 }

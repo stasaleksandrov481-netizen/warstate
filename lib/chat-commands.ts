@@ -76,7 +76,7 @@ function optionDisplayKey(key: string): string {
 const WARSTATE_COMMANDS = new Set([
   "играть", "как_играть", "какиграть", "гайд", "guide",
   "help", "помощь", "команды", "версия", "version",
-  "мойid", "мойид", "мой_id", "myid", "id", "админ", "admin", "суперадмин", "режимадмина", "админрежим", "полныеправа", "всеправа", "снятьдоступ", "отключитьправа", "проверка", "диагностика", "health",
+  "мойid", "мойид", "мой_id", "myid", "id", "админ", "admin", "суперадмин", "режимадмина", "админрежим", "полныеправа", "всеправа", "снятьдоступ", "снятьправа", "отключитьправа", "проверка", "диагностика", "health",
   "вступить", "войти", "присоединиться", "оботе", "о_боте", "чтоэтобот",
   "государство", "state", "президент", "замы",
   "роли", "roles", "роль", "role", "министртруда", "снятьминистра", "чп",
@@ -354,7 +354,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         "!миссия — ежедневные задачи\n" +
         "!награда — забрать готовую награду\n" +
         "!активность — доступные операции дня (принимает русские алиасы, например: !активность патруль лес)\n\n" +
-        "🧪 Создатель проекта: в любом чате напишите !полныеправа, чтобы включить глобальные права команд именно в этом чате. !снятьдоступ — отключить.\n\n" +
+        "🧪 Создатель проекта: в любом чате напишите !полныеправа, чтобы включить глобальные права команд именно в этом чате. !снятьправа — отключить.\n\n" +
         "💬 За общение: +2 XP и +1 вклад не чаще раза в минуту. Каждые 10 обычных сообщений граждан дают государству +1 ко всем ресурсам.\n\n" +
         "⇄ Смена государства: открой !карта → выбери остров → «Перейти». Бот обязательно проверит, что ты состоишь в Telegram-чате выбранного государства."
       );
@@ -387,17 +387,17 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
 
     const projectAdmin = isProjectAdminTelegramId(Number(from.id));
 
-    if (["суперадмин", "режимадмина", "админрежим", "полныеправа", "всеправа", "снятьдоступ", "отключитьправа"].includes(command)) {
+    if (["суперадмин", "режимадмина", "админрежим", "полныеправа", "всеправа", "снятьдоступ", "снятьправа", "отключитьправа"].includes(command)) {
       if (!projectAdmin) {
         await send(chatId, "⛔ Этот Telegram ID не имеет прав создателя проекта.");
         return true;
       }
-      const explicitDisable = ["снятьдоступ", "отключитьправа"].includes(command);
+      const explicitDisable = ["снятьдоступ", "снятьправа", "отключитьправа"].includes(command);
       const disable = explicitDisable || ["выкл", "off", "0", "нет"].includes(String(args[0] || "").toLocaleLowerCase("ru-RU"));
       await setProjectAdminChatMode(Number(from.id), chatId, !disable);
       await send(chatId, disable
         ? "🧪 Полные права WARSTATE отключены в этом чате."
-        : "🧪 ПОЛНЫЕ ПРАВА WARSTATE ВКЛЮЧЕНЫ\n\nВ этом чате вам доступны все команды бота независимо от местной должности и вашего гражданства. Ваше настоящее государство при этом не меняется. Для отключения: !снятьдоступ");
+        : "🧪 ПОЛНЫЕ ПРАВА WARSTATE ВКЛЮЧЕНЫ\n\nВ этом чате вам доступны все команды бота независимо от местной должности и вашего гражданства. Ваше настоящее государство при этом не меняется. Для отключения: !снятьправа");
       return true;
     }
 
@@ -553,17 +553,19 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "выборы") {
-      // While the presidency is vacant, any citizen may start the election
-      // (the onboarding instructions tell every participant to do exactly
-      // this). Extraordinary elections with a sitting President stay
-      // Founder-only.
+      // Elections may only be opened while the presidency is vacant — for
+      // ANY actor, including the Founder. Replacing a sitting President goes
+      // through !снятьпрезидента or !импичмент first; !выборы itself never
+      // deposes an incumbent (this used to be a bug: the Founder's call
+      // bypassed the check below entirely and could reopen elections over a
+      // sitting President).
       const presidentAppointed = Boolean(snapshot.government.president?.playerId);
-      if (!snapshot.government.canFounderManage && !superAdminMode && presidentAppointed) {
-        throw new Error("Внеочередные выборы запускает только Основатель.");
+      if (presidentAppointed && !superAdminMode) {
+        throw new Error("В государстве уже есть президент. Сначала снимите его: !снятьпрезидента (или начните !импичмент), затем запускайте !выборы.");
       }
       const electionId = await openGovernmentElection(snapshot.state.id, effectiveActorPlayerId);
       await publishStateEvent(snapshot.state.id, "🗳 ВЫБОРЫ ПРЕЗИДЕНТА", "Началось голосование за нового президента государства.");
-      await send(chatId, `🗳 ВЫБОРЫ ПРЕЗИДЕНТА\n\nГолосование открыто на 30 минут.\nКоманда: !голосовать @игрок\n\n⚠️ Помните: пока Президент не избран, 30-минутный отсчёт до анархии не останавливается.\n\nБот будет напоминать о выборах каждые 5 минут. Итог будет подведён автоматически.`);
+      await send(chatId, `🗳 ВЫБОРЫ ПРЕЗИДЕНТА\n\nГолосование открыто на 30 минут.\nКоманда: !голосовать @игрок\n\n⚠️ Помните: пока Президент не избран, отсчёт до анархии не останавливается.\n\nБот будет напоминать о выборах каждые 5 минут. Итог будет подведён автоматически.`);
       return true;
     }
 

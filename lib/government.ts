@@ -182,7 +182,7 @@ export async function resolveStateTarget(raw: string) {
       .maybeSingle();
     if (error) throw error;
     if (!data) throw new Error(`Государство @${handle} не найдено.`);
-    if (data.is_freeport) throw new Error("Freeport — нейтральная территория.");
+    if (data.is_freeport) throw new Error("Нейтральная зона не участвует в управлении.");
     return data;
   }
   const chatId = Number(value);
@@ -192,7 +192,7 @@ export async function resolveStateTarget(raw: string) {
     .maybeSingle();
   if (error) throw error;
   if (!data) throw new Error("Государство цели ещё не зарегистрировано.");
-  if (data.is_freeport) throw new Error("Freeport — нейтральная территория.");
+  if (data.is_freeport) throw new Error("Нейтральная зона не участвует в управлении.");
   return data;
 }
 

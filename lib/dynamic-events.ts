@@ -7,7 +7,7 @@ import { telegramApi } from "@/lib/telegram-bot";
  * Chat-driven pressure loop that keeps every state chat alive:
  *  - 2-hour President vacancy timer → anarchy notification + real losses;
  *  - night mode announcement at 23:00 (ЧП paused until 08:00);
- *  - scheduled daytime emergencies every 5 hours with interactive button
+ *  - daytime emergencies every 5 hours with interactive button
  *    reactions and a limited response window;
  *  - periodic reminders while key specializations (Шахтёр / Шпион) are unset.
  *
@@ -27,7 +27,7 @@ export const THREAT_RESPONSE_WINDOW_MS = 10 * 60_000;
 export const ROLE_NUDGE_INTERVAL_MS = 2 * 60 * 60_000;
 export const ELECTION_REMINDER_INTERVAL_MS = 5 * 60_000;
 
-/** Local hours (game timezone) when a new emergency may spawn: 08:00, 13:00, 18:00. */
+/** Local hours for 5-hour emergency cadence inside the 08:00-23:00 window. */
 const THREAT_SLOT_HOURS = [8, 13, 18] as const;
 const NIGHT_START_HOUR = 23;
 const NIGHT_END_HOUR = 8;
@@ -42,6 +42,17 @@ export function gameTimeZone(): string {
     return tz;
   } catch {
     return "Europe/Moscow";
+  }
+}
+
+function stateTimeZone(state: Pick<DynamicStateRow, "time_zone">): string {
+  const candidate = String(state.time_zone || "").trim();
+  if (!candidate) return gameTimeZone();
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: candidate });
+    return candidate;
+  } catch {
+    return gameTimeZone();
   }
 }
 
@@ -93,7 +104,7 @@ function localWallClockToUtc(parts: LocalParts, hour: number, timeZone: string):
   return new Date(guess);
 }
 
-/** Next 5-hour emergency slot strictly after `date` (game timezone). */
+/** Next 5-hour emergency slot strictly after `date` (state timezone). */
 export function nextThreatSlotAfter(date: Date, timeZone: string): Date {
   const parts = localParts(date, timeZone);
   for (const slotHour of THREAT_SLOT_HOURS) {
@@ -146,62 +157,62 @@ export interface ThreatTemplate {
 export const THREAT_TEMPLATES: ThreatTemplate[] = [
   {
     kind: "raid",
-    title: "🚨 ЧП · НАБЕГ РЕЙДЕРОВ",
-    shortTitle: "НАБЕГ РЕЙДЕРОВ",
+    title: "⚠ ЧП · НАРУШЕНИЕ ГРАНИЦЫ",
+    shortTitle: "НАРУШЕНИЕ ГРАНИЦЫ",
     body: (name) =>
-      `На окраинах государства «${name}» замечены вооружённые рейдеры. Они уже подбираются к складам с ресурсами. Если государство не отреагирует — мародёры разграбят запасы, и казна уйдёт в минус.`,
-    failureText: "Рейдеры разграбили склады и скрылись с добычей.",
+      `У границы государства «${name}» замечена вооружённая группа. Под угрозой находятся склады ресурсов. Требуется выбрать способ реагирования.`,
+    failureText: "Часть запасов потеряна из-за отсутствия реакции.",
     options: [
-      { action: "repel", label: "⚔️ Отразить атаку", successText: "Рейдеры отброшены за границы государства!" },
-      { action: "fortify", label: "🛡️ Укрепить оборону", successText: "Оборона выдержала натиск — рейдеры отступили ни с чем." },
+      { action: "repel", label: "Направить гарнизон", successText: "Гарнизон восстановил контроль над границей." },
+      { action: "fortify", label: "Усилить защиту", successText: "Защита усилена, угроза устранена." },
     ],
   },
   {
     kind: "phenomenon",
-    title: "🚨 ЧП · РЕДКОЕ ЯВЛЕНИЕ",
-    shortTitle: "РЕДКОЕ ЯВЛЕНИЕ",
+    title: "⚠ ЧП · АНОМАЛЬНАЯ АКТИВНОСТЬ",
+    shortTitle: "АНОМАЛЬНАЯ АКТИВНОСТЬ",
     body: (name) =>
-      `Над территорией государства «${name}» зависло необъяснимое явление. Граждане в панике, учёные требуют немедленной реакции. Без действий явление нарушит инфраструктуру и нанесёт экономике серьёзный урон.`,
-    failureText: "Явление спровоцировало аварии на инфраструктуре государства.",
+      `На территории государства «${name}» зафиксировано необычное явление, влияющее на инфраструктуру. Требуется определить порядок действий.`,
+    failureText: "Инфраструктура получила повреждения, государство понесло убытки.",
     options: [
-      { action: "study", label: "🔭 Изучить явление", successText: "Явление изучено — государство обращает его на пользу науки!" },
-      { action: "track", label: "🛰️ Отследить траекторию", successText: "Траектория просчитана — ущерб полностью предотвращён." },
+      { action: "study", label: "Провести исследование", successText: "Исследование завершено, риск для инфраструктуры снижен." },
+      { action: "track", label: "Отследить развитие", successText: "Развитие ситуации спрогнозировано, ущерб предотвращён." },
     ],
   },
   {
     kind: "riot",
-    title: "🚨 ЧП · БУНТ В ГОСУДАРСТВЕ",
-    shortTitle: "БУНТ",
+    title: "⚠ ЧП · ГРАЖДАНСКИЕ БЕСПОРЯДКИ",
+    shortTitle: "ГРАЖДАНСКИЕ БЕСПОРЯДКИ",
     body: (name) =>
-      `На площадях государства «${name}» начался бунт: граждане требуют объяснений от власти. Ситуация накаляется с каждой минутой. Если не вмешаться — беспорядки остановят добычу ресурсов и разорят казну.`,
-    failureText: "Беспорядки остановили работу шахт и ферм на долгие часы.",
+      `В государстве «${name}» начались массовые беспорядки. Они уже влияют на производство и работу казначейства. Требуется решение.`,
+    failureText: "Производство остановлено на части территории, казна понесла убытки.",
     options: [
-      { action: "calm", label: "🕊️ Утихомирить толпу", successText: "Переговоры завершены — толпа разошлась по домам." },
-      { action: "feed", label: "🍞 Открыть продовольственные склады", successText: "Склады открыты — недовольство граждан погашено." },
+      { action: "calm", label: "Начать переговоры", successText: "Переговоры завершены, порядок восстановлен." },
+      { action: "feed", label: "Открыть продовольственный резерв", successText: "Резерв использован, напряжение снижено." },
     ],
   },
   {
     kind: "intrigue",
-    title: "🚨 ЧП · ЭКОНОМИЧЕСКАЯ ИНТРИГА",
-    shortTitle: "ЭКОНОМИЧЕСКАЯ ИНТРИГА",
+    title: "⚠ ЧП · НАРУШЕНИЕ В КАЗНАЧЕЙСТВЕ",
+    shortTitle: "НАРУШЕНИЕ В КАЗНАЧЕЙСТВЕ",
     body: (name) =>
-      `Казначейство государства «${name}» обнаружило подозрительные махинации: кто-то выводит ресурсы через подставные контракты. След остывает быстро — действуйте, иначе казна уйдёт в глубокий минус.`,
-    failureText: "Схема с выводом ресурсов сработала — казна понесла тяжёлый удар.",
+      `Казначейство государства «${name}» обнаружило подозрительные операции с ресурсами. Требуется определить способ проверки.`,
+    failureText: "Нарушение не остановлено вовремя, казна понесла убытки.",
     options: [
-      { action: "investigate", label: "🕵️ Вычислить саботажника", successText: "Саботажник разоблачён и изгнан — утечка ресурсов остановлена!" },
-      { action: "audit", label: "📊 Провести срочный аудит", successText: "Аудит завершён — сомнительные контракты расторгнуты." },
+      { action: "investigate", label: "Начать расследование", successText: "Источник нарушения установлен, утечка ресурсов остановлена." },
+      { action: "audit", label: "Провести аудит", successText: "Аудит завершён, подозрительные операции остановлены." },
     ],
   },
   {
     kind: "disaster",
-    title: "🚨 ЧП · ПРИРОДНЫЙ КАТАКЛИЗМ",
-    shortTitle: "ПРИРОДНЫЙ КАТАКЛИЗМ",
+    title: "⚠ ЧП · ПОВРЕЖДЕНИЕ ИНФРАСТРУКТУРЫ",
+    shortTitle: "ПОВРЕЖДЕНИЕ ИНФРАСТРУКТУРЫ",
     body: (name) =>
-      `На государство «${name}» обрушился стихийный катаклизм: разрушены коммуникации, пострадали склады. Промедление с помощью приведёт к тяжёлым убыткам для всей экономики.`,
-    failureText: "Стихия довершила своё дело — коммуникации и склады разрушены.",
+      `В государстве «${name}» повреждены коммуникации и складская инфраструктура. Требуется выбрать первоочередное действие.`,
+    failureText: "Восстановление не начато вовремя, государство понесло дополнительные убытки.",
     options: [
-      { action: "rescue", label: "🚑 Организовать помощь пострадавшим", successText: "Помощь организована — граждане спасены, паника предотвращена." },
-      { action: "rebuild", label: "🏗️ Начать восстановительные работы", successText: "Восстановительные работы начаты — ущерб минимизирован." },
+      { action: "rescue", label: "Организовать помощь", successText: "Помощь организована, критические последствия предотвращены." },
+      { action: "rebuild", label: "Начать восстановление", successText: "Восстановительные работы начаты, ущерб ограничен." },
     ],
   },
 ];
@@ -242,9 +253,10 @@ interface DynamicStateRow {
   is_freeport: boolean | null;
   is_beginner_island: boolean | null;
   bot_present: boolean | null;
+  time_zone: string | null;
 }
 
-const DYNAMIC_STATE_COLUMNS = "id,name,telegram_chat_id,owner_player_id,president_vacant_since,last_anarchy_at,night_notified_on,next_threat_at,last_role_nudge_at,is_freeport,is_beginner_island,bot_present";
+const DYNAMIC_STATE_COLUMNS = "id,name,telegram_chat_id,owner_player_id,president_vacant_since,last_anarchy_at,night_notified_on,next_threat_at,last_role_nudge_at,is_freeport,is_beginner_island,bot_present,time_zone";
 
 function isMissingMigrationError(error: unknown) {
   if (!error || typeof error !== "object") return false;
@@ -334,7 +346,7 @@ export async function initializeDynamicTrackers(chatId: number) {
     if (!state.next_threat_at) {
       await supabase
         .from("states")
-        .update({ next_threat_at: nextThreatSlotAfter(now, gameTimeZone()).toISOString() })
+        .update({ next_threat_at: nextThreatSlotAfter(now, stateTimeZone(state)).toISOString() })
         .eq("id", state.id)
         .is("next_threat_at", null);
     }
@@ -379,7 +391,7 @@ export async function reconcileDynamicEventsForState(
 
   const chatId = Number(state.telegram_chat_id);
   const now = new Date();
-  const timeZone = gameTimeZone();
+  const timeZone = stateTimeZone(state);
 
   // 1. Keep the President-vacancy tracker in sync with reality.
   await syncPresidentVacancy(state);
@@ -405,7 +417,7 @@ export async function reconcileDynamicEventsForState(
   //    before anything new spawns.
   summary.threatsExpired = await expireDueThreats(state, chatId, now);
 
-  // 5. Spawn the due emergency for the current 3-hour slot.
+  // 5. Spawn the due emergency for the current 5-hour slot.
   summary.threatSpawned = await maybeSpawnThreat(state, chatId, now, timeZone);
 
   // 6. Remind about unassigned key specializations.
@@ -550,7 +562,7 @@ async function maybeApplyAnarchy(state: DynamicStateRow, chatId: number, now: Da
 // Night mode
 // ---------------------------------------------------------------------------
 const NIGHT_MESSAGE =
-  "🌙 В государстве наступила ночь. Войска отправляются на отдых, а ЧП временно прекращаются до 08:00. Готовьтесь к новым вызовам утром!";
+  "Ночной период начался. ЧП приостановлены до 08:00, армия не участвует в новых операциях.";
 
 async function maybeSendNightNotification(state: DynamicStateRow, chatId: number, nightId: string): Promise<boolean> {
   if (state.night_notified_on === nightId) return false;
@@ -653,9 +665,9 @@ async function expireDueThreats(state: DynamicStateRow, chatId: number, now: Dat
       const text =
         `💥 ГОСУДАРСТВО ПОНЕСЛО УБЫТКИ\n${MESSAGE_DIVIDER}\n` +
         `ЧП «${template?.shortTitle || "ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ"}» было проигнорировано — время на реакцию истекло.\n\n` +
-        `${template?.failureText || "Безответственность обошлась стране дорого."}\n\n` +
-        `Государство «${state.name}» понесло потери и ушло в минус.\n\n` +
-        `⚡ Не оставляйте следующие ЧП без внимания — реагируйте кнопками сразу, как только они появляются.`;
+        `${template?.failureText || "Ситуация не была обработана вовремя."}\n\n` +
+        `Государство «${state.name}» понесло убытки.\n\n` +
+        `Следующее ЧП также потребует реакции в течение 10 минут.`;
       try {
         await sendChatMessage(chatId, text);
       } catch (sendError) {
@@ -745,7 +757,7 @@ async function maybeSpawnThreat(state: DynamicStateRow, chatId: number, now: Dat
       `${template.title}\n${MESSAGE_DIVIDER}\n` +
       `${template.body(state.name)}\n\n` +
       `⏱ Время на реакцию: ${minutesLeft} минут.\n` +
-      `Нажмите одну из кнопок, пока не поздно:`;
+      `Выберите действие в течение отведённого времени:`;
     // Telegram caps callback_data at 64 bytes: "gw:thr:R:" + 36-char uuid +
     // ":" + action always fits with room to spare.
     const keyboard = template.options.map((option) => [

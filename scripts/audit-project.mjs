@@ -59,9 +59,10 @@ for (const forbidden of [".env", ".env.local", ".next", "node_modules", ".vercel
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 if (packageJson.name !== "warstate") failures.push(`Unexpected package name: ${packageJson.name}`);
-if (!String(packageJson.version || "").startsWith("2.0.")) failures.push(`Expected v2.0.x package version, found ${packageJson.version}`);
+if (!String(packageJson.version || "").startsWith("5.0.")) failures.push(`Expected v5.0.x package version, found ${packageJson.version}`);
 
 const requiredV20 = [
+  "supabase/migrations/034_continent_redesign.sql",
   "supabase/migrations/015_event_driven_runtime.sql",
   "supabase/migrations/016_member_activity_votes_spy.sql",
   "supabase/migrations/017_telegram_update_claim_lease.sql",
@@ -170,7 +171,7 @@ if (/РЕСУРСЫ ЗА АКТИВНОСТЬ|Чат нафармил|10 соо�
 if (!webhookSource.includes("handleGroupTextCommand(message)")) failures.push("Telegram group command handler is not wired into webhook");
 if (!webhookSource.includes('ignored: "unknown_bang_command"')) failures.push("Unknown !commands are not hard-stopped in Telegram webhook");
 if (!webhookSource.includes('p_lease_seconds: 45')) failures.push("Telegram update receipt claim does not use the explicit lease signature");
-if (!webhookSource.includes('WARSTATE_RUNTIME=3.9-stable')) failures.push("Runtime version marker is missing from Telegram webhook logs");
+if (!webhookSource.includes('WARSTATE_RUNTIME=5.0-continent')) failures.push("Runtime version marker is missing from Telegram webhook logs");
 if (!webhookSource.includes('observeTelegramGroupMember')) failures.push("Telegram member observation is not wired into webhook");
 const stableMigration = fs.readFileSync(path.join(root, "supabase/migrations/027_webhook_idempotency_and_presence.sql"), "utf8");
 for (const marker of ["telegram_chat_members", "gw_claim_telegram_update", "update public.state_members", "uq_state_members_one_home"]) {
@@ -186,8 +187,8 @@ if (!islandSource.includes('.eq("is_beginner_island", true)')) failures.push("Be
 if (!islandSource.includes("direct state query is a safe read-only fallback") || !islandSource.includes('String(row.id) === String(stateId)')) failures.push("Island world lacks RPC fallback or own-island injection");
 if (!islandSource.includes("Freeport is the second global landmark")) failures.push("Freeport is not force-included as a global map landmark");
 const islandMapSource = fs.readFileSync(path.join(root, "components/game/island-map.tsx"), "utf8");
-for (const marker of ["CAMERA_STORAGE_VERSION", "game-map-nearby", "DEFAULT_STATE_ZOOM", 'replace(/^@/, "")']) {
-  if (!islandMapSource.includes(marker)) failures.push(`Compact map UX is missing: ${marker}`);
+for (const marker of ["continent-world", 'detail: "far"', 'detail !== "far"', 'detail === "near"', 'replace(/^@/, "")']) {
+  if (!islandMapSource.includes(marker)) failures.push(`Continental map UX is missing: ${marker}`);
 }
 const compactWorldMigration = fs.readFileSync(path.join(root, "supabase/migrations/025_compact_world_and_map_repair.sql"), "utf8");
 for (const marker of ["520.0", "row_number() over", "new.island_slot", "trg_gw_place_island"]) {
@@ -253,6 +254,7 @@ notes.push(`${referencedRpc.size}/${referencedRpc.size} referenced RPCs found in
 notes.push(`${requiredCommands.length}/${requiredCommands.length} required chat commands present`);
 notes.push(`${registeredCommandAliases.length}/${registeredCommandAliases.length} registered command aliases routed`);
 notes.push("Vercel Cron dependency: disabled by default (event-driven runtime)");
+notes.push("WARSTATE v5 continental redesign migration: present");
 if (!fs.readFileSync(path.join(root, "README.md"), "utf8").includes("/setprivacy")) failures.push("README must document disabling BotFather Privacy Mode for !commands");
 notes.push("Telegram webhook idempotency: PostgreSQL-backed");
 notes.push("Baseline security headers: enabled");

@@ -3,10 +3,11 @@ import type { ReactNode } from "react";
 import Script from "next/script";
 import "./globals.css";
 import "./game-theme.css";
+import "./warstate-redesign.css";
 
 export const metadata: Metadata = {
   title: "WARSTATE",
-  description: "WARSTATE — Telegram strategy game where chats become island-states.",
+  description: "WARSTATE — Telegram strategy game where chats become states on a shared continent.",
 };
 
 export const viewport: Viewport = {
@@ -15,7 +16,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: "#0b2730",
+  themeColor: "#1d1c17",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

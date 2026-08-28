@@ -20,12 +20,12 @@ const IslandHome = dynamic(() => import("@/components/game/island-home").then((m
 const IslandRanking = dynamic(() => import("@/components/game/island-ranking").then((m) => m.IslandRanking), { ssr: false, loading: () => <SceneLoading label="Считаем рейтинг…" /> });
 const IslandAlliances = dynamic(() => import("@/components/game/island-alliances").then((m) => m.IslandAlliances), { ssr: false, loading: () => <SceneLoading label="Открываем дипломатию…" /> });
 
-const BattleScreen = dynamic(() => import("@/components/game/battle-screen").then((m) => m.BattleScreen), { ssr: false, loading: () => <SceneLoading label="Поднимаем фронт…" /> });
+const BattleScreen = dynamic(() => import("@/components/game/battle-screen").then((m) => m.BattleScreen), { ssr: false, loading: () => <SceneLoading label="Открываем армию…" /> });
 const AdminPanel = dynamic(() => import("@/components/game/admin-panel").then((m) => m.AdminPanel), { ssr: false, loading: () => <SceneLoading label="Открываем админ-панель…" /> });
 const StateViewPanel = dynamic(() => import("@/components/game/state-view").then((m) => m.StateViewPanel), { ssr: false, loading: () => <SceneLoading label="Открываем профиль…" /> });
 const StrategyPanel = dynamic(() => import("@/components/game/strategy-panel").then((m) => m.StrategyPanel), { ssr: false, loading: () => <SceneLoading label="Открываем штаб…" /> });
 
-type View = "menu" | "map" | "island" | "battle" | "rating" | "alliances" | "strategy" | "profile";
+type View = "home" | "map" | "island" | "battle" | "rating" | "alliances" | "strategy" | "profile";
 
 type TelegramWebApp = {
   initData: string;
@@ -102,17 +102,17 @@ async function api<T>(path: string, initData: string, init?: RequestInit): Promi
 const COMPACT_FORMATTER = new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 });
 
 const NAV: Array<{ key: View; label: string }> = [
-  { key: "menu", label: "Главная" },
+  { key: "home", label: "Меню" },
   { key: "map", label: "Карта" },
   { key: "island", label: "Замок" },
   { key: "battle", label: "Армия" },
-  { key: "alliances", label: "Союзы" },
   { key: "profile", label: "Профиль" },
 ];
 
 export default function GameApp() {
-  const [view, setView] = useState<View>("menu");
+  const [view, setView] = useState<View>("home");
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [sectionHelp, setSectionHelp] = useState<{ title: string; text: string } | null>(null);
   const [viewPhase, setViewPhase] = useState<"idle" | "leaving" | "entering">("idle");
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [selectedIsland, setSelectedIsland] = useState<IslandView | null>(null);
@@ -159,16 +159,6 @@ export default function GameApp() {
   const [isAdminEntry, setIsAdminEntry] = useState(() => detectAdminEntry());
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    setOnboardingOpen(window.localStorage.getItem("warstate:onboarding:v5") !== "done");
-  }, []);
-
-  const finishOnboarding = useCallback(() => {
-    if (typeof window !== "undefined") window.localStorage.setItem("warstate:onboarding:v5", "done");
-    setOnboardingOpen(false);
-  }, []);
-
-  useEffect(() => {
     if (!telegramReady) return;
     let attempts = 0;
     const check = () => {
@@ -182,6 +172,17 @@ export default function GameApp() {
     }, 100);
     return () => window.clearInterval(timer);
   }, [telegramReady, detectAdminEntry]);
+
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem("warstate:onboarding:v5") !== "done") setOnboardingOpen(true);
+    } catch { setOnboardingOpen(true); }
+  }, []);
+
+  const finishOnboarding = useCallback(() => {
+    try { window.localStorage.setItem("warstate:onboarding:v5", "done"); } catch { /* storage optional */ }
+    setOnboardingOpen(false);
+  }, []);
 
   const acceptSnapshot = useCallback((fresh: GameSnapshot) => {
     setSnapshot((current) => ({
@@ -221,9 +222,9 @@ export default function GameApp() {
       app?.expand?.();
       // Telegram does not support a truly transparent native chrome on every client.
       // Matching the chrome to the app background makes the Mini App frame visually disappear.
-      app?.setHeaderColor?.("#0b2730");
-      app?.setBackgroundColor?.("#0b2730");
-      app?.setBottomBarColor?.("#0b2730");
+      app?.setHeaderColor?.("#1d1c17");
+      app?.setBackgroundColor?.("#1d1c17");
+      app?.setBottomBarColor?.("#1d1c17");
       app?.disableVerticalSwipes?.();
       if (!app?.initData) {
         throw new Error("Откройте live-версию игры внутри Telegram Mini App.");
@@ -572,7 +573,7 @@ export default function GameApp() {
       if (action === "delete_state") {
         setSelectedIsland(null);
         navigate("map");
-        notify("Государство удалено. Игроки переведены во Freeport", "success");
+        notify("Государство удалено. Игроки переведены в нейтральную зону", "success");
       } else {
         notify("Правительство обновлено", "success");
       }
@@ -608,7 +609,7 @@ export default function GameApp() {
     return <AdminPanel initData={initData} />;
   }
 
-  if (loading) return <Splash text="Загружаем государство…" />;
+  if (loading) return <Splash text="Загружаем карту государств…" />;
   if (error || !snapshot) return <Splash text={error || "Ошибка"} action="Повторить" onAction={bootstrap} />;
 
   const availableNav = NAV;
@@ -616,13 +617,12 @@ export default function GameApp() {
 
   return (
     <main className={`app-shell island-app-shell ${hasWorldPulse ? "has-world-pulse" : ""}`}>
-      {onboardingOpen && <WarstateOnboarding onFinish={finishOnboarding} />}
       <MobileHeader snapshot={snapshot} online={isOnline} lastSyncAt={lastSyncAt} syncing={syncing} onSync={syncNow} />
       <WorldPulseBar snapshot={snapshot} onBattle={() => navigate("battle")} onIsland={() => navigate("island")} onProfile={() => navigate("profile")} />
 
       <section className={`viewport island-viewport ws-view-${viewPhase}`} data-view={view}>
         <div className="ws-view-stage" key={view}>
-        {view === "menu" && <WarstateMenu snapshot={snapshot} onOpen={navigate} />}
+        {view === "home" && <CommandCenter snapshot={snapshot} onNavigate={navigate} onExplain={setSectionHelp} />}
         {view === "map" && (
           <IslandMap
             snapshot={snapshot}
@@ -656,50 +656,84 @@ export default function GameApp() {
           </button>
         ))}
       </nav>
+      {view !== "home" && <button type="button" className="section-help-trigger" onClick={() => setSectionHelp(sectionHelpFor(view))}>?<span>Что это?</span></button>}
+      {sectionHelp && <SectionHelpModal info={sectionHelp} onClose={() => setSectionHelp(null)} />}
+      {onboardingOpen && <Onboarding onDone={finishOnboarding} />}
       {toast && <div className={`toast toast-${toast.tone}`} role="status" aria-live="polite"><span>{toast.message}</span></div>}
     </main>
   );
 }
 
-function WarstateOnboarding({ onFinish }: { onFinish: () => void }) {
-  const [step, setStep] = useState(0);
-  const slides = [
-    { icon: "🏰", title: "Ваше государство", text: "Telegram-чат становится государством с замком, территорией, казной и армией." },
-    { icon: "🗺", title: "Карта материка", text: "Изучайте государства, открывайте карточки и следите за союзами и конфликтами." },
-    { icon: "⚔", title: "Управляйте армией", text: "Развивайте силы, участвуйте в голосованиях и реагируйте на войны." },
-    { icon: "⚠", title: "Следите за событиями", text: "ЧП требуют решения в течение 10 минут. Каждое действие получает явный ответ." },
+
+function sectionHelpFor(view: View) {
+  const map: Record<View, { title: string; text: string }> = {
+    home: { title: "Главное меню", text: "Здесь собраны основные разделы государства. Начните с замка, затем откройте карту и проверьте армию." },
+    map: { title: "Карта", text: "Общий материк WARSTATE. Масштаб меняет детализацию: от гербов до полной карточки государства." },
+    island: { title: "Замок", text: "Центр государства: казна, инфраструктура, развитие и восстановление." },
+    battle: { title: "Армия", text: "Текущий бой, участие граждан, приказы и состояние сил государства." },
+    rating: { title: "Рейтинг", text: "Позиции государств по ELO и результаты текущего сезона." },
+    alliances: { title: "Союзы", text: "Партнёры, запросы на союз, перемирия и дипломатические действия." },
+    strategy: { title: "Операции", text: "Ежедневные действия, поддержка союзников и решения по текущим конфликтам." },
+    profile: { title: "Профиль и выборы", text: "Роль, заслуги, ежедневные задачи, руководство государства и президентские выборы." },
+  };
+  return map[view];
+}
+
+function CommandCenter({ snapshot, onNavigate, onExplain }: { snapshot: GameSnapshot; onNavigate: (view: View) => void; onExplain: (info: { title: string; text: string }) => void }) {
+  const cards: Array<{ view: View; icon: string; label: string; hint: string }> = [
+    { view: "island", icon: "♜", label: "Замок", hint: "Казна и развитие" },
+    { view: "battle", icon: "⚔", label: "Армия", hint: "Бои и приказы" },
+    { view: "alliances", icon: "◆", label: "Союзы", hint: "Дипломатия" },
+    { view: "profile", icon: "§", label: "Выборы", hint: "Роли и власть" },
+    { view: "map", icon: "▣", label: "Карта", hint: "Материк государств" },
+    { view: "rating", icon: "♛", label: "Рейтинг", hint: "ELO и сезон" },
   ];
-  const slide = slides[step];
-  return <div className="ws-onboarding" role="dialog" aria-modal="true" aria-label="Знакомство с WARSTATE">
-    <button type="button" className="ws-onboarding-skip" onClick={onFinish}>Пропустить</button>
-    <div className="ws-onboarding-card">
-      <div className="ws-onboarding-icon" aria-hidden="true">{slide.icon}</div>
-      <small>WARSTATE · {step + 1}/{slides.length}</small>
-      <h2>{slide.title}</h2><p>{slide.text}</p>
-      <div className="ws-onboarding-dots">{slides.map((_, i) => <i key={i} className={i === step ? "active" : ""} />)}</div>
-      <button type="button" className="ws-onboarding-next" onClick={() => step === slides.length - 1 ? onFinish() : setStep(step + 1)}>{step === slides.length - 1 ? "Открыть государство" : "Далее"}</button>
+  return <div className="command-center">
+    <section className="command-hero">
+      <div><small>WARSTATE</small><h2>Управление государством</h2><p>Выберите раздел. Основные действия доступны без поиска по меню.</p></div>
+      <span className="command-crest" style={{ background: snapshot.state.color }}>{snapshot.state.emblem || "W"}</span>
+    </section>
+    <div className="command-summary">
+      <span><small>Казна</small><b>{COMPACT_FORMATTER.format(snapshot.state.treasury.credits)}</b></span>
+      <span><small>Армия</small><b>{COMPACT_FORMATTER.format(snapshot.state.armyPower)}</b></span>
+      <span><small>Население</small><b>{COMPACT_FORMATTER.format(snapshot.state.memberCount)}</b></span>
     </div>
+    <section className="command-grid" aria-label="Главное меню">
+      {cards.map((card) => <article key={card.view} className="command-tile">
+        <button type="button" className="command-tile-main" onClick={() => onNavigate(card.view)}><i>{card.icon}</i><span><b>{card.label}</b><small>{card.hint}</small></span></button>
+        <button type="button" className="command-tile-help" aria-label={`Что такое ${card.label}`} onClick={() => onExplain(sectionHelpFor(card.view))}>?</button>
+      </article>)}
+    </section>
+    <div className="command-note"><b>Новому игроку:</b> откройте «Замок», затем «Карта». Этого достаточно, чтобы понять текущее состояние и соседей.</div>
   </div>;
 }
 
-function WarstateMenu({ snapshot, onOpen }: { snapshot: GameSnapshot; onOpen: (view: View) => void }) {
-  const tiles: Array<{ view: View; icon: string; title: string; text: string }> = [
-    { view: "island", icon: "🏰", title: "Замок", text: "Развитие и инфраструктура" },
-    { view: "battle", icon: "⚔", title: "Армия", text: "Силы и текущие бои" },
-    { view: "map", icon: "🗺", title: "Карта", text: "Материк и государства" },
-    { view: "alliances", icon: "🤝", title: "Союзы", text: "Дипломатия и партнёры" },
-    { view: "profile", icon: "📜", title: "Профиль", text: "Роль, выборы и заслуги" },
-    { view: "rating", icon: "🏅", title: "Рейтинг", text: "Позиция государства" },
-  ];
-  return <div className="ws-command-center">
-    <section className="ws-command-hero"><small>ЦЕНТР УПРАВЛЕНИЯ</small><h1>{snapshot.state.name}</h1><p>Выберите раздел. Основные действия доступны в один переход.</p></section>
-    <div className="ws-menu-grid">{tiles.map(tile => <button key={tile.view} type="button" onClick={() => onOpen(tile.view)}><span>{tile.icon}</span><div><b>{tile.title}</b><small>{tile.text}</small></div><i>›</i></button>)}</div>
-    <button type="button" className="ws-help-hint" onClick={() => onOpen("profile")}><span>?</span><div><b>Что делать дальше?</b><small>Откройте профиль, чтобы увидеть роль, выборы и текущие задачи.</small></div></button>
-  </div>;
+function SectionHelpModal({ info, onClose }: { info: { title: string; text: string }; onClose: () => void }) {
+  return <div className="section-help-backdrop" role="presentation" onClick={onClose}><section className="section-help-modal" role="dialog" aria-modal="true" aria-label={info.title} onClick={(e) => e.stopPropagation()}><button type="button" onClick={onClose}>×</button><small>СПРАВКА</small><h3>{info.title}</h3><p>{info.text}</p><b>Закрыть справку можно касанием вне карточки.</b></section></div>;
+}
+
+const ONBOARDING_SLIDES = [
+  { icon: "♜", title: "Начните с замка", text: "Проверьте казну, армию и развитие государства." },
+  { icon: "▣", title: "Откройте карту", text: "Найдите соседей, союзников и противников на материке." },
+  { icon: "◆", title: "Следите за решениями", text: "Союзы, войны и выборы подтверждаются понятными действиями." },
+  { icon: "!", title: "Реагируйте на ЧП", text: "На решение есть 10 минут. Бот всегда показывает доступные варианты." },
+];
+
+function Onboarding({ onDone }: { onDone: () => void }) {
+  const [index, setIndex] = useState(0);
+  const slide = ONBOARDING_SLIDES[index];
+  return <div className="onboarding-backdrop"><section className="onboarding-card" role="dialog" aria-modal="true" aria-label="Знакомство с WARSTATE">
+    <button type="button" className="onboarding-skip" onClick={onDone}>Пропустить</button>
+    <div className="onboarding-icon">{slide.icon}</div>
+    <small>ШАГ {index + 1} ИЗ {ONBOARDING_SLIDES.length}</small>
+    <h2>{slide.title}</h2><p>{slide.text}</p>
+    <div className="onboarding-dots">{ONBOARDING_SLIDES.map((_, dot) => <i key={dot} className={dot === index ? "active" : ""} />)}</div>
+    <button type="button" className="onboarding-next" onClick={() => index === ONBOARDING_SLIDES.length - 1 ? onDone() : setIndex(index + 1)}>{index === ONBOARDING_SLIDES.length - 1 ? "Открыть WARSTATE" : "Далее"}</button>
+  </section></div>;
 }
 
 function Splash({ text, action, onAction }: { text: string; action?: string; onAction?: () => void }) {
-  return <main className="splash ws-splash"><div className="ws-splash-orbit"><div className="logo-mark">GW</div></div><h1>WARSTATE</h1><p>{text}</p><div className="ws-loading-bars" aria-hidden="true"><i/><i/><i/></div>{action && <button className="primary" onClick={onAction}>{action}</button>}</main>;
+  return <main className="splash ws-splash"><div className="ws-splash-orbit"><div className="logo-mark">WS</div></div><h1>WARSTATE</h1><p>{text}</p><div className="ws-loading-bars" aria-hidden="true"><i/><i/><i/></div>{action && <button className="primary" onClick={onAction}>{action}</button>}</main>;
 }
 
 function hasActiveWorldPulse(snapshot: GameSnapshot) {
@@ -754,9 +788,9 @@ const MobileHeader = memo(function MobileHeader({ snapshot, online, lastSyncAt, 
   return (
     <header className="island-mobile-header game-mobile-header">
       <div className="game-header-identity">
-        <span className="game-brand-rune" aria-hidden="true">GW</span>
+        <span className="game-brand-rune" aria-hidden="true">WS</span>
         <span className="header-avatar game-header-avatar" style={{ background: state.color }}>{state.avatarUrl ? <Image src={state.avatarUrl} alt="" width={42} height={42} unoptimized /> : state.emblem}</span>
-        <div className="header-state-name game-header-name"><b>{state.name}</b>{state.stateUsername && !state.isFreeport ? <em>@{state.stateUsername}</em> : null}<small>{role}{state.isFreeport ? " · нейтральная территория" : ` · #${state.seasonRank}`}</small></div>
+        <div className="header-state-name game-header-name"><b>{state.isFreeport ? "Нейтральная зона" : state.name}</b>{state.stateUsername && !state.isFreeport ? <em>@{state.stateUsername}</em> : null}<small>{role}{state.isFreeport ? " · нейтральная зона" : ` · #${state.seasonRank}`}</small></div>
         <button type="button" className={`game-sync ${online ? "online" : "offline"} ${syncing ? "syncing" : ""}`} onClick={onSync} disabled={!online || syncing} aria-label="Синхронизировать данные" title={online ? `Последняя синхронизация · ${new Date(lastSyncAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Нет соединения"}><i />{syncing ? "SYNC" : online ? "LIVE" : "OFF"}</button>
       </div>
       <div className="game-header-stats">
@@ -780,9 +814,9 @@ const MobileHeader = memo(function MobileHeader({ snapshot, online, lastSyncAt, 
 
 function NavIcon({ type }: { type: View }) {
   const common = { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
-  if (type === "menu") return <svg {...common}><path d="M4 11.5 12 5l8 6.5V20h-6v-5h-4v5H4Z"/><path d="M9 9h6"/></svg>;
+  if (type === "home") return <svg {...common}><path d="M4 5h6v6H4zM14 5h6v6h-6zM4 15h6v5H4zM14 15h6v5h-6z"/></svg>;
   if (type === "map") return <svg {...common}><path d="M4 6.5 9 4l6 2.5L20 4v13.5L15 20l-6-2.5L4 20Z"/><path d="M9 4v13.5M15 6.5V20"/></svg>;
-  if (type === "island") return <svg {...common}><path d="M5 20V9h3V5h3v4h2V5h3v4h3v11Z"/><path d="M3 20h18M9 20v-5h6v5"/></svg>;
+  if (type === "island") return <svg {...common}><path d="M4 20h16M6 20V10h12v10M8 10V6h3v4M13 10V5h3v5M9 20v-5h6v5"/><path d="M5 10h14"/></svg>;
   if (type === "battle") return <svg {...common}><path d="m6 4 5 5-6.5 6.5M18 4l-5 5 6.5 6.5"/><path d="m3.5 18.5 3-3 2 2-3 3ZM20.5 18.5l-3-3-2 2 3 3Z"/></svg>;
   if (type === "rating") return <svg {...common}><path d="M7 4h10v3.5c0 3.4-2.2 6-5 6s-5-2.6-5-6Z"/><path d="M7 6H4v2c0 2 1.3 3 3.4 3M17 6h3v2c0 2-1.3 3-3.4 3M12 13.5V18M8.5 20h7"/></svg>;
   if (type === "alliances") return <svg {...common}><path d="M7.5 13.5 4 10l3-3 3.5 3.5M16.5 13.5 20 10l-3-3-3.5 3.5"/><path d="m9.5 9.5 2.5-2 2.5 2M8.5 14.5 12 17l3.5-2.5"/></svg>;

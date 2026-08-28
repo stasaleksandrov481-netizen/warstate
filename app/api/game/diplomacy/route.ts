@@ -32,8 +32,8 @@ export async function POST(request: Request) {
     if (!stateId || !targetStateId || !ACTIONS.includes(action)) throw new Error("Некорректная дипломатическая команда.");
 
     const { player, member, state } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
-    if (state.is_freeport) throw new Error("Freeport сохраняет нейтралитет и не участвует в дипломатии.");
-    if (member.role === "curator" && !state.is_beginner_island) throw new Error("Роль куратора действует только в государстве новичков.");
+    if (state.is_freeport) throw new Error("Нейтральная зона не участвует в дипломатии.");
+    if (member.role === "curator" && !state.is_beginner_island) throw new Error("Роль куратора действует только в учебном округе.");
 
     const supabase = getSupabaseAdmin();
     const { data: states, error: statesError } = await supabase
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     const actor = states?.find((row: any) => String(row.id) === stateId);
     const target = states?.find((row: any) => String(row.id) === targetStateId);
     if (!actor || !target) throw new Error("Государство не найдено.");
-    if (target.is_freeport) throw new Error("Freeport — нейтральная территория и не участвует в дипломатии.");
+    if (target.is_freeport) throw new Error("Нейтральная зона не участвует в дипломатии.");
 
     if (action === "declare_war") {
       throw new Error("Война начинается только через голосование. Выберите цель на карте и запустите атаку Президентом.");

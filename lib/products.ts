@@ -22,7 +22,7 @@ export const PRODUCTS: Record<string, GameProduct> = {
   },
   city_noir: {
     title: "Night Island Skin",
-    description: "Тёмная тема профиля государства",
+    description: "Ночная тема профиля государства",
     stars: 300,
     scope: "state",
   },

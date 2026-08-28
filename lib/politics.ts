@@ -47,8 +47,8 @@ export async function ensureMilestoneBadges(stateId: string, seasonId: string | 
   const supabase = getSupabaseAdmin();
   const badges: Array<{ key: string; title: string; description: string; icon: string }> = [];
   if (wins >= 1) badges.push({ key: "island_first_win", title: "Первый рейд", description: "Выиграть первую войну", icon: "⚔" });
-  if (wins >= 5) badges.push({ key: "island_wins_5", title: "Ветераны фронта", description: "Победить в 5 войнах", icon: "☠" });
-  if (wins >= 20) badges.push({ key: "island_wins_20", title: "Высшее командование", description: "Победить в 20 войнах", icon: "♜" });
+  if (wins >= 5) badges.push({ key: "island_wins_5", title: "Пять побед", description: "Победить в 5 войнах", icon: "☠" });
+  if (wins >= 20) badges.push({ key: "island_wins_20", title: "Ветеран войн", description: "Победить в 20 войнах", icon: "♜" });
   if (rating >= 1500) badges.push({ key: "rating_1500", title: "На мировой сцене", description: "Достичь рейтинга 1500", icon: "★" });
   if (bestWinStreak >= 3) badges.push({ key: "streak_3", title: "На волне", description: "Выиграть 3 войны подряд", icon: "≈" });
   if (bestWinStreak >= 7) badges.push({ key: "streak_7", title: "Непотопляемые", description: "Выиграть 7 войн подряд", icon: "◆" });
@@ -115,7 +115,7 @@ export async function nominateCandidate(electionId: string, playerId: string, st
   const { data: member, error: memberError } = await supabase.from("state_members").select("id,role").eq("state_id", electionRow.state_id).eq("player_id", playerId).maybeSingle();
   if (memberError) throw memberError;
   if (!member) throw new Error("Только граждане могут выдвигаться.");
-  if (String(member.role) === "curator") throw new Error("Куратор государства новичков не участвует в выборах президента как кандидат.");
+  if (String(member.role) === "curator") throw new Error("Куратор учебного округа не участвует в выборах президента как кандидат.");
   const { error } = await supabase.from("election_candidates").upsert({
     election_id: electionId,
     player_id: playerId,

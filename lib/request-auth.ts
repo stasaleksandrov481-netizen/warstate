@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { validateTelegramInitData } from "@/lib/telegram";
 import { assertTelegramChatMembership, TelegramMembershipRequiredError } from "@/lib/telegram-bot";
 import { requireData } from "@/lib/invariants";
+import { normalizeWarstateCopy } from "@/lib/copy";
 
 export function sessionFromRequest(request: Request) {
   const initData = request.headers.get("x-telegram-init-data") || "";
@@ -48,12 +49,12 @@ export async function authorizeStateAction(
 }
 
 function readableErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message) return error.message;
+  if (error instanceof Error && error.message) return normalizeWarstateCopy(error.message);
   if (error && typeof error === "object" && "message" in error) {
     const message = String((error as { message?: unknown }).message || "").trim();
-    if (message) return message;
+    if (message) return normalizeWarstateCopy(message);
   }
-  if (typeof error === "string" && error.trim()) return error.trim();
+  if (typeof error === "string" && error.trim()) return normalizeWarstateCopy(error.trim());
   return "Не удалось выполнить действие.";
 }
 

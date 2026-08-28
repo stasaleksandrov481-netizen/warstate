@@ -58,7 +58,7 @@ export async function getStrategyView(playerId: string, stateId: string, role: s
     .map((row: any) => ({
       key: String(row.key),
       title: String(row.title),
-      description: beginnerIsland ? `${String(row.description)} Подсказка: в учебном государстве риск снижен.` : String(row.description),
+      description: beginnerIsland ? `${String(row.description)} Подсказка: в учебном округе риск снижен.` : String(row.description),
       beginnerAllowed: Boolean(row.beginner_allowed),
       completed: completed.has(String(row.key)),
       options: Array.isArray(row.options) ? row.options.map((option: any) => mapOption(option, beginnerIsland)) : [],

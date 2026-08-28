@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     const action = String(body.action || "");
     if (!stateId) throw new Error("stateId is required");
     const auth = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
-    if (auth.state.is_freeport) throw new Error("В Freeport нет президента и выборов.");
+    if (auth.state.is_freeport) throw new Error("В нейтральной зоне нет президента и выборов.");
 
     if (body.electionId) {
       const supabase = getSupabaseAdmin();

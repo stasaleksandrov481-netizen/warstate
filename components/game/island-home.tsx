@@ -3,16 +3,15 @@
 import { memo, useEffect, useState } from "react";
 import { eloLeague } from "@/lib/elo";
 import type { BuildingType, GameSnapshot, RecruitmentRequestView } from "@/lib/types";
-import { IslandArt } from "@/components/game/island-art";
 
 const INFRA: Record<BuildingType, { icon: string; label: string; desc: string }> = {
   hq: { icon: "⚑", label: "Казначейство и штаб", desc: "Бюджет, управление и уровень государства" },
   barracks: { icon: "⚔", label: "Гарнизон", desc: "Подготовка бойцов к военным операциям" },
   mine: { icon: "▰", label: "Карьер", desc: "Добыча стали для инфраструктуры" },
-  refinery: { icon: "◈", label: "Топливный порт", desc: "Топливо для армияа" },
+  refinery: { icon: "◈", label: "Топливный склад", desc: "Топливо для армии" },
   farm: { icon: "◆", label: "Фермы", desc: "Продовольствие государства" },
   lab: { icon: "⌁", label: "Академия", desc: "Технологии, исследования и развитие" },
-  outpost: { icon: "▣", label: "Застава", desc: "Оборона государства и защитный буфер" },
+  outpost: { icon: "▣", label: "Застава", desc: "Оборона территории и защитный буфер" },
   trade_chamber: { icon: "◇", label: "Торговая палата", desc: "Доход, торговля и дипломатия" },
 };
 
@@ -48,15 +47,14 @@ function FreeportHome({ snapshot, onRecruitment }: { snapshot: GameSnapshot; onR
   return (
     <div className="island-home-screen freeport-screen">
       <div className="freeport-hero" style={{ ["--state-color" as any]: snapshot.state.color }}>
-        <div className="freeport-sea" />
-        <div className="freeport-island-art"><IslandArt id={snapshot.state.id} members={snapshot.state.memberCount} color={snapshot.state.color} integrity={100} selected detail="near" freeport /></div>
-        <div className="freeport-title"><small>НЕЙТРАЛЬНАЯ ГАВАНЬ</small><h2>Freeport</h2><p>Начни один. Прокачай профиль. Найди государство.</p></div>
+        <div className="home-castle-visual neutral" aria-hidden="true"><span>WS</span><i /><b /><i /></div>
+        <div className="freeport-title"><small>НЕЙТРАЛЬНАЯ ЗОНА</small><h2>Нейтральная зона</h2><p>Начни один. Прокачай профиль. Найди государство.</p></div>
         <div className="freeport-player-card"><span>УР. {player.level}</span><b>{player.displayName}</b><small>{player.xp.toLocaleString("ru-RU")} XP · свободный игрок</small></div>
       </div>
 
       <section className="freeport-guide">
         <article><b>1</b><div><strong>Развивай профиль</strong><small>Ежедневные задания и участие в событиях дают XP.</small></div></article>
-        <article><b>2</b><div><strong>Выбери государство</strong><small>Открытые государства публикуют набор прямо в Freeport. Вступление доступно через одну кнопку, без поиска государства.</small></div></article>
+        <article><b>2</b><div><strong>Выбери государство</strong><small>Государства публикуют открытый набор. Вступление доступно через одну кнопку, без ручного поиска чата.</small></div></article>
         <article><b>3</b><div><strong>Вступи в Telegram-группу</strong><small>После принятия получишь одноразовую ссылку от бота.</small></div></article>
       </section>
 
@@ -123,8 +121,7 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment, onOpenS
   return (
     <div className="island-home-screen">
       <div className={`my-island-hero game-home-hero ${destroyed ? "ruined" : ""}`} style={{ ["--state-color" as any]: state.color }}>
-        <div className="my-island-water" />
-        <div className="home-island-art"><IslandArt id={state.id} members={state.memberCount} color={state.color} integrity={state.islandIntegrity} ruined={destroyed} selected detail="near" fullCity /></div>
+        <div className="home-castle-visual" aria-hidden="true"><span>{state.emblem || "WS"}</span><i /><b /><i /></div>
         <div className="my-island-identity"><span>{state.emblem}</span><div><small>МОЯ СТОЛИЦА</small><h2>{state.name}</h2><p>{state.motto}</p></div></div>
         <div className="island-integrity-float"><span>ОБОРОНА</span><b>{state.islandIntegrity}%</b><i><em style={{ width: `${state.islandIntegrity}%` }} /></i></div>
       </div>
@@ -156,7 +153,7 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment, onOpenS
         </button>
       )}
 
-      {destroyed ? <div className="rebuild-card"><b>☠ Государство разрушен</b><p>Идёт аварийное восстановление. После выхода из руин государство вернётся с базовой прочностью и щитом.</p></div> : state.islandIntegrity < 100 ? (
+      {destroyed ? <div className="rebuild-card"><b>☠ Государство разрушено</b><p>Идёт аварийное восстановление. После восстановления государство вернётся с базовой прочностью и щитом.</p></div> : state.islandIntegrity < 100 ? (
         <div className="repair-card"><div><small>РЕМОНТ ОСТРОВА</small><b>{state.islandIntegrity}% → {Math.min(100, state.islandIntegrity + repairAmount)}%</b><span>Повреждения снижают производство.</span></div><button type="button" disabled={!canRepair} onClick={() => onRepair(repairAmount)}>Ремонт<small>{repairCredits} ₡ · {repairSteel} стали</small></button></div>
       ) : null}
 
@@ -176,7 +173,7 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment, onOpenS
             const remainingMinutes = upgrading ? Math.max(1, Math.ceil((upgradeUntil - now) / 60_000)) : cooling ? Math.max(1, Math.ceil((cooldownUntil - now) / 60_000)) : 0;
             const canUpgrade = canManage && !destroyed && !aggressiveLocked && !upgrading && !cooling && building.level < maxLevel && state.treasury.credits >= credits && state.treasury.steel >= steel;
             const buttonTitle = aggressiveLocked ? "LOCK" : building.level >= maxLevel ? "MAX" : upgrading ? "⏳" : cooling ? "◷" : "↑";
-            const buttonHint = aggressiveLocked ? "учебный государство" : building.level >= maxLevel ? "уровень" : upgrading ? `до ур. ${building.upgradeTargetLevel} · ${remainingMinutes} мин` : cooling ? `остывание · ${remainingMinutes} мин` : `${credits.toLocaleString("ru-RU")} ₡`;
+            const buttonHint = aggressiveLocked ? "учебный округ" : building.level >= maxLevel ? "уровень" : upgrading ? `до ур. ${building.upgradeTargetLevel} · ${remainingMinutes} мин` : cooling ? `остывание · ${remainingMinutes} мин` : `${credits.toLocaleString("ru-RU")} ₡`;
             return <article className={`infra-card infra-${building.type} ${upgrading ? "infra-upgrading" : ""}`} key={building.type}><div className="infra-icon">{meta.icon}</div><div className="infra-copy"><b>{meta.label}</b><small>{meta.desc}</small><span className="infra-level">ур. {building.level}{upgrading ? ` → ${building.upgradeTargetLevel}` : ""}<i>{Array.from({ length: Math.min(5, Math.max(1, Math.ceil(building.level / 2))) }, (_, i) => <em key={i} />)}</i></span></div><button type="button" disabled={!canUpgrade} onClick={() => onUpgrade(building.type)}>{buttonTitle}<small>{buttonHint}</small></button></article>;
           })}
         </div>
@@ -184,7 +181,7 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment, onOpenS
 
       {canRecruit && (
         <section className="island-section recruitment-section state-recruitment">
-          <div className="section-row"><div><small>КАДРОВЫЙ ПОРТ</small><h3>Набор из Freeport</h3></div><span>{snapshot.recruitment.incoming.length} входящих</span></div>
+          <div className="section-row"><div><small>КАДРОВЫЙ РАЗДЕЛ</small><h3>Набор свободных игроков</h3></div><span>{snapshot.recruitment.incoming.length} входящих</span></div>
           <div className="recruit-editor">
             <input value={headline} onChange={(e) => setHeadline(e.target.value)} maxLength={48} placeholder="Заголовок набора" />
             <textarea value={message} onChange={(e) => setMessage(e.target.value)} maxLength={220} placeholder="Кого ищете и что предлагаете" />

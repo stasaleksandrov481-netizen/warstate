@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     const action = String(body.action || "");
     if (!stateId || !action) throw new Error("stateId and action are required");
     const auth = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
-    if (auth.state.is_freeport) throw new Error("У Freeport нет собственного правительства.");
+    if (auth.state.is_freeport) throw new Error("У нейтральной зоны нет собственного правительства.");
     await reconcileStateRuntime(stateId, { force: true });
 
     const actor = actorLabel(auth.player);

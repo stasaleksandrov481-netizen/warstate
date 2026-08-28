@@ -93,8 +93,8 @@ export function AdminPanel({ initData }: Props) {
     const app = (typeof window !== "undefined" ? (window as any).Telegram?.WebApp : null) || null;
     app?.ready?.();
     app?.expand?.();
-    app?.setHeaderColor?.("#0b2730");
-    app?.setBackgroundColor?.("#0b2730");
+    app?.setHeaderColor?.("#1d1c17");
+    app?.setBackgroundColor?.("#1d1c17");
     void load();
   }, [load]);
 
@@ -164,7 +164,7 @@ export function AdminPanel({ initData }: Props) {
   }, [broadcastText, broadcasting, broadcastMode, selectedTargets, broadcastSigned, initData, stats?.states.total]);
 
   return (
-    <main className="app-shell" style={{ background: "#0b2730", overflowY: "auto", paddingBottom: 24 }}>
+    <main className="app-shell" style={{ background: "#1d1c17", overflowY: "auto", paddingBottom: 24 }}>
       <div className="topbar" style={{ position: "sticky", top: 0, zIndex: 5, background: "rgba(11,39,48,.92)" }}>
         <div className="brand">
           <div className="brand-mark">🛠</div>

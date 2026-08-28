@@ -20,6 +20,23 @@ Apply migrations strictly in numeric order:
 015_event_driven_runtime.sql
 016_member_activity_votes_spy.sql
 017_telegram_update_claim_lease.sql
+018_state_switch_delete_ui.sql
+019_fix_state_switch_cooldown.sql
+020_fix_state_switch_row_lock.sql
+021_fix_state_switch_api_schema.sql
+022_election_vote_fix.sql
+023_founder_president_admin.sql
+024_repair_government_commands.sql
+025_compact_world_and_map_repair.sql
+026_live_membership_state_size.sql
+027_webhook_idempotency_and_presence.sql
+028_runtime_hardening.sql
+029_world_fit_all_states.sql
+030_admin_controls.sql
+031_bot_presence_visibility.sql
+032_dynamic_events.sql
+033_dynamic_events_10m.sql
+034_continent_redesign.sql
 ```
 
 For an existing v1.9 installation that already has `014`, apply the rest in order:
@@ -55,3 +72,8 @@ The browser uses the publishable key (or legacy anon key). Never expose a servic
 ## Source of truth
 
 All balances, memberships, state roles, activity cooldowns, battle finalization and government mutations are authoritative in PostgreSQL. Realtime and Redis are acceleration/coordination layers only.
+
+
+## v5 continental redesign
+
+`034_continent_redesign.sql` adds a per-state IANA `time_zone`, resets pending emergency scheduling for the new five-hour cadence, and removes the retired marine label from the active supply activity while keeping its stable key. Historical `island_*` identifiers remain internal for compatibility.

@@ -123,10 +123,14 @@ export async function getIslandWorld(
   islandRows = [...new Map(islandRows.map((row: any) => [String(row.id), row])).values()];
   const ids = islandRows.map((row: any) => String(row.id)).filter(Boolean);
   const handles = new Map<string, string>();
+  const treasuryByState = new Map<string, number>();
   if (ids.length) {
-    const { data: handleRows, error: handleError } = await supabase.from("states").select("id,state_username").in("id", ids);
+    const { data: handleRows, error: handleError } = await supabase.from("states").select("id,state_username,credits").in("id", ids);
     if (handleError) throw handleError;
-    for (const row of handleRows || []) if (row.state_username) handles.set(String(row.id), String(row.state_username));
+    for (const row of handleRows || []) {
+      if (row.state_username) handles.set(String(row.id), String(row.state_username));
+      treasuryByState.set(String(row.id), Math.max(0, safeInteger(row.credits)));
+    }
   }
   // Enrich with president names and alliance counts in a single batch
   const presidentNames = new Map<string, string>();
@@ -193,6 +197,7 @@ export async function getIslandWorld(
     stateSize: Math.max(0.0001, safeNumber(row.state_size, 1)),
     presidentName: presidentNames.get(String(row.id)) || null,
     allianceCount: allianceCounts.get(String(row.id)) || 0,
+    treasuryCredits: treasuryByState.get(String(row.id)) || 0,
   }));
 }
 
@@ -207,12 +212,12 @@ export async function createIslandBattle(attackerStateId: string, defenderStateI
       .in("id", [attackerStateId, defenderStateId]);
     if (statesError) throw statesError;
     if ((states || []).some((state: any) => state.is_freeport)) {
-      throw new Error("Freeport — нейтральная территория. Здесь запрещены войны.");
+      throw new Error("Нейтральная зона не участвует в войнах.");
     }
     const attacker = (states || []).find((state: any) => state.id === attackerStateId);
     const defender = (states || []).find((state: any) => state.id === defenderStateId);
-    if (attacker?.is_beginner_island) throw new Error("Атаки из государства новичков запрещены.");
-    if (defender?.is_beginner_island) throw new Error("Государство новичков находится под защитой.");
+    if (attacker?.is_beginner_island) throw new Error("Атаки из учебного округа запрещены.");
+    if (defender?.is_beginner_island) throw new Error("Учебный округ находится под защитой.");
     const durations: Record<WarType, number> = { raid: 900, siege: 1800, territory: 1200 };
     const { data: battleId, error } = await supabase.rpc("gw_start_island_battle", {
       p_attacker_state_id: attackerStateId,

@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     const amount = Math.max(1, Math.min(50, Math.round(rawAmount)));
 
     const { player, member, session, state } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
-    if (state.is_freeport) throw new Error("Freeport не нуждается в ремонте игроков.");
+    if (state.is_freeport) throw new Error("Нейтральная зона не требует восстановления.");
     if (!["president", "minister", "deputy", "curator"].includes(member.role)) {
       throw new Error("Ремонт из казны запускает президент, заместитель или куратор.");
     }

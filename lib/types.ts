@@ -290,6 +290,7 @@ export interface IslandView {
   stateSize: number;
   presidentName?: string | null;
   allianceCount: number;
+  treasuryCredits: number;
 }
 
 export interface DailyMissionView {

@@ -26,8 +26,8 @@ export async function POST(request: Request) {
     if (!stateId || !targetStateId) throw new Error("stateId and targetStateId are required");
 
     const { player, member, state } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
-    if (state.is_freeport) throw new Error("Freeport не может начинать войну.");
-    if (state.is_beginner_island) throw new Error("Государство новичков не может начинать войну.");
+    if (state.is_freeport) throw new Error("Нейтральная зона не может начинать войну.");
+    if (state.is_beginner_island) throw new Error("Учебный округ не может начинать войну.");
     if (member.role !== "president") throw new Error("Голосование о начале войны запускает Президент.");
 
     const supabase = getSupabaseAdmin();
@@ -39,8 +39,8 @@ export async function POST(request: Request) {
     const attacker = states?.find((row: any) => String(row.id) === stateId);
     const defender = states?.find((row: any) => String(row.id) === targetStateId);
     if (!attacker || !defender) throw new Error("Государство не найдено.");
-    if (defender.is_freeport) throw new Error("Freeport — нейтральная территория.");
-    if (defender.is_beginner_island) throw new Error("Государство новичков находится под защитой.");
+    if (defender.is_freeport) throw new Error("Нейтральная зона защищена.");
+    if (defender.is_beginner_island) throw new Error("Учебный округ находится под защитой.");
     if (!attacker.telegram_chat_id) throw new Error("У государства отсутствует Telegram-чат для голосования.");
 
     const vote = await createStateVote({

@@ -31,11 +31,12 @@ import { telegramGameGuideText } from "@/lib/game-guide";
 import { publishStateEvent } from "@/lib/state-events";
 import { isProjectAdminTelegramId } from "@/lib/config";
 import { isProjectAdminChatMode, setProjectAdminChatMode } from "@/lib/project-admin-session";
+import { normalizeWarstateCopy } from "@/lib/copy";
 
 const LEADERS = new Set(["president", "minister", "deputy", "curator"]);
 const WAR_LEADERS = new Set(["president", "minister", "deputy"]);
 
-const WARSTATE_BUILD = "3.9-stable";
+const WARSTATE_BUILD = "5.0-continent";
 
 // Russian alias mappings for !активность command
 // activity_key → Russian alias, option_key → Russian alias
@@ -53,7 +54,7 @@ const ACTIVITY_OPTION_ALIASES: Record<string, string> = {
   "hard": "жёстко", "neutral": "нейтрально", "friendly": "дружелюбно",
   "fast": "быстро", "balanced": "обычно", "quality": "капитально",
   "careful": "аккуратно",
-  "speed": "катер", "armored": "броня", "cargo": "грузовик",
+  "speed": "мобильность", "armored": "броня", "cargo": "грузовик",
   "quiet": "тихо", "deep": "глубоко",
 };
 // Reverse lookup: Russian alias → internal key
@@ -79,7 +80,7 @@ const WARSTATE_COMMANDS = new Set([
   "мойid", "мойид", "мой_id", "myid", "id", "админ", "admin", "суперадмин", "режимадмина", "админрежим", "полныеправа", "всеправа", "снятьдоступ", "снятьправа", "отключитьправа", "проверка", "диагностика", "health",
   "вступить", "войти", "присоединиться", "оботе", "о_боте", "чтоэтобот",
   "государство", "state", "президент", "замы",
-  "роли", "roles", "роль", "role", "министртруда", "снятьминистра", "чп",
+  "роли", "roles", "роль", "role", "министртруда", "снятьминистра", "чп", "часовойпояс", "timezone", "tz",
   "выборы", "голосовать", "назначитьпрезидента", "снятьпрезидента",
   "назначитьзама", "снятьзама", "создатьюз", "юз", "название",
   "найти", "рейтинг", "карта", "альянсы", "голосование", "vote",
@@ -120,14 +121,14 @@ function parseWarstateCommand(text: string) {
 }
 
 function commandErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message) return error.message;
+  if (error instanceof Error && error.message) return normalizeWarstateCopy(error.message);
   if (error && typeof error === "object") {
     const raw = error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
     const message = String(raw.message || raw.details || raw.hint || "").trim();
-    if (message) return message;
+    if (message) return normalizeWarstateCopy(message);
     if (raw.code) return `Ошибка сервера ${String(raw.code)}`;
   }
-  if (typeof error === "string" && error.trim()) return error.trim();
+  if (typeof error === "string" && error.trim()) return normalizeWarstateCopy(error.trim());
   return "Команда не выполнена. Сервер не вернул подробности ошибки.";
 }
 
@@ -168,7 +169,7 @@ function decorateMessage(text: string) {
   const clean = String(text || "").trim();
   if (!clean || clean.includes(MESSAGE_DIVIDER)) return clean;
   const lineBreak = clean.indexOf("\n");
-  if (lineBreak <= 0) return `⚔ WARSTATE\n${MESSAGE_DIVIDER}\n${clean}`;
+  if (lineBreak <= 0) return `WARSTATE\n${MESSAGE_DIVIDER}\n${clean}`;
   const title = clean.slice(0, lineBreak).trim();
   const body = clean.slice(lineBreak).replace(/^\s+/, "");
   if (!title || !body) return clean;
@@ -181,6 +182,44 @@ async function send(chatId: number, text: string, keyboard?: Array<Array<{ text:
     text: decorateMessage(text),
     link_preview_options: { is_disabled: true },
     ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+  });
+}
+
+
+const HELP_SECTIONS: Record<string, { title: string; text: string }> = {
+  castle: { title: "🏰 Замок", text: "Центр государства. Здесь находятся казна, постройки, развитие и восстановление. Основные команды: !государство, !ресурсы, !постройки, !улучшить." },
+  army: { title: "⚔️ Армия", text: "Войны, разведка и текущие бои. Атака запускается через голосование. Команды: !война, !бой, !разведка, !поддержать, !сдаться." },
+  alliances: { title: "🤝 Союзы", text: "Дипломатия с другими государствами. Можно предложить союз, принять запрос, завершить союз или договориться о перемирии." },
+  decrees: { title: "📜 Указы", text: "Управленческие решения и ежедневные операции государства. Используйте !активность, !миссия и действия руководства." },
+  elections: { title: "🗳 Выборы", text: "Президент избирается гражданами. Команды: !выборы, !голосовать, !президент. Отдельные решения также проходят через голосование." },
+  treasury: { title: "💰 Казна", text: "Ресурсы государства, производство и расходы. Команды: !ресурсы, !казна, !налоги, !вклад." },
+  roles: { title: "🎭 Роли", text: "Руководство и специализации граждан. Команды: !роли, !роль, !замы, !министртруда. Назначения зависят от полномочий." },
+  emergency: { title: "⚠️ ЧП", text: "ЧП возникают каждые 5 часов с 08:00 до 23:00 по времени государства. На реакцию даётся 10 минут. Игнорирование приводит к убыткам. Руководство может задать часовой пояс командой !часовойпояс Europe/Paris." },
+};
+
+function helpMenuKeyboard() {
+  return [
+    [{ text: "🏰 Замок", callback_data: "gw:help:castle" }, { text: "⚔️ Армия", callback_data: "gw:help:army" }],
+    [{ text: "🤝 Союзы", callback_data: "gw:help:alliances" }, { text: "📜 Указы", callback_data: "gw:help:decrees" }],
+    [{ text: "🗳 Выборы", callback_data: "gw:help:elections" }, { text: "💰 Казна", callback_data: "gw:help:treasury" }],
+    [{ text: "🎭 Роли", callback_data: "gw:help:roles" }, { text: "⚠️ ЧП", callback_data: "gw:help:emergency" }],
+  ];
+}
+
+function helpSectionKeyboard() {
+  return [[{ text: "← Назад", callback_data: "gw:help:menu" }]];
+}
+
+async function editHelpMessage(query: any, text: string, keyboard: Array<Array<{ text: string; callback_data: string }>>) {
+  const chatId = Number(query?.message?.chat?.id);
+  const messageId = Number(query?.message?.message_id);
+  if (!Number.isSafeInteger(chatId) || !Number.isSafeInteger(messageId)) return;
+  await telegramApi("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    link_preview_options: { is_disabled: true },
+    reply_markup: { inline_keyboard: keyboard },
   });
 }
 
@@ -298,7 +337,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
 
   try {
     if (["играть", "как_играть", "какиграть", "гайд", "guide"].includes(command)) {
-      await send(chatId, telegramGameGuideText(), [[{ text: "🏰 Открыть WARSTATE", url: miniAppLink(chatId) }]]);
+      await send(chatId, telegramGameGuideText(), [[{ text: "Открыть WARSTATE", url: miniAppLink(chatId) }]]);
       return true;
     }
 
@@ -308,22 +347,14 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (["help", "помощь", "команды"].includes(command)) {
-      await send(chatId,
-        "WARSTATE · ПОМОЩЬ\n\nВот что я умею. Выберите раздел.",
-        [
-          [{ text: "🏰 Замок", callback_data: "gw:help:castle" }, { text: "⚔️ Армия", callback_data: "gw:help:army" }],
-          [{ text: "🤝 Союзы", callback_data: "gw:help:alliances" }, { text: "📜 Указы", callback_data: "gw:help:decrees" }],
-          [{ text: "🗳 Выборы", callback_data: "gw:help:elections" }, { text: "💰 Казна", callback_data: "gw:help:treasury" }],
-          [{ text: "🎭 Роли", callback_data: "gw:help:roles" }, { text: "⚠️ ЧП", callback_data: "gw:help:emergency" }],
-        ],
-      );
+      await send(chatId, "Вот что я умею. Выбери раздел.", helpMenuKeyboard());
       return true;
     }
 
     if (["оботе", "о_боте", "чтоэтобот"].includes(command)) {
       await send(chatId,
         "⚔ WARSTATE · ЧТО ЭТО ЗА БОТ\n\n" +
-        "WARSTATE превращает Telegram-группы в государства на общей карте. У каждой группы есть государство на общем материке, экономика, правительство, граждане, армия, дипломатия, выборы и войны.\n\n" +
+        "WARSTATE превращает Telegram-группы в государства на общей карте материка. У каждого государства есть территория, экономика, руководство, граждане, армия, дипломатия, выборы и войны.\n\n" +
         "Как начать:\n1. Добавьте бота в группу.\n2. Напишите !вступить.\n3. Основатель задаёт юз: !создатьюз название.\n4. Управляйте страной прямо командами в группе или через Mini App.\n\n" +
         "Главные команды: !помощь, !играть, !государство, !карта, !президент, !замы, !ресурсы, !постройки, !союз, !война.\n\n" +
         "Важно: Mini App удобен для визуального управления, но основные игровые действия доступны и из чата."
@@ -417,7 +448,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         `${resourceLine(snapshot)}\n` +
         `⚔️ Армия ${snapshot.state.armyPower} · 🛡 Оборона ${snapshot.state.defensePower}\n` +
         `🤝 Альянс: ${allies.length ? allies.join(", ") : "нет"}`,
-        [[{ text: "🏛 Открыть государство", url: miniAppLink(chatId, snapshot.state.id) }]],
+        [[{ text: "🏛 Открыть Mini App", url: miniAppLink(chatId, snapshot.state.id) }]],
       );
       return true;
     }
@@ -497,17 +528,42 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       return true;
     }
 
+    if (command === "часовойпояс" || command === "timezone" || command === "tz") {
+      const { data: zoneRow, error: zoneReadError } = await supabase.from("states").select("time_zone").eq("id", snapshot.state.id).single();
+      if (zoneReadError && String((zoneReadError as any)?.code || "") !== "PGRST204") throw zoneReadError;
+      const requestedZone = String(args[0] || "").trim();
+      if (!requestedZone) {
+        await send(chatId, `Часовой пояс государства: ${String(zoneRow?.time_zone || process.env.WARSTATE_TIMEZONE || "Europe/Moscow")}\nИзменить: !часовойпояс Europe/Paris`);
+        return true;
+      }
+      if (snapshot.state.isFreeport) throw new Error("У нейтральной зоны нет отдельного расписания ЧП.");
+      if (!LEADERS.has(snapshot.player.role) && !superAdminMode) throw new Error("Часовой пояс меняет президент или заместитель.");
+      try {
+        new Intl.DateTimeFormat("ru-RU", { timeZone: requestedZone }).format(new Date());
+      } catch {
+        throw new Error("Неизвестный часовой пояс. Используйте формат IANA, например Europe/Paris или Europe/Moscow.");
+      }
+      const { error: zoneUpdateError } = await supabase.from("states").update({ time_zone: requestedZone, next_threat_at: null }).eq("id", snapshot.state.id);
+      if (zoneUpdateError) {
+        const code = String((zoneUpdateError as any)?.code || "");
+        if (code === "PGRST204" || code === "42703") throw new Error("Сначала примените миграцию 034_continent_redesign.sql.");
+        throw zoneUpdateError;
+      }
+      await send(chatId, `Часовой пояс государства установлен: ${requestedZone}. Расписание ЧП пересчитано.`);
+      return true;
+    }
+
     if (command === "чп") {
       const open = await getOpenThreatForChat(chatId);
       if (!open) {
-        await send(chatId, "🚨 АКТИВНЫХ ЧП НЕТ\n\nДнём (08:00–23:00) чрезвычайные ситуации случаются каждые 5 часов. Реагируйте кнопками в течение 10 минут, иначе государство понесёт убытки и уйдёт в минус.");
+        await send(chatId, "🚨 АКТИВНЫХ ЧП НЕТ\n\nС 08:00 до 23:00 чрезвычайные ситуации возникают каждые 5 часов по времени государства. Реагируйте кнопками в течение 10 минут, иначе государство понесёт убытки и уйдёт в минус.");
         return true;
       }
       await send(chatId,
         `🚨 АКТИВНОЕ ЧП · ${open.template.shortTitle}\n\n` +
         `${open.template.body(snapshot.state.name)}\n\n` +
         `⏱ Осталось времени: ~${open.minutesLeft} мин.\n` +
-        `Нажмите кнопку под исходным сообщением ЧП, чтобы отразить угрозу.`);
+        `Используйте кнопку под исходным сообщением ЧП, чтобы выбрать действие.`);
       return true;
     }
 
@@ -655,9 +711,9 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       const beginner = snapshot.islands.find((island) => island.isBeginnerIsland);
       await send(
         chatId,
-        `🗺 КАРТА ГОСУДАРСТВ\n\n${beginner ? `🧭 ${beginner.name} · защищённая территория · ${beginner.memberCount} участников\n\n` : ""}Откройте мировую карту в Mini App. Государство новичков закреплён в радаре и доступен для выбора из любой точки мира.`,
+        `🗺 КАРТА ГОСУДАРСТВ\n\n${beginner ? `🧭 ${beginner.name} · защищённая территория · ${beginner.memberCount} участников\n\n` : ""}Откройте мировую карту в Mini App. Учебный округ закреплён в поиске и доступен из любой точки карты.`,
         [
-          ...(beginner ? [[{ text: "🧭 Выбрать Государство новичков", callback_data: `gw:map:island:${beginner.id}` }]] : []),
+          ...(beginner ? [[{ text: "🧭 Выбрать учебный округ", callback_data: `gw:map:island:${beginner.id}` }]] : []),
           [{ text: "🗺 Открыть карту", url: miniAppLink(chatId) }],
         ],
       );
@@ -700,15 +756,15 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     if (command === "статус" || command === "status") {
       const s = snapshot.state;
       const shield = s.shieldUntil && new Date(s.shieldUntil).getTime() > Date.now() ? " · 🛡️ щит активен" : "";
-      const beginner = s.isBeginnerIsland ? "\n🧭 Государство новичков · максимум ур. 5 · атаки запрещены" : "";
+      const beginner = s.isBeginnerIsland ? "\n🧭 Учебный округ · максимум ур. 5 · атаки запрещены" : "";
       await send(chatId,
-        `🏝️ ${s.name}${s.stateUsername ? ` · @${s.stateUsername}` : ""}\n` +
+        `🏰 ${s.name}${s.stateUsername ? ` · @${s.stateUsername}` : ""}\n` +
         `Ур. ${s.level}/${s.maxLevel} · ELO ${s.rating} · место #${s.seasonRank || "—"}\n` +
         `👥 активных ${s.activePlayers}/${s.memberCount.toLocaleString("ru-RU")} · размер ${s.stateSize.toFixed(2)}\n` +
         `⚔️ армия ${s.armyPower} · 🛡️ оборона ${s.defensePower} · репутация ${s.reputation}${shield}\n` +
         `Победы ${s.islandWins} · поражения ${s.islandLosses} · прочность ${s.islandIntegrity}%${beginner}\n\n` +
         resourceLine(snapshot),
-        [[{ text: "🌊 Открыть государство", url: miniAppLink(chatId) }]],
+        [[{ text: "🏰 Открыть Mini App", url: miniAppLink(chatId) }]],
       );
       return true;
     }
@@ -785,7 +841,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (["постройки", "постройка", "стройки", "buildings"].includes(command)) {
-      await send(chatId, `🏗 ПОСТРОЙКИ\n\n${snapshot.buildings.map((b) => `${b.label} · ур.${b.level}${b.upgradeTargetLevel ? ` → ${b.upgradeTargetLevel}` : ""}`).join("\n")}`, [[{ text: "🏰 Открыть замок", url: miniAppLink(chatId) }]]);
+      await send(chatId, `🏗 ПОСТРОЙКИ\n\n${snapshot.buildings.map((b) => `${b.label} · ур.${b.level}${b.upgradeTargetLevel ? ` → ${b.upgradeTargetLevel}` : ""}`).join("\n")}`, [[{ text: "🏰 Открыть WARSTATE", url: miniAppLink(chatId) }]]);
       return true;
     }
 
@@ -857,7 +913,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       if (!building) throw new Error("Укажите постройку: казначейство, казармы, шахта, нпз, ферма, академия, застава или торговая_палата.");
       const upgrade = await upgradeBuildingAction({ actorRole: superAdminMode ? "president" : snapshot.player.role, stateId: snapshot.state.id, buildingType: building, stateIsFreeport: snapshot.state.isFreeport });
       const buildMinutes = upgrade.finishesAt ? Math.max(1, Math.ceil((new Date(upgrade.finishesAt).getTime() - Date.now()) / 60_000)) : null;
-      await send(chatId, `🏗️ Строительство запущено: ${String(args[0])} → ур. ${upgrade.targetLevel}. Ресурсы зарезервированы. ${buildMinutes ? `Осталось примерно ${buildMinutes} мин.` : "Завершение идёт по серверному таймеру."}`, [[{ text: "🏰 Открыть замок", url: miniAppLink(chatId) }]]);
+      await send(chatId, `🏗️ Строительство запущено: ${String(args[0])} → ур. ${upgrade.targetLevel}. Ресурсы зарезервированы. ${buildMinutes ? `Осталось примерно ${buildMinutes} мин.` : "Завершение идёт по серверному таймеру."}`, [[{ text: "🏰 Открыть WARSTATE", url: miniAppLink(chatId) }]]);
       return true;
     }
 
@@ -919,7 +975,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       const supabase = getSupabaseAdmin();
       const { data, error } = await supabase.from("states").select("name,state_username,game_level,rating,army_power,defense_power,reputation,active_player_count,island_integrity").eq("id", target.id).single();
       if (error) throw error;
-      await send(chatId, `🔭 РАЗВЕДКА\n\n${data.name}${data.state_username ? ` (@${data.state_username})` : ""}\nУровень ${data.game_level} · ${data.rating} ELO\n⚔️ Армия ≈ ${Math.max(0, Math.round(Number(data.army_power || 0) / 10) * 10)}\n🛡 Оборона ≈ ${Math.max(0, Math.round(Number(data.defense_power || 0) / 10) * 10)}\nРепутация ${data.reputation} · активных ${data.active_player_count}\nПрочность государства ${data.island_integrity}%`);
+      await send(chatId, `🔭 РАЗВЕДКА\n\n${data.name}${data.state_username ? ` (@${data.state_username})` : ""}\nУровень ${data.game_level} · ${data.rating} ELO\n⚔️ Армия ≈ ${Math.max(0, Math.round(Number(data.army_power || 0) / 10) * 10)}\n🛡 Оборона ≈ ${Math.max(0, Math.round(Number(data.defense_power || 0) / 10) * 10)}\nРепутация ${data.reputation} · активных ${data.active_player_count}\nПрочность территории ${data.island_integrity}%`);
       return true;
     }
 
@@ -966,7 +1022,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       if (!battleId || !side) throw new Error("Формат: !поддержать <ID_боя> defense");
       const result: any = await addAllianceBattleSupport(battleId, snapshot.state.id, effectiveActorPlayerId, side);
       await send(chatId, result?.training
-        ? `🗺️ Учебная поддержка отправлена: +${Number(result?.power || 0)} силы в оборону. После боя вы получите XP +${Number(result?.xp || 0)}, репутацию +${Number(result?.reputation || 0)} и вклад. Ресурсы Государство новичков не получает.`
+        ? `🗺️ Учебная поддержка отправлена: +${Number(result?.power || 0)} силы в оборону. После боя вы получите XP +${Number(result?.xp || 0)}, репутацию +${Number(result?.reputation || 0)} и вклад. Учебный округ не получает ресурсы.`
         : `🤝 Союзная поддержка отправлена: +${Number(result?.power || 0)} силы на ${side === "defender" ? "оборону" : "атаку"}.`);
       return true;
     }
@@ -1004,6 +1060,23 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
     }
   };
 
+
+  if (data.startsWith("gw:help:")) {
+    const key = data.split(":")[2] || "menu";
+    try {
+      if (key === "menu") await editHelpMessage(query, "Вот что я умею. Выбери раздел.", helpMenuKeyboard());
+      else {
+        const section = HELP_SECTIONS[key];
+        if (!section) { await answer("Раздел не найден.", true); return true; }
+        await editHelpMessage(query, `${section.title}\n\n${section.text}`, helpSectionKeyboard());
+      }
+      await answer("Готово");
+    } catch {
+      await answer("Не удалось открыть раздел. Введите !помощь ещё раз.", true);
+    }
+    return true;
+  }
+
   const sendPrivateOrGroup = async (text: string, keyboard?: Array<Array<{ text: string; url?: string; callback_data?: string }>>) => {
     try {
       await send(Number(from.id), text, keyboard);
@@ -1017,34 +1090,6 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
     const parts = data.split(":");
     const scope = parts[1];
     const action = parts[2];
-
-    if (scope === "help") {
-      const sections: Record<string, { title: string; text: string }> = {
-        castle: { title: "🏰 ЗАМОК", text: "Центр государства. Здесь находятся развитие, инфраструктура и основные показатели.\n\nКоманды: !государство · !статус · !постройки · !улучшить" },
-        army: { title: "⚔️ АРМИЯ", text: "Военная сила государства: подготовка, разведка и участие в войнах.\n\nКоманды: !война · !бой · !разведка · !поддержать · !сдаться" },
-        alliances: { title: "🤝 СОЮЗЫ", text: "Дипломатия с другими государствами: предложения, принятие и разрыв союзов.\n\nКоманды: !альянсы · !союз · !разорватьсоюз" },
-        decrees: { title: "📜 УКАЗЫ", text: "Государственные решения принимаются через голосования и действия руководства.\n\nКоманды: !голосование · !название · !юз" },
-        elections: { title: "🗳 ВЫБОРЫ", text: "Выбор президента государства. Голосование ограничено по времени, результат подводится автоматически.\n\nКоманды: !выборы · !голосовать · !президент · !импичмент" },
-        treasury: { title: "💰 КАЗНА", text: "Ресурсы и экономика государства. Здесь видны запасы, доход и развитие инфраструктуры.\n\nКоманды: !казна · !ресурсы · !налоги · !вклад" },
-        roles: { title: "🎭 РОЛИ", text: "Руководство и специализации граждан. Роли дают доступ к отдельным действиям и бонусам.\n\nКоманды: !роли · !роль · !замы · !министртруда" },
-        emergency: { title: "⚠️ ЧП", text: "ЧП возникают каждые 5 часов с 08:00 до 23:00 по времени государства. На реакцию даётся 10 минут. Если событие проигнорировать, государство получает убытки.\n\nКоманда: !чп" },
-      };
-      if (action === "back") {
-        await answer("Разделы помощи");
-        await send(chatId, "WARSTATE · ПОМОЩЬ\n\nВот что я умею. Выберите раздел.", [
-          [{ text: "🏰 Замок", callback_data: "gw:help:castle" }, { text: "⚔️ Армия", callback_data: "gw:help:army" }],
-          [{ text: "🤝 Союзы", callback_data: "gw:help:alliances" }, { text: "📜 Указы", callback_data: "gw:help:decrees" }],
-          [{ text: "🗳 Выборы", callback_data: "gw:help:elections" }, { text: "💰 Казна", callback_data: "gw:help:treasury" }],
-          [{ text: "🎭 Роли", callback_data: "gw:help:roles" }, { text: "⚠️ ЧП", callback_data: "gw:help:emergency" }],
-        ]);
-        return true;
-      }
-      const section = sections[action];
-      if (!section) return false;
-      await answer(section.title.replace(/^[^A-ZА-ЯЁ]+/u, ""));
-      await send(chatId, `${section.title}\n\n${section.text}`, [[{ text: "← Назад", callback_data: "gw:help:back" }]]);
-      return true;
-    }
     const callbackChatType = String(query?.message?.chat?.type || "");
     const stateChatId = ["group", "supergroup"].includes(callbackChatType) ? chatId : null;
     const projectAdmin = isProjectAdminTelegramId(Number(from.id));
@@ -1143,7 +1188,7 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
         if (result?.kind === "recon") {
           await sendPrivateOrGroup(
             `${result.success ? "✅" : "⚠️"} РАЗВЕДКА ЗАВЕРШЕНА\n\n` +
-            `⚔️ Армия: ${Number(result.army || 0)}\n🛡 Оборона: ${Number(result.defense || 0)}\n👥 Активных: ${Number(result.activePlayers || 0)}\n🏝 Прочность: ${Number(result.integrity || 0)}%` +
+            `⚔️ Армия: ${Number(result.army || 0)}\n🛡 Оборона: ${Number(result.defense || 0)}\n👥 Активных: ${Number(result.activePlayers || 0)}\n🏰 Прочность: ${Number(result.integrity || 0)}%` +
             `${result.credits !== null && result.credits !== undefined ? `\n💰 Казна: ${Number(result.credits).toLocaleString("ru-RU")}` : "\n💰 Казна: данные скрыты"}`,
           );
         } else {
@@ -1163,7 +1208,7 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
       if (!island) throw new Error("Государство сейчас не найдено на карте.");
       await answer(island.name);
       await send(chatId,
-        `🧭 ${island.name}\n\nУр. ${island.level}/${island.maxLevel} · ${island.rating} ELO\n👥 ${island.memberCount.toLocaleString("ru-RU")} участников · активных ${island.activePlayers}\n🛡 Прочность ${island.integrity}%\n\nГосударство закреплено на карте Mini App и доступен для выбора независимо от расстояния.`,
+        `🧭 ${island.name}\n\nУр. ${island.level}/${island.maxLevel} · ${island.rating} ELO\n👥 ${island.memberCount.toLocaleString("ru-RU")} участников · активных ${island.activePlayers}\n🛡 Прочность ${island.integrity}%\n\nГосударство доступно через поиск Mini App независимо от текущего масштаба карты.`,
         [[{ text: "🗺 Открыть карту", url: miniAppLink(chatId) }]],
       );
       return true;
@@ -1171,7 +1216,7 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
 
     const battleId = String(parts[3] || "");
     if (!battleId) return false;
-    if (!LEADERS.has(snapshot.player.role) && !superAdminMode) throw new Error("Это действие доступно только президенту, заместителю или куратору государства новичков.");
+    if (!LEADERS.has(snapshot.player.role) && !superAdminMode) throw new Error("Это действие доступно только президенту, заместителю или куратору учебного округа.");
 
     if (scope === "support") {
       if (action === "skip") {
@@ -1183,7 +1228,7 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
       const result: any = await addAllianceBattleSupport(battleId, snapshot.state.id, effectiveActorPlayerId, side);
       await answer(`Поддержка +${Number(result?.power || 0)}`);
       await send(chatId, result?.training
-        ? `🗺️ Учебная поддержка принята: +${Number(result?.power || 0)} к обороне. После боя Государство новичков получит опыт, репутацию и вклад, но не ресурсы.`
+        ? `🗺️ Учебная поддержка принята: +${Number(result?.power || 0)} к обороне. После боя Учебный округ получит опыт, репутацию и вклад, но не ресурсы.`
         : `🤝 Поддержка принята: +${Number(result?.power || 0)} силы на ${side === "defender" ? "оборону" : "атаку"}.`);
       return true;
     }

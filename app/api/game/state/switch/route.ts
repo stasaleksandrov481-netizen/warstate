@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     ]);
     if (playerError || !player) throw new Error("Игрок не найден. Сначала откройте WARSTATE в Telegram.");
     if (targetError || !target) throw new Error("Государство не найдено.");
-    if (target.is_freeport) throw new Error("Freeport не требует вступления.");
+    if (target.is_freeport) throw new Error("Нейтральная зона не требует вступления.");
     if (!target.telegram_chat_id) throw new Error("У государства не привязан Telegram-чат.");
 
     if (String(player.home_state_id || "") === String(target.id)) {

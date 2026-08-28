@@ -31,7 +31,40 @@ function remaining(iso: string, now: number) {
   return days > 0 ? `${days}д ${hours}ч` : `${hours}ч ${minutes}м`;
 }
 
+type GuideViewSection = {
+  icon: string;
+  title: string;
+  lines: string[];
+};
+
+function normalizeGuideSection(section: unknown, index: number): GuideViewSection {
+  if (Array.isArray(section)) {
+    const title = typeof section[0] === "string" ? section[0] : `Раздел ${index + 1}`;
+    const description = typeof section[1] === "string" ? section[1] : "";
+    return {
+      icon: String(index + 1),
+      title,
+      lines: description ? [description] : [],
+    };
+  }
+
+  if (section && typeof section === "object") {
+    const candidate = section as { icon?: unknown; title?: unknown; lines?: unknown };
+    return {
+      icon: typeof candidate.icon === "string" ? candidate.icon : String(index + 1),
+      title: typeof candidate.title === "string" ? candidate.title : `Раздел ${index + 1}`,
+      lines: Array.isArray(candidate.lines)
+        ? candidate.lines.filter((line): line is string => typeof line === "string")
+        : [],
+    };
+  }
+
+  return { icon: String(index + 1), title: `Раздел ${index + 1}`, lines: [] };
+}
+
 function GameGuidePanel() {
+  const sections = GAME_GUIDE_SECTIONS.map((section, index) => normalizeGuideSection(section, index));
+
   return <div className="panel game-guide-panel">
     <details>
       <summary>
@@ -40,9 +73,9 @@ function GameGuidePanel() {
       </summary>
       <div className="game-guide-intro">От первого входа до войн, союзов и шпионских операций. В чате этот же гайд доступен по команде <b>!играть</b>.</div>
       <div className="game-guide-sections">
-        {GAME_GUIDE_SECTIONS.map((section) => <details key={section.title} className="game-guide-step">
+        {sections.map((section) => <details key={section.title} className="game-guide-step">
           <summary><i>{section.icon}</i><b>{section.title}</b><span>+</span></summary>
-          <ul>{section.lines.map((line) => <li key={line}>{line}</li>)}</ul>
+          <ul>{section.lines.map((line: string) => <li key={line}>{line}</li>)}</ul>
         </details>)}
       </div>
       <div className="game-guide-commands"><b>Быстрый старт</b><span>!помощь · !карта · !статус · !миссия · !ресурсы</span></div>
@@ -55,7 +88,7 @@ function PlayerProgress({ snapshot }: { snapshot: GameSnapshot }) {
   const nextFloor = 180 * Math.pow(snapshot.player.level, 2);
   const progress = Math.max(0, Math.min(100, ((snapshot.player.xp - currentFloor) / Math.max(1, nextFloor - currentFloor)) * 100));
   return <div className="panel player-progress">
-    <div className="player-progress-head"><div><small>ТВОЙ ПРОФИЛЬ</small><h3>{snapshot.player.displayName}</h3><p>{snapshot.state.isFreeport ? "Свободный игрок Freeport" : snapshot.government.founder?.playerId === snapshot.player.id && snapshot.government.president?.playerId === snapshot.player.id ? "Основатель · Президент" : snapshot.government.founder?.playerId === snapshot.player.id ? "Основатель" : roleLabel(snapshot.player.role)} · вклад {snapshot.player.contribution.toLocaleString("ru-RU")}</p></div><b>LVL {snapshot.player.level}</b></div>
+    <div className="player-progress-head"><div><small>ТВОЙ ПРОФИЛЬ</small><h3>{snapshot.player.displayName}</h3><p>{snapshot.state.isFreeport ? "Свободный игрок" : snapshot.government.founder?.playerId === snapshot.player.id && snapshot.government.president?.playerId === snapshot.player.id ? "Основатель · Президент" : snapshot.government.founder?.playerId === snapshot.player.id ? "Основатель" : roleLabel(snapshot.player.role)} · вклад {snapshot.player.contribution.toLocaleString("ru-RU")}</p></div><b>LVL {snapshot.player.level}</b></div>
     <div className="xp-track"><i style={{ width: `${progress}%` }} /></div>
     <span>{snapshot.player.xp.toLocaleString("ru-RU")} XP · до следующего уровня {Math.max(0, nextFloor - snapshot.player.xp).toLocaleString("ru-RU")} XP</span>
     {snapshot.state.shieldUntil && new Date(snapshot.state.shieldUntil).getTime() > Date.now() && <div className="rookie-shield">◆ Защита новичка активна до {new Date(snapshot.state.shieldUntil).toLocaleTimeString("ru-RU", {hour:"2-digit",minute:"2-digit"})}</div>}
@@ -107,7 +140,7 @@ function GovernmentPanel({ snapshot, onGovernment }: Pick<Props, "snapshot" | "o
       <div className="government-danger-zone">
         <small>ОПАСНАЯ ЗОНА · ТОЛЬКО ВЛАДЕЛЕЦ ЧАТА</small>
         {!deleteConfirm ? <>
-          <p>Удаление необратимо. Граждане будут переведены во Freeport, а государство исчезнет с карты.</p>
+          <p>Удаление необратимо. Граждане будут переведены в нейтральную зону, а государство исчезнет с карты.</p>
           <button type="button" onClick={() => setDeleteConfirm(true)}>Удалить государство</button>
         </> : <div className="government-delete-confirm">
           <b>Точно удалить «{snapshot.state.name}»?</b>
@@ -149,7 +182,7 @@ function IdentityEditor({ snapshot, onCustomize }: Pick<Props, "snapshot" | "onC
 }
 
 function ElectionPanel({ snapshot, onPolitics, now }: Pick<Props, "snapshot" | "onPolitics"> & { now: number }) {
-  const [statement, setStatement] = useState("Развивать государство, укреплять армия и поднимать рейтинг.");
+  const [statement, setStatement] = useState("Развивать государство, укреплять армию и повышать рейтинг.");
   const election = snapshot.election;
   const canOpen = snapshot.government.canFounderManage;
   const myCandidate = election?.candidates.find((candidate) => candidate.isMe);
@@ -199,9 +232,9 @@ function StateViewInner({ snapshot, onClaim, onPolitics, onGovernment, onCustomi
     return Math.max(0, Math.min(100, (now - start) / Math.max(1, end - start) * 100));
   }, [snapshot.season, now]);
   return <div className={`state-screen game-scene state-theme-${snapshot.state.theme} ${snapshot.state.isFreeport ? "freeport-profile" : ""}`} style={{ ["--state-color" as any]: snapshot.state.color }}>
-    <div className="hero-state identity-hero"><div className="state-emblem">{snapshot.state.emblem}</div><div className="flag"><span /></div><small>{snapshot.state.isFreeport ? "НЕЙТРАЛЬНАЯ ГАВАНЬ" : "ГОСУДАРСТВО"}</small><h2>{snapshot.state.name}</h2>{snapshot.state.stateUsername && <div className="state-handle">@{snapshot.state.stateUsername}</div>}<p className="state-motto">«{snapshot.state.motto}»</p></div>
+    <div className="hero-state identity-hero"><div className="state-emblem">{snapshot.state.emblem}</div><div className="flag"><span /></div><small>{snapshot.state.isFreeport ? "НЕЙТРАЛЬНАЯ ЗОНА" : "ГОСУДАРСТВО"}</small><h2>{snapshot.state.isFreeport ? "Нейтральная зона" : snapshot.state.name}</h2>{snapshot.state.stateUsername && <div className="state-handle">@{snapshot.state.stateUsername}</div>}<p className="state-motto">«{snapshot.state.motto}»</p></div>
     {!snapshot.state.isFreeport && snapshot.season && <div className="season-strip"><div><small>СЕЗОН {snapshot.season.number}</small><strong>{snapshot.season.name}</strong></div><div className="season-progress"><i><em style={{ width: `${seasonProgress}%` }} /></i><span>осталось {remaining(snapshot.season.endsAt, now)}</span></div><b>#{snapshot.state.seasonRank}</b></div>}
-    <div className="stats-grid"><Stat label={snapshot.state.isFreeport ? "Уровень" : "Рейтинг"} value={snapshot.state.isFreeport ? String(snapshot.player.level) : snapshot.state.rating.toLocaleString("ru-RU")} /><Stat label={snapshot.state.isFreeport ? "Опыт" : "Место"} value={snapshot.state.isFreeport ? `${snapshot.player.xp} XP` : `#${snapshot.state.seasonRank}`} /><Stat label={snapshot.state.isFreeport ? "Свободные игроки" : "Граждане"} value={String(snapshot.state.memberCount)} /><Stat label={snapshot.state.isFreeport ? "Статус" : "Победы"} value={snapshot.state.isFreeport ? "FREE" : String(snapshot.state.islandWins)} /></div>
+    <div className="stats-grid"><Stat label={snapshot.state.isFreeport ? "Уровень" : "Рейтинг"} value={snapshot.state.isFreeport ? String(snapshot.player.level) : snapshot.state.rating.toLocaleString("ru-RU")} /><Stat label={snapshot.state.isFreeport ? "Опыт" : "Место"} value={snapshot.state.isFreeport ? `${snapshot.player.xp} XP` : `#${snapshot.state.seasonRank}`} /><Stat label={snapshot.state.isFreeport ? "Свободные игроки" : "Граждане"} value={String(snapshot.state.memberCount)} /><Stat label={snapshot.state.isFreeport ? "Статус" : "Победы"} value={snapshot.state.isFreeport ? "НЕЙТРАЛЕН" : String(snapshot.state.islandWins)} /></div>
     {!snapshot.state.isFreeport && snapshot.election?.status === "open" && <ElectionPanel snapshot={snapshot} onPolitics={onPolitics} now={now} />}
     <DailyOpsPanel snapshot={snapshot} onClaim={onClaim} />
     <PlayerProgress snapshot={snapshot} />
@@ -209,8 +242,8 @@ function StateViewInner({ snapshot, onClaim, onPolitics, onGovernment, onCustomi
     {!snapshot.state.isFreeport && <GovernmentPanel snapshot={snapshot} onGovernment={onGovernment} />}
     {!snapshot.state.isFreeport && snapshot.election?.status !== "open" && <ElectionPanel snapshot={snapshot} onPolitics={onPolitics} now={now} />}
     {!snapshot.state.isFreeport && <IdentityEditor snapshot={snapshot} onCustomize={onCustomize} />}
-    {!snapshot.state.isFreeport && <div className="panel badge-panel"><div className="panel-head"><div><small>ЛЕТОПИСЬ</small><h3>Награды государства</h3></div><span>{snapshot.badges.length} получено</span></div>{snapshot.badges.length ? <div className="badge-grid">{snapshot.badges.map((badge) => <div className="state-badge" key={badge.id}><b>{badge.icon}</b><strong>{badge.title}</strong><span>{badge.description}</span></div>)}</div> : <p>Первая награда появится за рейтинг, серию или победы.</p>}</div>}
-    <div className="panel wars-panel"><small>ПОСЛЕДНИЕ БОИ</small>{snapshot.wars.length ? snapshot.wars.map((war) => <div className="war-row" key={war.id}><b>{war.attackerName}</b><span>{war.attackerPower} : {war.defenderPower}</span><b>{war.defenderName || "Нейтралы"}</b></div>) : <p>История пока пустая. Время испортить отношения с соседями.</p>}</div>
+    {!snapshot.state.isFreeport && <div className="panel badge-panel"><div className="panel-head"><div><small>ДОСТИЖЕНИЯ</small><h3>Награды государства</h3></div><span>{snapshot.badges.length} получено</span></div>{snapshot.badges.length ? <div className="badge-grid">{snapshot.badges.map((badge) => <div className="state-badge" key={badge.id}><b>{badge.icon}</b><strong>{badge.title}</strong><span>{badge.description}</span></div>)}</div> : <p>Первая награда появится за рейтинг, серию или победы.</p>}</div>}
+    <div className="panel wars-panel"><small>ПОСЛЕДНИЕ БОИ</small>{snapshot.wars.length ? snapshot.wars.map((war) => <div className="war-row" key={war.id}><b>{war.attackerName}</b><span>{war.attackerPower} : {war.defenderPower}</span><b>{war.defenderName || "Нейтралы"}</b></div>) : <p>История боёв пока пуста.</p>}</div>
   </div>;
 }
 export const StateViewPanel = memo(StateViewInner);

@@ -1,174 +1,123 @@
-# WARSTATE v2.0.0 — Event-Driven Core
+# WARSTATE v5.0 — Continental Redesign
 
-Telegram Mini App strategy where every real Telegram group becomes a persistent island-state in one shared ocean world.
+WARSTATE is a Telegram bot + Mini App where every connected Telegram group becomes a state on one shared continent.
 
-## Dynamic chat-events engine (v4.0)
+The v5 redesign replaces the former island/ocean presentation with a serious state-strategy interface built around castles, territories, government, army, treasury, diplomacy, elections and emergency events.
 
-The bot keeps every state chat alive with a pressure loop. All of it is
-event-driven: ordinary Telegram activity triggers reconciliation, every state
-mutation is an atomic PostgreSQL claim, and `supabase/migrations/032_dynamic_events.sql`
-is the only required schema change.
+## Product principles
 
-- **Welcome & first steps.** When the bot is added to a group it sends a
-  step-by-step quick-start guide. Step 1 is always the leader election with the
-  direct instruction: «Чтобы начать выборы, отправьте команду !выборы».
-- **30-minute President vacancy timer.** While the presidency is vacant (at
-  bot-add time or any later power vacuum) a 30-minute countdown runs. When it
-  expires the chat receives a provocative anarchy notification: the state took
-  real percentage losses and its running deficit (`anarchy_debt`) grew. The
-  wave repeats every further 30 minutes until a President is elected.
-- **Roles & professions.** Duty specializations (Шахтёр, Шпион, Дипломат,
-  Рабочий) are assigned by the President, his Deputies and the **Министр
-  труда** (`!министртруда @игрок`, granted/revoked only by President, Deputies
-  or Founder). While key specializations are unassigned the bot periodically
-  reminds the chat that resources are mined slower and reconnaissance/espionage
-  do not work.
-- **Night mode.** At 23:00 (game timezone, `WARSTATE_TIMEZONE`, default
-  Europe/Moscow) the chat receives the night announcement; emergencies pause
-  until 08:00.
-- **Daytime emergencies (ЧП).** Every 3 hours between 08:00 and 23:00
-  (slots 08/11/14/17/20) a random emergency spawns: рейдерский набег, редкое
-  явление, бунт, экономическая интрига or природный катаклизм. Citizens must
-  press one of the two reaction buttons within 10 minutes. Success praises the
-  resolver; an ignored emergency costs the state real losses and the chat is
-  told the state went into the minus (exact figures are never revealed).
-  `!чп` shows the active emergency and remaining time.
+- A new player should understand the main loop in about 30 seconds.
+- Short, neutral bot copy. No roleplay language, slang or decorative text walls.
+- Large actions and clear feedback instead of hidden controls.
+- Dark brown, stone gray, dark green, gold and bronze visual language.
+- Serif-led typography with safe fallbacks: Cinzel / IM Fell English / Lora / Georgia.
+- Smooth fades and material feedback. No bouncing interface motion.
+- Historical database identifiers such as `island_*` remain internal for backward compatibility. They are not shown to players.
 
-The optional backup endpoint `GET /api/cron/dynamic-events`
-(`Authorization: Bearer $CRON_SECRET`) reconciles all eligible states in one
-call. It is useful for quiet chats and near-exact 23:00 night announcements
-when scheduled externally every 5–15 minutes; no schedule is added to
-`vercel.json`.
+## Mini App structure
 
-## What changed in v2.0
+### First launch
 
-### No mandatory Vercel Cron
+The first launch opens a four-step onboarding:
 
-WARSTATE no longer depends on Vercel scheduled jobs for normal gameplay.
+1. Castle: treasury, army and development.
+2. Map: states, neighbors, allies and opponents.
+3. Decisions: alliances, wars and elections.
+4. Emergencies: react within 10 minutes.
 
-Expired elections, active battles, finished construction and strategic refreshes are reconciled by live activity:
+Experienced players can skip onboarding. Completion is stored locally under `warstate:onboarding:v5`.
 
-- opening the Mini App;
-- refreshing a state;
-- participating in a battle;
-- starting a new war;
-- government actions;
-- ordinary Telegram group activity.
+### Main menu
 
-`supabase/migrations/015_event_driven_runtime.sql` adds an atomic state-scoped maintenance lease. Only one serverless request per state/interval performs maintenance, so a busy group does not create duplicate finalizers.
+The default screen is a command center with six large sections:
 
-The old `/api/cron/battles` and `/api/cron/elections` routes remain as optional manual/backup endpoints, but `vercel.json` contains **no cron schedules** and the game does not require them.
+- Castle
+- Army
+- Alliances
+- Elections
+- Map
+- Rating
 
-### Redis is now optional for availability
+Every section has contextual `? What is this?` help. The bottom navigation stays compact and exposes the most common destinations.
 
-Upstash Redis is still preferred for global rate limits and short action locks. If it is missing or temporarily unavailable, WARSTATE falls back to an in-process limiter/lock while PostgreSQL RPCs remain authoritative for balances, battles and idempotency.
+### Continental map and LOD
 
-This means a Redis outage no longer disables attacks, activities or alliance support.
+`components/game/island-map.tsx` keeps its historical export name for compatibility, but renders a continent rather than islands.
 
-### Telegram delivery is idempotent
+Three LOD levels are selected from zoom:
 
-Telegram may redeliver the same webhook update. Migration `015` stores compact update receipts in PostgreSQL, and ordinary commands/callbacks are claimed exactly once before gameplay logic runs. Receipts older than seven days are cleaned opportunistically without a scheduled job. Successful payments keep their separate Telegram charge-id idempotency path so failed entitlement writes can still retry safely.
+- LOD 1: castle/crest markers only.
+- LOD 2: castle + state name + President.
+- LOD 3: population, army, treasury and alliance count.
 
-Group `!` commands are handled on the **critical path before optional maintenance**. Ordinary group messages then settle due votes and run lightweight state reconciliation on a best-effort path, so a maintenance hiccup cannot silence chat commands.
+Allied states are connected visually. State cards expose ELO, territory integrity, President, active players and actions relevant to the current player.
 
-### Runtime diagnostics
+## Telegram bot
 
-Authenticated state members can inspect the current event-driven runtime through:
+### `!помощь`
 
-```text
-GET /api/game/runtime?stateId=<uuid>
-```
+The command no longer sends one large manual. It opens an inline menu:
 
-It reports runtime mode, Redis mode, maintenance results and due/live state work.
+- 🏰 Замок
+- ⚔️ Армия
+- 🤝 Союзы
+- 📜 Указы
+- 🗳 Выборы
+- 💰 Казна
+- 🎭 Роли
+- ⚠️ ЧП
 
-### Safer production defaults
+Selecting a section edits the same Telegram message and shows one concise explanation plus `← Назад`.
 
-- Next.js no longer exposes the `X-Powered-By` header.
-- Baseline `nosniff`, no-referrer and restrictive browser permission headers are sent globally.
-- Telegram webhook commands/callbacks are PostgreSQL-idempotent.
-- Redis network calls have a short timeout and automatically degrade to the local availability fallback.
+### Emergency schedule
 
-### UI/UX polish
+Emergencies use each state's IANA timezone from `states.time_zone`.
 
-- Added a compact live event ribbon for active battles, construction, elections and ready mission rewards.
-- Bottom navigation now shows contextual attention dots for battle, diplomacy, construction and rewards.
-- Improved shared focus states, scrollbars, loading scene and page-surface consistency.
-- Background full-state polling was relaxed because Supabase Realtime remains the primary update path.
-- Existing Gameworld animations, inertial world map, detailed procedural islands and reduced-motion support remain intact.
+- Active window: 08:00–23:00 state local time.
+- Cadence: every 5 hours during the active window.
+- Reaction window: 10 minutes.
+- Ignored emergency: real losses are applied without exposing exact loss values in the message.
+- Night period: no new emergencies until 08:00.
 
-### Chat cleanup
+The project fallback timezone is `WARSTATE_TIMEZONE` and defaults to `Europe/Moscow`.
 
-- `!государства` no longer exposes raw Telegram Chat IDs; it shows public state names/handles.
-- Election launch messages no longer expose internal election UUIDs.
-- State usernames remain the public address for war, alliance, reconnaissance and search.
-
-## Government
-
-Roles:
-
-- Founder
-- President
-- up to 3 Deputies
-- Citizen
-- Curator on Beginner Island
-
-The Founder can appoint/remove the President, manage Deputies, start 30-minute elections, rename the state and manage the unique state handle.
-
-A Telegram chat is registered automatically when the bot is added. The actual Telegram chat creator is verified and stored as Founder.
-
-New-state defaults:
+State leadership can inspect or change the timezone:
 
 ```text
-Level       1
-Budget      1000
-Influence   100
-Technology  50
-Reputation  100
-Army        100
-Defense     120
+!часовойпояс
+!часовойпояс Europe/Paris
 ```
 
-## State handles
+Changing it clears `next_threat_at`, so the next emergency is recalculated using the new local time.
 
-States have a unique handle such as:
+## Database upgrade
+
+Apply migrations in order through:
 
 ```text
-@north_empire
-@wolves
-@sunset
+supabase/migrations/034_continent_redesign.sql
 ```
 
-Rules:
+Migration `034_continent_redesign.sql`:
 
-- `a-z`, `0-9`, `_` only;
-- 4–32 characters;
-- case-insensitive uniqueness;
-- Founder only;
-- after initial setup, changes are limited to once per 30 days.
+- adds `states.time_zone`;
+- resets scheduled threat timestamps so the new five-hour cadence is armed cleanly;
+- replaces the last marine activity label while preserving its stable option key.
 
-Handles can be used in war, alliance, reconnaissance and search commands.
+Do not rename or delete historical `island_*`, `is_freeport` or `is_beginner_island` columns only for visual cleanup. They are part of existing RPC/API contracts. The v5 copy boundary translates historical database messages before they reach the Mini App or bot.
 
-## Core chat commands
+## Core commands
 
 ```text
 !помощь
-!играть                # подробная инструкция как играть
-!как_играть            # алиас
-!гайд                   # алиас
+!играть
 !государство
 !статус
 !ресурсы
-!рейтинг
-!карта
-!альянсы
-!профиль
-!роли
-!роль @username <дипломат|шпион|шахтер|рабочий|снять>
-!министртруда @username      # назначить Министра труда (Президент и Замы)
-!снятьминистра @username     # снять Министра труда
-!чп                          # активная угроза и остаток времени
-!голосование
-!шпион @название_государства
+!казна
+!постройки
+!улучшить <постройка>
+!налоги
 
 !президент
 !замы
@@ -178,206 +127,96 @@ Handles can be used in war, alliance, reconnaissance and search commands.
 !снятьпрезидента
 !назначитьзама @username
 !снятьзама @username
-!создатьюз north_empire
-!юз new_handle
-!название Новое Государство
-!найти north
 
-!казна
-!постройки
-!улучшить <постройка>
-!налоги
+!роли
+!роль @username <дипломат|шпион|шахтер|рабочий|снять>
+!министртруда @username
+!снятьминистра @username
 
-!война @название_государства <raid|siege|territory>
+!карта
+!рейтинг
+!альянсы
+!союз @state
+!разорватьсоюз @state
+
+!война @state <raid|siege|territory>
 !бой
 !оборона
-!разведка @название_государства
+!разведка @state
 !сдаться
 
-!союз @название_государства
-!союз принять [@название_государства]
-!союз отклонить [@название_государства]
-!разорватьсоюз @название_государства
-
-!активность
-!миссия
-!награда
+!чп
+!часовойпояс Europe/Paris
 ```
 
-Every ordinary citizen message can award `+2 XP` and `+1 state contribution`, at most once per minute. The cooldown is enforced in PostgreSQL.
+## Event-driven runtime
 
-## How to play guide
+Normal gameplay does not require a Vercel Cron schedule. Telegram activity and Mini App actions reconcile state maintenance. PostgreSQL remains authoritative for idempotency, battles, balances and maintenance claims.
 
-New players can open the detailed Russian-language guide directly in a state chat with `!играть` (aliases: `!как_играть`, `!какиграть`, `!гайд`). The same guide is available as a compact expandable section on the Mini App profile screen. It covers joining a state, Telegram membership verification, roles, resource farming, wars and civic votes, alliances, spy quests, daily actions and the main commands.
-
-
-## Battle balance
-
-Migration `013_full_state_wars_spec.sql` stores battle modifiers in the battle row for transparent/reproducible results.
-
-```text
-state_size = active_players ^ 0.4 × game_level ^ 0.6
-attack_penalty = min(30%, 8% × max(0, log2(attacker_size / defender_size)))
-underdog_bonus = min(25%, 7% × max(0, log2(attacker_size / defender_size)))
-```
-
-Additional systems:
-
-- Defensive Buffer;
-- aggressor fatigue up to 15%;
-- fixed random modifiers 0.85–1.15;
-- alliance support cap 35%;
-- true draw below 5% score difference;
-- capped resource loot;
-- recovery shield after defeat.
-
-War durations:
-
-```text
-raid       15 min
-territory  20 min
-siege      30 min
-```
-
-## Stack
-
-- Next.js 16
-- React 19
-- TypeScript
-- Supabase Postgres + Realtime
-- Telegram Bot API + Mini App
-- Vercel
-- optional Upstash Redis REST
-
-## Environment
-
-Copy `.env.example` and fill the values.
-
-Required:
-
-```text
-NEXT_PUBLIC_APP_URL=
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
-SUPABASE_SECRET_KEY=
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_BOT_USERNAME=
-TELEGRAM_MINI_APP_SHORT_NAME=
-TELEGRAM_WEBHOOK_SECRET=
-```
-
-Supported legacy Supabase aliases:
-
-```text
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
-```
-
-Optional:
-
-```text
-BEGINNER_ISLAND_CHAT_ID=
-WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS=
-WARSTATE_SUPERADMIN_TELEGRAM_ID=
-UPSTASH_REDIS_REST_URL=
-UPSTASH_REDIS_REST_TOKEN=
-CRON_SECRET=
-```
-
-`CRON_SECRET` is only needed if you intentionally call the manual backup cron endpoints. Vercel Cron itself is not required in v2.0.
-
-## Supabase migrations
-
-Fresh database: apply `001` through `032` in numeric order.
-
-Existing v1.9 database: apply sequentially:
-
-```text
-supabase/migrations/015_event_driven_runtime.sql
-supabase/migrations/016_member_activity_votes_spy.sql
-supabase/migrations/017_telegram_update_claim_lease.sql
-supabase/migrations/018_state_switch_delete_ui.sql
-supabase/migrations/019_fix_state_switch_cooldown.sql
-supabase/migrations/020_integrity_repair.sql
-supabase/migrations/021_fix_stale_election_conflict.sql
-supabase/migrations/022_fix_state_color_contrast.sql
-supabase/migrations/023_founder_president_admin.sql
-supabase/migrations/024_repair_government_commands.sql
-supabase/migrations/025_compact_world_and_map_repair.sql
-supabase/migrations/032_dynamic_events.sql
-```
-
-Migration `016` adds member specializations, civic war/alliance votes, the 10-message resource farm, and spy quests. Migration `017` makes Telegram update claims retry-safe. Migration `018` adds explicit state switching and owner-only state deletion. Migration `023` lets a Founder also hold the President office, restores the Founder role when that presidency ends, and keeps Founder self-promotion inside elections unless the account is explicitly configured as the project testing admin. Migration `024` restores the government command RPCs with stable PostgREST argument names. Migration `025` compacts the island world, repairs island-slot placement, and keeps future islands close to the active cluster. Migration `032` adds the dynamic chat-events engine: President-vacancy/anarchy bookkeeping, the Minister of Labor role, the `state_threat_events` table, atomic loss application and citizen-driven first elections. If your database is older, apply every missing migration sequentially. Do not skip intermediate migrations.
-
-## Project creator testing admin
-
-For development and bot testing, one or more trusted Telegram accounts can receive a creator-only control in the Profile government panel. This is intentionally keyed by immutable numeric Telegram user ID rather than username.
-
-1. Send `!мойид` in one of your WARSTATE state chats.
-2. Put that numeric ID into `WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS` (comma-separated if you use more than one test account).
-3. Redeploy/restart the server after changing environment variables.
-4. Send `!админ` to confirm the flag, then use `!назначитьпрезидента` with no username, or the **Админ-панель проекта** button in Profile.
-
-The creator override only works inside a state whose `founder_player_id` is that same player. It does not grant control over somebody else's state. Ordinary chat Founders can also become President, but self-promotion opens/joins a 30-minute citizen election and requires at least one vote from another citizen and a majority of votes cast; the Founder cannot approve their own nomination.
+Optional backup endpoints can still be invoked externally for quiet chats, but `vercel.json` does not require a scheduled cron.
 
 ## Telegram setup
 
-After deployment:
+The bot must receive ordinary group messages so `!commands` and live state reconciliation work reliably.
 
-```bash
-npm run telegram:configure
+In BotFather:
+
+```text
+/setprivacy
 ```
 
-The webhook subscribes to:
+Disable Privacy Mode for the WARSTATE bot, then remove/re-add the bot to existing groups if Telegram requires it.
 
-- `message`
-- `callback_query`
-- `my_chat_member`
-- `pre_checkout_query`
+The bot should have permissions needed for member checks, invite links and the actions used by your deployment.
 
-### Required Telegram group settings for `!` commands
+## Local development
 
-To receive ordinary group messages such as `!война`, `!карта`, and `!помощь`, WARSTATE should be a **group administrator**. Telegram also allows a non-admin bot to receive them when Privacy Mode is disabled. For predictable deployment, keep the bot as an administrator and in **BotFather** run `/setprivacy` -> select the bot -> **Disable**. After changing Privacy Mode, re-add the bot to existing groups if Telegram has not applied the new setting there yet.
+Requirements:
 
-Grant the bot permission to invite users. WARSTATE uses `getChatMember` before granting citizenship and creates an invite link when the player is not yet in the state's Telegram chat. `getChatMember` is guaranteed for other users when the bot is an administrator.
+- Node.js 22.x
+- npm
+- Supabase project
+- Telegram bot token
 
-## Verification
+Install and verify:
 
 ```bash
-npm install
+npm ci
+npm run audit:project
+npm run typecheck
+npm run build
+npm run dev
+```
+
+Copy `.env.example` to your local environment file and fill all required values. Never commit real secrets.
+
+## Production checks
+
+Before deploy:
+
+```bash
+npm ci
 npm run audit:project
 npm run typecheck
 npm run build
 ```
 
-`npm run audit:project` checks:
+Then apply all pending Supabase migrations, configure the Telegram webhook and deploy the Next.js application.
 
-- local imports;
-- environment documentation;
-- legacy/secret paths;
-- application RPCs against SQL migrations;
-- required Telegram commands;
-- v2.0 event-driven files;
-- absence of scheduled crons in `vercel.json`;
-- Telegram webhook idempotency;
-- baseline security headers.
+## v5 implementation map
 
-## Important
+Key redesign files:
 
-PostgreSQL remains the source of truth. Client state, Realtime events, Redis locks and serverless process memory are never trusted as authoritative balances or battle results.
+```text
+app/warstate-redesign.css
+components/game-app.tsx
+components/game/island-map.tsx
+components/game/island-home.tsx
+lib/chat-commands.ts
+lib/dynamic-events.ts
+lib/game-guide.ts
+lib/copy.ts
+supabase/migrations/034_continent_redesign.sql
+```
 
-## v3.8 chat-first administration
-
-- `!вступить` registers the sender and joins the state of the current Telegram group without opening Mini App.
-- New Telegram members are enrolled when Telegram sends `new_chat_members`; existing silent members are enrolled on first activity/command because Telegram Bot API does not expose a complete historical member list.
-- Founder **or President** can appoint/remove deputies. `!назначитьзама` and `!снятьзама` also work as a reply to a member's message, so a Telegram username is not required.
-- Project creator global command mode is explicitly activated per chat with `!суперадмин` and disabled with `!суперадмин выкл`. Only IDs configured in `WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS` can activate it.
-- `!оботе` explains the project and chat-first gameplay.
-
-## WARSTATE 3.9 stable notes
-
-- Runtime marker: `WARSTATE_RUNTIME=3.9-stable`.
-- In Telegram, `!версия` must report `WARSTATE 3.9-stable` after the new code is live.
-- Project creator chat override: `!полныеправа`, disable with `!снятьдоступ`.
-- Apply migration `027_webhook_idempotency_and_presence.sql` to remove repeated one-home duplicate-key webhook failures and restore update receipt idempotency.
-- No Vercel Cron schedule is configured in `vercel.json`.
+`npm run audit:project` is updated for the v5 baseline and checks the continental map markers, migration presence, command routing, RPC coverage, environment documentation, webhook idempotency and security headers.

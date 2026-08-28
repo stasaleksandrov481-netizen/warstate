@@ -189,7 +189,7 @@ async function inviteForState(stateId: string, playerName: string) {
     .eq("id", stateId)
     .single();
   if (error || !state) throw new Error("Государство не найдено.");
-  if (state.is_freeport || !state.telegram_chat_id) throw new Error("В Freeport приглашение не требуется.");
+  if (state.is_freeport || !state.telegram_chat_id) throw new Error("В нейтральной зоне приглашение не требуется.");
   const inviteLink = await createStateJoinLink(Number(state.telegram_chat_id), `WARSTATE · ${playerName}`);
   if (!inviteLink) throw new Error("Не удалось создать ссылку-приглашение. Проверьте права бота на приглашение участников.");
   return inviteLink;
@@ -236,7 +236,7 @@ export async function recruitmentAction(params: {
   }
 
   if (params.action === "apply") {
-    if (!params.currentStateIsFreeport) throw new Error("Подавать заявки могут свободные игроки Freeport.");
+    if (!params.currentStateIsFreeport) throw new Error("Подавать заявки могут только свободные игроки нейтральной зоны.");
     const targetStateId = String(params.targetStateId || "");
     if (!targetStateId) throw new Error("Не выбрано государство.");
     const { data: post, error: postError } = await supabase.from("recruitment_posts").select("min_level,is_open").eq("state_id", targetStateId).maybeSingle();
@@ -263,10 +263,10 @@ export async function recruitmentAction(params: {
     const targetPlayerId = String(params.targetPlayerId || "");
     if (!targetPlayerId) throw new Error("Игрок не выбран.");
     const { data: freeport, error: freeportError } = await supabase.from("states").select("id").eq("is_freeport", true).single();
-    if (freeportError || !freeport) throw new Error("Freeport не найден.");
+    if (freeportError || !freeport) throw new Error("Нейтральная зона не найдена.");
     const { data: member, error: memberError } = await supabase.from("state_members").select("id").eq("state_id", freeport.id).eq("player_id", targetPlayerId).maybeSingle();
     if (memberError) throw memberError;
-    if (!member) throw new Error("Игрок уже не находится в Freeport.");
+    if (!member) throw new Error("Игрок уже не находится в нейтральной зоне.");
     const { error } = await supabase.from("recruitment_requests").upsert({
       state_id: params.currentStateId,
       player_id: targetPlayerId,
@@ -288,7 +288,7 @@ export async function recruitmentAction(params: {
   if (params.action === "accept_application") {
     if (!leader || request.state_id !== params.currentStateId || request.kind !== "application") throw new Error("Нет прав принять эту заявку.");
     const { data: freeport, error: freeportError } = await supabase.from("states").select("id").eq("is_freeport", true).single();
-    if (freeportError || !freeport) throw new Error("Freeport не найден.");
+    if (freeportError || !freeport) throw new Error("Нейтральная зона не найдена.");
     const { data: stillFree, error: memberError } = await supabase
       .from("state_members")
       .select("id")
@@ -296,7 +296,7 @@ export async function recruitmentAction(params: {
       .eq("player_id", request.player_id)
       .maybeSingle();
     if (memberError) throw memberError;
-    if (!stillFree) throw new Error("Игрок уже покинул Freeport. Обновите список кандидатов.");
+    if (!stillFree) throw new Error("Игрок уже покинул нейтральную зону. Обновите список кандидатов.");
     const pmap = await playerMap([String(request.player_id)]);
     const inviteLink = await inviteForState(params.currentStateId, String(pmap.get(String(request.player_id))?.display_name || "Recruit"));
     await updatePendingRequest(requestId, {

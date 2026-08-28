@@ -55,6 +55,16 @@ function historyValue(row: HistoryRow) {
   return rewardName(row.rewardType);
 }
 
+type ResolvedGroupLink = { url: string | null; isPublic: boolean; pendingRequest: { id: string; requestedAt: string } | null };
+
+function launchTelegramLink(url: string) {
+  const app = (window as any).Telegram?.WebApp;
+  // Must be invoked synchronously from a user interaction (Telegram requirement) — never after an await,
+  // or the redirect silently fails on some platforms/clients (especially when not yet a member of the chat).
+  if (app?.openTelegramLink) app.openTelegramLink(url);
+  else window.location.assign(url);
+}
+
 export function AdminRewardsCenter({ initData }: { initData: string }) {
   const [states, setStates] = useState<AdminState[]>([]);
   const [stateQuery, setStateQuery] = useState("");
@@ -80,6 +90,9 @@ export function AdminRewardsCenter({ initData }: { initData: string }) {
   const [confirm, setConfirm] = useState<PendingConfirm | null>(null);
   const stateListRef = useRef<HTMLDivElement | null>(null);
   const historyRef = useRef<HTMLDivElement | null>(null);
+  // Cache of resolved group links, keyed by stateId. Filled in the background (not on click) so that
+  // "Открыть" can call openTelegramLink synchronously and reliably instead of after an async round-trip.
+  const groupLinkCache = useRef<Map<string, ResolvedGroupLink>>(new Map());
 
   const loadStates = useCallback(async (query = "") => {
     const result = await adminCall<{ states: AdminState[] }>(initData, "/api/admin/rewards", { action: "states", query });
@@ -114,20 +127,59 @@ export function AdminRewardsCenter({ initData }: { initData: string }) {
     window.setTimeout(() => stateListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 20);
   };
 
-  const openGroup = useCallback(async (state: AdminState) => {
-    setBusy(true); setError(null); setStatus(null); setSelected(state);
-    try {
-      const result = await adminCall<{ isPublic: boolean; url: string | null; pendingRequest?: { id: string; requestedAt: string } | null }>(initData, "/api/admin/groups", { action: "resolve", stateId: state.id });
-      if (result.url) {
-        const app = (window as any).Telegram?.WebApp;
-        if (app?.openTelegramLink) app.openTelegramLink(result.url); else window.location.assign(result.url);
-        setStatus(`Вы сейчас смотрите группу: ${state.name}`);
-      } else {
-        setStatus(result.pendingRequest ? `Для «${state.name}» уже запрошено приглашение.` : `«${state.name}» — приватная группа. Запросите доступ у владельца.`);
-      }
-    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось открыть группу"); }
-    finally { setBusy(false); }
+  const resolveAndCache = useCallback(async (state: AdminState) => {
+    const result = await adminCall<{ isPublic: boolean; url: string | null; pendingRequest?: { id: string; requestedAt: string } | null }>(initData, "/api/admin/groups", { action: "resolve", stateId: state.id });
+    const cached: ResolvedGroupLink = { url: result.url, isPublic: result.isPublic, pendingRequest: result.pendingRequest || null };
+    groupLinkCache.current.set(state.id, cached);
+    return cached;
   }, [initData]);
+
+  // Prefetch links in the background for groups we don't already know a public username for (private
+  // groups need a server round-trip to check for a fulfilled invite link). Public groups don't need this —
+  // their username already arrives with the state list, so opening them never has to wait on the network.
+  useEffect(() => {
+    let cancelled = false;
+    const targets = states.filter((s) => !s.telegramChatUsername && s.botPresent && !groupLinkCache.current.has(s.id));
+    (async () => {
+      for (const state of targets) {
+        if (cancelled) return;
+        try { await resolveAndCache(state); } catch { /* best-effort prefetch, ignore failures here */ }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [states, resolveAndCache]);
+
+  const openGroup = useCallback((state: AdminState) => {
+    setError(null); setStatus(null); setSelected(state);
+    const cached = groupLinkCache.current.get(state.id);
+    const knownUrl = state.telegramChatUsername ? `https://t.me/${state.telegramChatUsername}` : cached?.url ?? null;
+
+    if (knownUrl) {
+      // Fire the redirect immediately, synchronously, inside the click handler — this is what actually
+      // fixes the flaky/first-click-doesn't-work behaviour.
+      launchTelegramLink(knownUrl);
+      setStatus(`Вы сейчас смотрите группу: ${state.name}`);
+      void resolveAndCache(state).catch(() => undefined); // refresh cache/username quietly for next time
+      return;
+    }
+    if (cached?.pendingRequest) {
+      setStatus(`Для «${state.name}» уже запрошено приглашение.`);
+      void resolveAndCache(state).catch(() => undefined); // in case the invite was just fulfilled
+      return;
+    }
+
+    // Nothing cached yet (rare — background prefetch hasn't finished). We can't guarantee the redirect
+    // fires after this async call due to Telegram's user-interaction requirement, so just resolve and
+    // cache it; the group will open reliably on the next click.
+    setBusy(true);
+    resolveAndCache(state)
+      .then((result) => {
+        if (result.url) { launchTelegramLink(result.url); setStatus(`Вы сейчас смотрите группу: ${state.name}`); }
+        else setStatus(result.pendingRequest ? `Для «${state.name}» уже запрошено приглашение.` : `«${state.name}» — приватная группа. Запросите доступ у владельца.`);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Не удалось открыть группу"))
+      .finally(() => setBusy(false));
+  }, [resolveAndCache]);
 
   const askAccess = (state: AdminState) => {
     setSelected(state);
@@ -153,7 +205,8 @@ export function AdminRewardsCenter({ initData }: { initData: string }) {
     setBusy(true); setError(null); setStatus(null);
     try {
       if (confirm.kind === "access") {
-        await adminCall(initData, "/api/admin/groups", { action: "request_access", stateId: selected.id });
+        const result = await adminCall<{ ok: true; request: { id: string; requestedAt: string } }>(initData, "/api/admin/groups", { action: "request_access", stateId: selected.id });
+        groupLinkCache.current.set(selected.id, { url: null, isPublic: false, pendingRequest: result.request });
         setStatus(`Запрос отправлен в «${selected.name}». Приглашение придёт админу в ЛС после reply владельца.`);
       } else if (confirm.kind === "message") {
         await adminCall(initData, "/api/admin/rewards", { action: "message", stateId: selected.id, text: freeText });
@@ -186,7 +239,7 @@ export function AdminRewardsCenter({ initData }: { initData: string }) {
       <div className="admin-state-list">
         {states.map((state) => <article key={state.id} className={selected?.id === state.id ? "selected" : ""}>
           <button className="admin-state-main" type="button" onClick={() => chooseState(state)}><b>{state.name}</b><small>{state.stateUsername ? `@${state.stateUsername} · ` : ""}{state.memberCount} участников · {state.rating} ELO</small></button>
-          <button type="button" className="admin-open-group" disabled={busy || !state.botPresent} onClick={() => void openGroup(state)}>Открыть</button>
+          <button type="button" className="admin-open-group" disabled={busy || !state.botPresent} onClick={() => openGroup(state)}>Открыть</button>
         </article>)}
         {!states.length && <p>Группы не найдены.</p>}
       </div>

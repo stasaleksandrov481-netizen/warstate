@@ -62,6 +62,7 @@ export async function registerTelegramState(chatId: number) {
     const { data: created, error } = await supabase.from("states").insert({
       telegram_chat_id: chatId,
       telegram_chat_title: chat.title || `Chat ${Math.abs(chatId)}`,
+      telegram_chat_username: chat.username ? String(chat.username).replace(/^@/, "") : null,
       name: chat.title || `Государство ${Math.abs(chatId)}`,
       founder_player_id: founder.id,
       founder_verified_at: new Date().toISOString(),
@@ -89,6 +90,7 @@ export async function registerTelegramState(chatId: number) {
   } else {
     const patch: Record<string, unknown> = {
       telegram_chat_title: chat.title || state.telegram_chat_title || state.name,
+      telegram_chat_username: chat.username ? String(chat.username).replace(/^@/, "") : null,
       telegram_member_count: Math.max(1, memberCount || 1),
       chat_avatar_file_id: chat.photo?.big_file_id || chat.photo?.small_file_id || null,
       chat_meta_synced_at: new Date().toISOString(),

@@ -440,14 +440,22 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       const gov = snapshot.government;
       const president = gov.president ? `${gov.president.displayName}${gov.president.username ? ` (@${gov.president.username})` : ""}` : "не назначен";
       const allies = snapshot.diplomacy.filter((item) => item.status === "allied").map((item) => item.otherStateName);
+      const stateMedals = snapshot.stateMedals.slice(0, 3);
+      const activeAdminEffects = [
+        snapshot.state.adminArmyBoostUntil && new Date(snapshot.state.adminArmyBoostUntil).getTime() > Date.now() ? `Военный буст +${snapshot.state.adminArmyBoostPct}%` : null,
+        snapshot.state.adminThreatShieldUntil && new Date(snapshot.state.adminThreatShieldUntil).getTime() > Date.now() ? "Защита от ЧП активна" : null,
+        snapshot.state.adminXpBoostUntil && new Date(snapshot.state.adminXpBoostUntil).getTime() > Date.now() ? `Буст опыта +${snapshot.state.adminXpBoostPct}%` : null,
+      ].filter(Boolean);
       await send(chatId,
         `🏛 ${snapshot.state.name}\n` +
         `🌐 ${snapshot.state.stateUsername ? `@${snapshot.state.stateUsername}` : "юз не создан"}\n` +
         `Президент: ${president}\n` +
-        `Уровень: ${snapshot.state.level}\n` +
+        `Уровень: ${snapshot.state.level} · Престиж: ${snapshot.state.achievementPoints.toLocaleString("ru-RU")}\n` +
         `${resourceLine(snapshot)}\n` +
         `⚔️ Армия ${snapshot.state.armyPower} · 🛡 Оборона ${snapshot.state.defensePower}\n` +
-        `🤝 Альянс: ${allies.length ? allies.join(", ") : "нет"}`,
+        `🤝 Альянс: ${allies.length ? allies.join(", ") : "нет"}` +
+        `${activeAdminEffects.length ? `\n\nАктивные эффекты:\n${activeAdminEffects.map((item) => `• ${item}`).join("\n")}` : ""}` +
+        `${stateMedals.length ? `\n\nНаграды государства:\n${stateMedals.map((medal) => `${medal.icon || "🏅"} ${medal.title}`).join("\n")}` : ""}`,
         [[{ text: "🏛 Открыть Mini App", url: miniAppLink(chatId, snapshot.state.id) }]],
       );
       return true;
@@ -812,8 +820,13 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         if (battle.winner_state_id && String(battle.winner_state_id) === String(myState)) wins += 1;
         if ((row as any).team === "defender") defenses += 1;
       }
+      const titleLine = snapshot.player.adminTitle ? `\nТитул: ${snapshot.player.adminTitle}` : "";
+      const medals = snapshot.playerMedals.slice(0, 6);
+      const medalsLine = medals.length
+        ? `\n\nМедали:\n${medals.map((medal) => `${medal.icon || "🏅"} ${medal.title}`).join("\n")}`
+        : "";
       await send(chatId,
-        `👤 ${snapshot.player.displayName}\n\nРоль: ${roleLabel}${dutyLabel ? ` · ${dutyLabel}` : ""}\nУровень: ${snapshot.player.level}\nОпыт: ${snapshot.player.xp.toLocaleString("ru-RU")} XP\nВклад: ${snapshot.player.contribution.toLocaleString("ru-RU")}\nПобеды: ${wins}\nЗащиты: ${defenses}\nГосударство: ${snapshot.state.name}${snapshot.state.stateUsername ? ` (@${snapshot.state.stateUsername})` : ""}`
+        `👤 ${snapshot.player.displayName}\n\nРоль: ${roleLabel}${dutyLabel ? ` · ${dutyLabel}` : ""}${titleLine}\nУровень: ${snapshot.player.level}\nОпыт: ${snapshot.player.xp.toLocaleString("ru-RU")} XP\nВклад: ${snapshot.player.contribution.toLocaleString("ru-RU")}\nПобеды: ${wins}\nЗащиты: ${defenses}\nГосударство: ${snapshot.state.name}${snapshot.state.stateUsername ? ` (@${snapshot.state.stateUsername})` : ""}${medalsLine}`
       );
       return true;
     }

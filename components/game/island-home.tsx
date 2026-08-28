@@ -3,6 +3,7 @@
 import { memo, useEffect, useState } from "react";
 import { eloLeague } from "@/lib/elo";
 import type { BuildingType, GameSnapshot, RecruitmentRequestView } from "@/lib/types";
+import { stateMarkText } from "@/lib/visual";
 
 const INFRA: Record<BuildingType, { icon: string; label: string; desc: string }> = {
   hq: { icon: "⚑", label: "Казначейство и штаб", desc: "Бюджет, управление и уровень государства" },
@@ -16,6 +17,10 @@ const INFRA: Record<BuildingType, { icon: string; label: string; desc: string }>
 };
 
 type RecruitmentAction = (action: string, payload?: Record<string, unknown>) => void;
+
+function stateMark(name?: string | null, emblem?: string | null) {
+  return stateMarkText(name || "WARSTATE", emblem);
+}
 
 function RequestCard({ request, onRecruitment, mine }: { request: RecruitmentRequestView; onRecruitment: RecruitmentAction; mine?: boolean }) {
   const accepted = request.status === "accepted" && request.inviteLink;
@@ -121,8 +126,8 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment, onOpenS
   return (
     <div className="island-home-screen">
       <div className={`my-island-hero game-home-hero ${destroyed ? "ruined" : ""}`} style={{ ["--state-color" as any]: state.color }}>
-        <div className="home-castle-visual" aria-hidden="true"><span>{state.emblem || "WS"}</span><i /><b /><i /></div>
-        <div className="my-island-identity"><span>{state.emblem}</span><div><small>МОЯ СТОЛИЦА</small><h2>{state.name}</h2><p>{state.motto}</p></div></div>
+        <div className="home-castle-visual" aria-hidden="true"><span>{stateMark(state.name, state.emblem)}</span><i /><b /><i /></div>
+        <div className="my-island-identity"><span>{stateMark(state.name, state.emblem)}</span><div><small>МОЯ СТОЛИЦА</small><h2>{state.name}</h2><p>{state.motto}</p></div></div>
         <div className="island-integrity-float"><span>ОБОРОНА</span><b>{state.islandIntegrity}%</b><i><em style={{ width: `${state.islandIntegrity}%` }} /></i></div>
       </div>
 

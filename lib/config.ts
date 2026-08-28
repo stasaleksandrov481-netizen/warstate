@@ -25,3 +25,9 @@ export function isProjectAdminTelegramId(telegramId: number | string | null | un
   const value = Number(telegramId);
   return Number.isSafeInteger(value) && value > 0 && projectAdminTelegramIds().has(value);
 }
+
+export function requireTelegramBotUsername() {
+  const username = String(process.env.TELEGRAM_BOT_USERNAME || "").trim().replace(/^@/, "");
+  if (!username) throw new Error("Telegram-бот не активирован: сначала задайте username бота.");
+  return username;
+}

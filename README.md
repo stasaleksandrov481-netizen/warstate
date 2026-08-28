@@ -220,3 +220,20 @@ supabase/migrations/034_continent_redesign.sql
 ```
 
 `npm run audit:project` is updated for the v5 baseline and checks the continental map markers, migration presence, command routing, RPC coverage, environment documentation, webhook idempotency and security headers.
+
+## WARSTATE v5.1: Admin rewards, medals and group access
+
+Before deploying v5.1, apply `supabase/migrations/035_admin_rewards_medals_access.sql`.
+
+`TELEGRAM_BOT_USERNAME` is now a hard runtime requirement. If the bot has no Telegram username configured, both the webhook and authenticated Mini App API reject use until the username is set.
+
+Project admins configured through `WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS` can open the Admin Mini App and:
+
+- grant resources, treasury credits, prestige, reputation, influence, temporary army boosts, emergency shields, state-wide XP boosts, starter packs, titles and medals;
+- issue medals to a player or a state;
+- send a free-form Administration message to one state;
+- review the grant/message audit history;
+- open public Telegram groups directly;
+- request access to private groups. The bot sends a force-reply request to the group and forwards a valid owner/admin invite-link reply to the requesting project admin in a private message.
+
+Admin grants are confirmed in the UI before execution and are logged in `admin_reward_log`. Player and state medals are stored separately in `player_medals` and `state_medals`.

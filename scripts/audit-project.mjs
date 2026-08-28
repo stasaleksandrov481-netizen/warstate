@@ -59,9 +59,10 @@ for (const forbidden of [".env", ".env.local", ".next", "node_modules", ".vercel
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 if (packageJson.name !== "warstate") failures.push(`Unexpected package name: ${packageJson.name}`);
-if (!String(packageJson.version || "").startsWith("5.0.")) failures.push(`Expected v5.0.x package version, found ${packageJson.version}`);
+if (!String(packageJson.version || "").startsWith("5.1.")) failures.push(`Expected v5.1.x package version, found ${packageJson.version}`);
 
 const requiredV20 = [
+  "supabase/migrations/035_admin_rewards_medals_access.sql",
   "supabase/migrations/034_continent_redesign.sql",
   "supabase/migrations/015_event_driven_runtime.sql",
   "supabase/migrations/016_member_activity_votes_spy.sql",
@@ -171,7 +172,7 @@ if (/РЕСУРСЫ ЗА АКТИВНОСТЬ|Чат нафармил|10 соо�
 if (!webhookSource.includes("handleGroupTextCommand(message)")) failures.push("Telegram group command handler is not wired into webhook");
 if (!webhookSource.includes('ignored: "unknown_bang_command"')) failures.push("Unknown !commands are not hard-stopped in Telegram webhook");
 if (!webhookSource.includes('p_lease_seconds: 45')) failures.push("Telegram update receipt claim does not use the explicit lease signature");
-if (!webhookSource.includes('WARSTATE_RUNTIME=5.0-continent')) failures.push("Runtime version marker is missing from Telegram webhook logs");
+if (!webhookSource.includes('WARSTATE_RUNTIME=5.1-admin-rewards')) failures.push("Runtime version marker is missing from Telegram webhook logs");
 if (!webhookSource.includes('observeTelegramGroupMember')) failures.push("Telegram member observation is not wired into webhook");
 const stableMigration = fs.readFileSync(path.join(root, "supabase/migrations/027_webhook_idempotency_and_presence.sql"), "utf8");
 for (const marker of ["telegram_chat_members", "gw_claim_telegram_update", "update public.state_members", "uq_state_members_one_home"]) {
@@ -246,6 +247,19 @@ for (const fn of ["gw_appoint_president","gw_remove_president","gw_nominate_foun
   if (!repairMigration.includes(fn)) failures.push(`Government repair migration is missing: ${fn}`);
 }
 
+const adminRewardMigration = fs.readFileSync(path.join(root, "supabase/migrations/035_admin_rewards_medals_access.sql"), "utf8");
+for (const marker of ["player_medals", "state_medals", "admin_reward_log", "admin_chat_access_requests", "gw_admin_apply_reward", "gw_apply_admin_xp_boost", "admin_threat_shield_until"]) {
+  if (!adminRewardMigration.includes(marker)) failures.push(`Admin reward migration is missing: ${marker}`);
+}
+const adminRewardsSource = fs.readFileSync(path.join(root, "lib/admin-rewards.ts"), "utf8");
+for (const marker of ["grantAdminReward", "requestAdminGroupAccess", "handleAdminAccessReply", "sendAdminStateMessage"]) {
+  if (!adminRewardsSource.includes(marker)) failures.push(`Admin rewards core is missing: ${marker}`);
+}
+if (!webhookSource.includes("handleAdminAccessReply")) failures.push("Telegram webhook does not handle private-group admin invite replies");
+const requestAuthSource = fs.readFileSync(path.join(root, "lib/request-auth.ts"), "utf8");
+if (!requestAuthSource.includes("requireTelegramBotUsername")) failures.push("Mini App is not gated by TELEGRAM_BOT_USERNAME");
+if (!webhookSource.includes("requireTelegramBotUsername")) failures.push("Telegram webhook is not gated by TELEGRAM_BOT_USERNAME");
+
 const routes = walk("app/api").filter((file) => file.endsWith("route.ts"));
 notes.push(`${sourceFiles.length} source files scanned`);
 notes.push(`${routes.length} API routes found`);
@@ -254,7 +268,7 @@ notes.push(`${referencedRpc.size}/${referencedRpc.size} referenced RPCs found in
 notes.push(`${requiredCommands.length}/${requiredCommands.length} required chat commands present`);
 notes.push(`${registeredCommandAliases.length}/${registeredCommandAliases.length} registered command aliases routed`);
 notes.push("Vercel Cron dependency: disabled by default (event-driven runtime)");
-notes.push("WARSTATE v5 continental redesign migration: present");
+notes.push("WARSTATE v5.1 admin rewards/medals/access migration: present");
 if (!fs.readFileSync(path.join(root, "README.md"), "utf8").includes("/setprivacy")) failures.push("README must document disabling BotFather Privacy Mode for !commands");
 notes.push("Telegram webhook idempotency: PostgreSQL-backed");
 notes.push("Baseline security headers: enabled");

@@ -56,6 +56,7 @@ export interface PlayerView {
   telegramId: number;
   displayName: string;
   username?: string | null;
+  adminTitle?: string | null;
   level: number;
   xp: number;
   energy: number;
@@ -114,6 +115,12 @@ export interface StateView {
   shieldUntil?: string | null;
   nextAttackAt?: string | null;
   avatarUrl?: string | null;
+  achievementPoints: number;
+  adminArmyBoostPct: number;
+  adminArmyBoostUntil?: string | null;
+  adminThreatShieldUntil?: string | null;
+  adminXpBoostPct: number;
+  adminXpBoostUntil?: string | null;
 }
 
 export interface BuildingView {
@@ -343,6 +350,15 @@ export interface StateBadgeView {
   earnedAt: string;
 }
 
+export interface MedalView {
+  id: string;
+  icon: string;
+  title: string;
+  description: string;
+  awardedAt: string;
+  awardedBy: string;
+}
+
 export interface RecruitmentPostView {
   stateId: string;
   stateName: string;
@@ -418,6 +434,8 @@ export interface GameSnapshot {
   season: SeasonView | null;
   election: ElectionView | null;
   badges: StateBadgeView[];
+  playerMedals: MedalView[];
+  stateMedals: MedalView[];
   activeBattle?: BattleView | null;
   recruitment: RecruitmentHubView;
   strategy: StrategyView;

@@ -3,6 +3,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import type { GameSnapshot, StateView } from "@/lib/types";
 import { GAME_GUIDE_SECTIONS } from "@/lib/game-guide";
+import { stateMarkText } from "@/lib/visual";
 
 type Props = {
   snapshot: GameSnapshot;
@@ -23,6 +24,15 @@ function roleLabel(role: string) {
 function Stat({ label, value }: { label: string; value: string }) {
   return <div className="stat"><small>{label}</small><strong>{value}</strong></div>;
 }
+function MedalIcon({ value }: { value: string }) {
+  return /^https:\/\//i.test(value)
+    ? <img src={value} alt="" loading="lazy" referrerPolicy="no-referrer" />
+    : <>{value || "◆"}</>;
+}
+function stateMark(name?: string | null, emblem?: string | null) {
+  return stateMarkText(name || "WARSTATE", emblem);
+}
+
 function remaining(iso: string, now: number) {
   const ms = Math.max(0, new Date(iso).getTime() - now);
   const days = Math.floor(ms / 86400000);
@@ -88,10 +98,12 @@ function PlayerProgress({ snapshot }: { snapshot: GameSnapshot }) {
   const nextFloor = 180 * Math.pow(snapshot.player.level, 2);
   const progress = Math.max(0, Math.min(100, ((snapshot.player.xp - currentFloor) / Math.max(1, nextFloor - currentFloor)) * 100));
   return <div className="panel player-progress">
-    <div className="player-progress-head"><div><small>ТВОЙ ПРОФИЛЬ</small><h3>{snapshot.player.displayName}</h3><p>{snapshot.state.isFreeport ? "Свободный игрок" : snapshot.government.founder?.playerId === snapshot.player.id && snapshot.government.president?.playerId === snapshot.player.id ? "Основатель · Президент" : snapshot.government.founder?.playerId === snapshot.player.id ? "Основатель" : roleLabel(snapshot.player.role)} · вклад {snapshot.player.contribution.toLocaleString("ru-RU")}</p></div><b>LVL {snapshot.player.level}</b></div>
+    <div className="player-progress-head"><div><small>ТВОЙ ПРОФИЛЬ</small><h3>{snapshot.player.displayName}</h3>{snapshot.player.adminTitle && <strong className="player-admin-title">{snapshot.player.adminTitle}</strong>}<p>{snapshot.state.isFreeport ? "Свободный игрок" : snapshot.government.founder?.playerId === snapshot.player.id && snapshot.government.president?.playerId === snapshot.player.id ? "Основатель · Президент" : snapshot.government.founder?.playerId === snapshot.player.id ? "Основатель" : roleLabel(snapshot.player.role)} · вклад {snapshot.player.contribution.toLocaleString("ru-RU")}</p></div><b>LVL {snapshot.player.level}</b></div>
     <div className="xp-track"><i style={{ width: `${progress}%` }} /></div>
     <span>{snapshot.player.xp.toLocaleString("ru-RU")} XP · до следующего уровня {Math.max(0, nextFloor - snapshot.player.xp).toLocaleString("ru-RU")} XP</span>
+    {snapshot.state.adminXpBoostUntil && new Date(snapshot.state.adminXpBoostUntil).getTime() > Date.now() && snapshot.state.adminXpBoostPct > 0 && <div className="admin-effect-pill">⭐ +{snapshot.state.adminXpBoostPct}% XP до {new Date(snapshot.state.adminXpBoostUntil).toLocaleString("ru-RU", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })}</div>}
     {snapshot.state.shieldUntil && new Date(snapshot.state.shieldUntil).getTime() > Date.now() && <div className="rookie-shield">◆ Защита новичка активна до {new Date(snapshot.state.shieldUntil).toLocaleTimeString("ru-RU", {hour:"2-digit",minute:"2-digit"})}</div>}
+    <div className="player-medals"><div className="medal-strip-head"><small>МЕДАЛИ ИГРОКА</small><b>{snapshot.playerMedals.length}</b></div>{snapshot.playerMedals.length ? <div className="medal-strip">{snapshot.playerMedals.map((medal) => <article key={medal.id}><i><MedalIcon value={medal.icon} /></i><div><strong>{medal.title}</strong><span>{medal.description || "Без описания"}</span><small>{new Date(medal.awardedAt).toLocaleDateString("ru-RU")} · {medal.awardedBy}</small></div></article>)}</div> : <p className="medal-empty">Медалей пока нет.</p>}</div>
   </div>;
 }
 
@@ -232,9 +244,9 @@ function StateViewInner({ snapshot, onClaim, onPolitics, onGovernment, onCustomi
     return Math.max(0, Math.min(100, (now - start) / Math.max(1, end - start) * 100));
   }, [snapshot.season, now]);
   return <div className={`state-screen game-scene state-theme-${snapshot.state.theme} ${snapshot.state.isFreeport ? "freeport-profile" : ""}`} style={{ ["--state-color" as any]: snapshot.state.color }}>
-    <div className="hero-state identity-hero"><div className="state-emblem">{snapshot.state.emblem}</div><div className="flag"><span /></div><small>{snapshot.state.isFreeport ? "НЕЙТРАЛЬНАЯ ЗОНА" : "ГОСУДАРСТВО"}</small><h2>{snapshot.state.isFreeport ? "Нейтральная зона" : snapshot.state.name}</h2>{snapshot.state.stateUsername && <div className="state-handle">@{snapshot.state.stateUsername}</div>}<p className="state-motto">«{snapshot.state.motto}»</p></div>
+    <div className="hero-state identity-hero"><div className="state-emblem">{stateMark(snapshot.state.name, snapshot.state.emblem)}</div><div className="flag"><span /></div><small>{snapshot.state.isFreeport ? "НЕЙТРАЛЬНАЯ ЗОНА" : "ГОСУДАРСТВО"}</small><h2>{snapshot.state.isFreeport ? "Нейтральная зона" : snapshot.state.name}</h2>{snapshot.state.stateUsername && <div className="state-handle">@{snapshot.state.stateUsername}</div>}<p className="state-motto">«{snapshot.state.motto}»</p></div>
     {!snapshot.state.isFreeport && snapshot.season && <div className="season-strip"><div><small>СЕЗОН {snapshot.season.number}</small><strong>{snapshot.season.name}</strong></div><div className="season-progress"><i><em style={{ width: `${seasonProgress}%` }} /></i><span>осталось {remaining(snapshot.season.endsAt, now)}</span></div><b>#{snapshot.state.seasonRank}</b></div>}
-    <div className="stats-grid"><Stat label={snapshot.state.isFreeport ? "Уровень" : "Рейтинг"} value={snapshot.state.isFreeport ? String(snapshot.player.level) : snapshot.state.rating.toLocaleString("ru-RU")} /><Stat label={snapshot.state.isFreeport ? "Опыт" : "Место"} value={snapshot.state.isFreeport ? `${snapshot.player.xp} XP` : `#${snapshot.state.seasonRank}`} /><Stat label={snapshot.state.isFreeport ? "Свободные игроки" : "Граждане"} value={String(snapshot.state.memberCount)} /><Stat label={snapshot.state.isFreeport ? "Статус" : "Победы"} value={snapshot.state.isFreeport ? "НЕЙТРАЛЕН" : String(snapshot.state.islandWins)} /></div>
+    <div className="stats-grid"><Stat label={snapshot.state.isFreeport ? "Уровень" : "Рейтинг"} value={snapshot.state.isFreeport ? String(snapshot.player.level) : snapshot.state.rating.toLocaleString("ru-RU")} /><Stat label={snapshot.state.isFreeport ? "Опыт" : "Место"} value={snapshot.state.isFreeport ? `${snapshot.player.xp} XP` : `#${snapshot.state.seasonRank}`} /><Stat label={snapshot.state.isFreeport ? "Свободные игроки" : "Граждане"} value={String(snapshot.state.memberCount)} /><Stat label={snapshot.state.isFreeport ? "Статус" : "Престиж"} value={snapshot.state.isFreeport ? "НЕЙТРАЛЕН" : snapshot.state.achievementPoints.toLocaleString("ru-RU")} /></div>
     {!snapshot.state.isFreeport && snapshot.election?.status === "open" && <ElectionPanel snapshot={snapshot} onPolitics={onPolitics} now={now} />}
     <DailyOpsPanel snapshot={snapshot} onClaim={onClaim} />
     <PlayerProgress snapshot={snapshot} />
@@ -242,7 +254,9 @@ function StateViewInner({ snapshot, onClaim, onPolitics, onGovernment, onCustomi
     {!snapshot.state.isFreeport && <GovernmentPanel snapshot={snapshot} onGovernment={onGovernment} />}
     {!snapshot.state.isFreeport && snapshot.election?.status !== "open" && <ElectionPanel snapshot={snapshot} onPolitics={onPolitics} now={now} />}
     {!snapshot.state.isFreeport && <IdentityEditor snapshot={snapshot} onCustomize={onCustomize} />}
-    {!snapshot.state.isFreeport && <div className="panel badge-panel"><div className="panel-head"><div><small>ДОСТИЖЕНИЯ</small><h3>Награды государства</h3></div><span>{snapshot.badges.length} получено</span></div>{snapshot.badges.length ? <div className="badge-grid">{snapshot.badges.map((badge) => <div className="state-badge" key={badge.id}><b>{badge.icon}</b><strong>{badge.title}</strong><span>{badge.description}</span></div>)}</div> : <p>Первая награда появится за рейтинг, серию или победы.</p>}</div>}
+    {!snapshot.state.isFreeport && (snapshot.state.adminArmyBoostUntil || snapshot.state.adminThreatShieldUntil || snapshot.state.adminXpBoostUntil) && <div className="panel admin-effects-panel"><div className="panel-head"><div><small>АКТИВНЫЕ ЭФФЕКТЫ</small><h3>Награды Администрации</h3></div></div><div className="admin-effects-grid">{snapshot.state.adminArmyBoostUntil && new Date(snapshot.state.adminArmyBoostUntil).getTime() > now && snapshot.state.adminArmyBoostPct > 0 && <span><b>⚔ +{snapshot.state.adminArmyBoostPct}%</b><small>армия · до {new Date(snapshot.state.adminArmyBoostUntil).toLocaleString("ru-RU", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</small></span>}{snapshot.state.adminThreatShieldUntil && new Date(snapshot.state.adminThreatShieldUntil).getTime() > now && <span><b>🛡 Защита</b><small>ЧП отключены до {new Date(snapshot.state.adminThreatShieldUntil).toLocaleString("ru-RU", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</small></span>}{snapshot.state.adminXpBoostUntil && new Date(snapshot.state.adminXpBoostUntil).getTime() > now && snapshot.state.adminXpBoostPct > 0 && <span><b>⭐ +{snapshot.state.adminXpBoostPct}%</b><small>опыт · до {new Date(snapshot.state.adminXpBoostUntil).toLocaleString("ru-RU", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</small></span>}</div></div>}
+    {!snapshot.state.isFreeport && <div className="panel state-medals-panel"><div className="panel-head"><div><small>АДМИНИСТРАЦИЯ WARSTATE</small><h3>Награды государства</h3></div><span>{snapshot.stateMedals.length}</span></div>{snapshot.stateMedals.length ? <div className="medal-strip state-medal-strip">{snapshot.stateMedals.map((medal) => <article key={medal.id}><i><MedalIcon value={medal.icon} /></i><div><strong>{medal.title}</strong><span>{medal.description || "Без описания"}</span><small>{new Date(medal.awardedAt).toLocaleDateString("ru-RU")} · {medal.awardedBy}</small></div></article>)}</div> : <p>Именных наград от Администрации пока нет.</p>}</div>}
+    {!snapshot.state.isFreeport && <div className="panel badge-panel"><div className="panel-head"><div><small>ДОСТИЖЕНИЯ</small><h3>Достижения государства</h3></div><span>{snapshot.badges.length} получено</span></div>{snapshot.badges.length ? <div className="badge-grid">{snapshot.badges.map((badge) => <div className="state-badge" key={badge.id}><b>{badge.icon}</b><strong>{badge.title}</strong><span>{badge.description}</span></div>)}</div> : <p>Первое достижение появится за рейтинг, серию или победы.</p>}</div>}
     <div className="panel wars-panel"><small>ПОСЛЕДНИЕ БОИ</small>{snapshot.wars.length ? snapshot.wars.map((war) => <div className="war-row" key={war.id}><b>{war.attackerName}</b><span>{war.attackerPower} : {war.defenderPower}</span><b>{war.defenderName || "Нейтралы"}</b></div>) : <p>История боёв пока пуста.</p>}</div>
   </div>;
 }

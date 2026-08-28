@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { AdminRewardsCenter } from "@/components/game/admin-rewards-center";
 
 export interface AdminStatsView {
   generatedAt: string;
@@ -197,6 +198,8 @@ export function AdminPanel({ initData }: Props) {
           </button>
         </div>
       )}
+
+      <AdminRewardsCenter initData={initData} />
 
       {stats && (
         <>

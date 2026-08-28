@@ -151,7 +151,7 @@ export async function getIslandWorld(
     const presidentIds = [...new Set((presidentRows?.data || []).map((r: any) => String(r.owner_player_id)).filter(Boolean))];
     if (presidentIds.length) {
       const { data: presPlayers } = await supabase.from("players").select("id, display_name").in("id", presidentIds);
-      const presMap = new Map((presPlayers || []).map((p: any) => [String(p.id), String(p.display_name || "")]));
+      const presMap = new Map<string, string>((presPlayers || []).map((p: any): [string, string] => [String(p.id), String(p.display_name || "")]));
       for (const row of presidentRows?.data || []) {
         presidentNames.set(String(row.id), presMap.get(String(row.owner_player_id)) || "");
       }

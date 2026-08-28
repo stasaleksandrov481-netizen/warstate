@@ -254,9 +254,10 @@ interface DynamicStateRow {
   is_beginner_island: boolean | null;
   bot_present: boolean | null;
   time_zone: string | null;
+  admin_threat_shield_until: string | null;
 }
 
-const DYNAMIC_STATE_COLUMNS = "id,name,telegram_chat_id,owner_player_id,president_vacant_since,last_anarchy_at,night_notified_on,next_threat_at,last_role_nudge_at,is_freeport,is_beginner_island,bot_present,time_zone";
+const DYNAMIC_STATE_COLUMNS = "id,name,telegram_chat_id,owner_player_id,president_vacant_since,last_anarchy_at,night_notified_on,next_threat_at,last_role_nudge_at,is_freeport,is_beginner_island,bot_present,time_zone,admin_threat_shield_until";
 
 function isMissingMigrationError(error: unknown) {
   if (!error || typeof error !== "object") return false;
@@ -264,15 +265,16 @@ function isMissingMigrationError(error: unknown) {
   const code = String(row.code || "");
   const message = String(row.message || "");
   // PGRST202: function missing, PGRST204/205: column/relation missing.
-  return ["PGRST202", "PGRST204", "PGRST205"].includes(code)
+  return ["PGRST202", "PGRST204", "PGRST205", "42703"].includes(code)
     || message.includes("gw_apply_state_loss")
     || message.includes("state_threat_events")
-    || message.includes("president_vacant_since");
+    || message.includes("president_vacant_since")
+    || message.includes("admin_threat_shield_until");
 }
 
 function warnOptional(step: string, error: unknown) {
   if (isMissingMigrationError(error)) {
-    console.warn(`WARSTATE dynamic events skipped (${step}): apply migration 032_dynamic_events.sql`);
+    console.warn(`WARSTATE dynamic events skipped (${step}): apply the latest Supabase migrations (032 and 035).`);
     return;
   }
   console.warn(`WARSTATE dynamic events step failed (${step})`, error);
@@ -700,6 +702,26 @@ async function maybeSpawnThreat(state: DynamicStateRow, chatId: number, now: Dat
       return false;
     }
     if (new Date(state.next_threat_at).getTime() > now.getTime()) return false;
+
+    // An Administration shield consumes the due slot without creating a ЧП.
+    // The schedule still advances normally, so disabling the shield cannot
+    // cause a backlog of emergencies to fire at once.
+    if (state.admin_threat_shield_until && new Date(state.admin_threat_shield_until).getTime() > now.getTime()) {
+      const nextSlot = nextThreatSlotAfter(now, timeZone).toISOString();
+      const { data: shieldClaim, error: shieldClaimError } = await supabase
+        .from("states")
+        .update({ next_threat_at: nextSlot })
+        .eq("id", state.id)
+        .lte("next_threat_at", now.toISOString())
+        .select("id")
+        .maybeSingle();
+      if (shieldClaimError) {
+        warnOptional("admin threat shield", shieldClaimError);
+        return false;
+      }
+      if (shieldClaim) state.next_threat_at = nextSlot;
+      return false;
+    }
 
     // One open emergency at a time. If a previous emergency is somehow still
     // open at slot time, this slot is consumed and the next one is scheduled.

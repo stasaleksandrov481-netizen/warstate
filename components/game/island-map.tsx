@@ -3,6 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import Image from "next/image";
 import type { GameSnapshot, IslandView, WarType } from "@/lib/types";
+import { stateMarkText } from "@/lib/visual";
 
 const MIN_ZOOM = 0.16;
 const MAX_ZOOM = 1.8;
@@ -67,13 +68,12 @@ function relationText(state: IslandView) {
 }
 
 function crestText(state: IslandView) {
-  const emblem = String(state.emblem || "").trim();
-  return emblem && emblem.length <= 3 ? emblem : displayName(state).slice(0, 1).toLocaleUpperCase("ru-RU");
+  return stateMarkText(displayName(state), state.emblem);
 }
 
 const CastleNode = memo(function CastleNode({ state, detail, selected, onSelect }: { state: IslandView; detail: "far" | "mid" | "near"; selected: boolean; onSelect: (state: IslandView) => void }) {
   const ruined = Boolean(state.destroyedUntil && new Date(state.destroyedUntil).getTime() > Date.now());
-  const size = Math.max(150, Math.min(260, 150 + Math.sqrt(Math.max(1, state.memberCount)) * 8));
+  const size = Math.max(190, Math.min(340, 190 + Math.sqrt(Math.max(1, state.memberCount)) * 10));
   const style = {
     left: state.worldX,
     top: state.worldY,
@@ -93,15 +93,24 @@ const CastleNode = memo(function CastleNode({ state, detail, selected, onSelect 
       <span className="territory-region" aria-hidden="true" />
       <span className="territory-wall" aria-hidden="true" />
       <span className="castle-structure" aria-hidden="true">
-        <i className="castle-tower tower-left" /><i className="castle-tower tower-right" /><i className="castle-keep" /><i className="castle-gate" />
+        <i className="castle-tower tower-left" />
+        <i className="castle-tower tower-center" />
+        <i className="castle-tower tower-right" />
+        <i className="castle-keep" />
+        <i className="castle-wall wall-left" />
+        <i className="castle-wall wall-right" />
+        <i className="castle-gate" />
+        <i className="castle-banner banner-left" />
+        <i className="castle-banner banner-right" />
       </span>
       <span className="castle-crest" style={{ background: state.color }}>
-        {state.avatarUrl ? <Image src={state.avatarUrl} alt="" width={46} height={46} unoptimized /> : crestText(state)}
+        {state.avatarUrl ? <Image src={state.avatarUrl} alt="" width={52} height={52} unoptimized /> : crestText(state)}
       </span>
       {detail !== "far" && (
         <span className="castle-label">
           <b>{displayName(state)}</b>
           <small>{state.presidentName ? `Президент: ${state.presidentName}` : "Президент не назначен"}</small>
+          <em>ELO {state.rating} · ур. {state.level}</em>
         </span>
       )}
       {detail === "near" && (
@@ -110,6 +119,8 @@ const CastleNode = memo(function CastleNode({ state, detail, selected, onSelect 
           <span><b>{compact.format(state.armyPower)}</b><small>армия</small></span>
           <span><b>{compact.format(state.treasuryCredits)}</b><small>казна</small></span>
           <span><b>{state.allianceCount}</b><small>союзы</small></span>
+          <span><b>{compact.format(state.activePlayers)}</b><small>активны</small></span>
+          <span><b>{state.integrity}%</b><small>прочность</small></span>
         </span>
       )}
     </button>
@@ -255,6 +266,16 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   const selectedReason = selected ? attackReason(snapshot, selected, now) : null;
   const activeBattle = snapshot.activeBattle && snapshot.activeBattle.status !== "resolved" && new Date(snapshot.activeBattle.endsAt).getTime() > now ? snapshot.activeBattle : null;
 
+  const terrainBounds = useMemo(() => {
+    const padding = 1800;
+    return {
+      left: bounds.minX - padding,
+      top: bounds.minY - padding,
+      width: Math.max(4200, bounds.maxX - bounds.minX + padding * 2),
+      height: Math.max(4200, bounds.maxY - bounds.minY + padding * 2),
+    };
+  }, [bounds]);
+
   return (
     <div className="continent-map-screen">
       {activeBattle && <button type="button" className="continent-war-alert" onClick={onOpenBattle}><span>⚔</span><div><small>АКТИВНЫЙ БОЙ</small><b>{activeBattle.attackerName} · {activeBattle.defenderName}</b></div><em>{timeLeft(activeBattle.endsAt, now)}</em></button>}
@@ -268,8 +289,18 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
         onWheel={wheel}
         onClick={() => onSelect(null)}
       >
-        <div className="continent-background" aria-hidden="true"><i className="terrain ridge-a"/><i className="terrain ridge-b"/><i className="terrain forest-a"/><i className="terrain forest-b"/><i className="terrain plain-a"/></div>
+        <div className="continent-background" aria-hidden="true" />
         <div className="continent-world" style={{ transform }}>
+          <div
+            className="continent-world-terrain"
+            aria-hidden="true"
+            style={{ left: terrainBounds.left, top: terrainBounds.top, width: terrainBounds.width, height: terrainBounds.height }}
+          >
+            <i className="terrain-patch ridge-a"/><i className="terrain-patch ridge-b"/><i className="terrain-patch ridge-c"/>
+            <i className="terrain-patch forest-a"/><i className="terrain-patch forest-b"/><i className="terrain-patch forest-c"/>
+            <i className="terrain-patch meadow-a"/><i className="terrain-patch meadow-b"/><i className="terrain-patch meadow-c"/>
+            <i className="terrain-road road-a"/><i className="terrain-road road-b"/><i className="terrain-road road-c"/>
+          </div>
           <svg className="alliance-network" width="10000" height="10000" viewBox="-5000 -5000 10000 10000" aria-hidden="true">
             {mine && allied.map((ally) => {
               const mx = (mine.worldX + ally.worldX) / 2;
@@ -300,14 +331,14 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
           <div className="continent-filters">
             {([['all','Все'],['enemy','Противники'],['ally','Союзники'],['neutral','Нейтральные']] as Array<[MapFilter,string]>).map(([key,label]) => <button type="button" key={key} className={filter === key ? "active" : ""} onClick={() => setFilter(key)}>{label}</button>)}
           </div>
-          {normalizedQuery && <div className="continent-search-results">{searchResults.length ? searchResults.map((state) => <button type="button" key={state.id} onClick={() => focusState(state)}><i style={{ background: state.color }}>{crestText(state)}</i><span><b>{displayName(state)}</b><small>{state.memberCount.toLocaleString("ru-RU")} участников · {state.rating} ELO</small></span></button>) : <p>Ничего не найдено</p>}</div>}
+          {normalizedQuery && <div className="continent-search-results">{searchResults.length ? searchResults.map((state) => <button type="button" key={state.id} onClick={() => focusState(state)}><i style={{ background: state.color }}>{crestText(state)}</i><span><b>{displayName(state)}</b><small>{state.memberCount.toLocaleString("ru-RU")} жителей · {state.rating} ELO · {state.allianceCount} союзов</small></span></button>) : <p>Ничего не найдено</p>}</div>}
           <div className="continent-map-key"><span><i className="ally"/>Союз</span><span><i className="enemy"/>Война</span><span><i className="mine"/>Ваше государство</span></div>
         </aside>}
       </div>
 
       {selected && <section className="state-inspector" style={{ "--state-color": selected.color } as CSSProperties}>
         <button type="button" className="state-inspector-close" onClick={() => onSelect(null)} aria-label="Закрыть">×</button>
-        <div className="state-inspector-title"><span style={{ background: selected.color }}>{selected.avatarUrl ? <Image src={selected.avatarUrl} alt="" width={58} height={58} unoptimized /> : crestText(selected)}</span><div><small>{relationText(selected)}</small><h3>{displayName(selected)}</h3>{selected.stateUsername && <em>@{selected.stateUsername}</em>}</div></div>
+        <div className="state-inspector-title"><span style={{ background: selected.color }}>{selected.avatarUrl ? <Image src={selected.avatarUrl} alt="" width={64} height={64} unoptimized /> : crestText(selected)}</span><div><small>{relationText(selected)}</small><h3>{displayName(selected)}</h3>{selected.stateUsername && <em>@{selected.stateUsername}</em>}<p>{selected.presidentName ? `Правитель: ${selected.presidentName}` : "Правитель ещё не назначен"}</p></div></div>
         <div className="state-inspector-grid">
           <span><b>{selected.memberCount.toLocaleString("ru-RU")}</b><small>население</small></span>
           <span><b>{selected.armyPower.toLocaleString("ru-RU")}</b><small>армия</small></span>
@@ -316,7 +347,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
           <span><b>{selected.integrity}%</b><small>прочность</small></span>
           <span><b>{selected.rating}</b><small>ELO</small></span>
         </div>
-        <div className="state-inspector-meta"><span>Президент: <b>{selected.presidentName || "не назначен"}</b></span><span>Активны: <b>{selected.activePlayers}</b></span></div>
+        <div className="state-inspector-meta"><span>Активный гарнизон: <b>{selected.activePlayers}</b></span><span>Баланс побед: <b>{selected.wins}:{selected.losses}</b></span><span>Серия: <b>x{selected.winStreak}</b></span></div>
         {!selected.isMine && !selected.isFreeport && <button type="button" className="state-switch" onClick={() => onSwitchState(selected)}>Перейти в государство<small>Бот проверит членство в Telegram-чате</small></button>}
         {selected.isMine ? <button type="button" className="state-primary" onClick={onOpenIsland}>Открыть замок<small>Казна, армия, инфраструктура</small></button> : selected.isFreeport || selected.isBeginnerIsland ? <div className="state-protected">Эта территория защищена и не участвует в атаках.</div> : <div className="state-war-actions">
           <div>{(["raid","siege","territory"] as WarType[]).map((type) => <button type="button" key={type} className={warType === type ? "active" : ""} onClick={() => setWarType(type)} disabled={Boolean(selectedReason)}>{type === "raid" ? "Рейд" : type === "siege" ? "Осада" : "Территория"}</button>)}</div>

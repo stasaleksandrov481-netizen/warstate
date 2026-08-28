@@ -1,6 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { adminMiniAppLink, miniAppLink, telegramApi } from "@/lib/telegram-bot";
-import { isProjectAdminTelegramId } from "@/lib/config";
+import { isProjectAdminTelegramId, requireTelegramBotUsername } from "@/lib/config";
 import { getProduct } from "@/lib/products";
 import { handleGroupCallback, handleGroupTextCommand, processDueGroupVotes } from "@/lib/chat-commands";
 import { recordChatActivity, finalizeDueElectionsForChat, registerTelegramState, markStateBotRemoved } from "@/lib/government";
@@ -8,6 +8,7 @@ import { bootstrapGame, markTelegramGroupMemberLeft, observeTelegramGroupMember 
 import { reconcileStateRuntimeByChatId } from "@/lib/maintenance";
 import { initializeDynamicTrackers, reconcileDynamicEventsForChat } from "@/lib/dynamic-events";
 import { markSeenOnce } from "@/lib/redis";
+import { handleAdminAccessReply } from "@/lib/admin-rewards";
 
 export const runtime = "nodejs";
 // Command handling can chain several Supabase round-trips plus Telegram API
@@ -43,7 +44,7 @@ async function sendAdminPanelMessage(chatId: number) {
     text:
       `🛠 АДМИН-ПАНЕЛЬ WARSTATE\n────────────\n` +
       `Доступна только создателю проекта.\n\n` +
-      `Нажми кнопку ниже, чтобы открыть live-статистику: игроки, государства, битвы, платежи и активность бота.`,
+      `Нажмите кнопку ниже, чтобы открыть статистику, награды, историю и доступ к группам.`,
     reply_markup: {
       inline_keyboard: [[{ text: "🛠 Открыть админ-панель", url: adminMiniAppLink() }]],
     },
@@ -137,6 +138,7 @@ async function processSuccessfulPayment(message: any) {
 }
 
 export async function POST(request: Request) {
+  try { requireTelegramBotUsername(); } catch (error) { return new Response(error instanceof Error ? error.message : "Telegram bot username is not configured", { status: 503 }); }
   if (!process.env.TELEGRAM_WEBHOOK_SECRET) return new Response("TELEGRAM_WEBHOOK_SECRET is not configured", { status: 500 });
   if (!validWebhookSecret(request)) return new Response("forbidden", { status: 403 });
   let update: any;
@@ -147,7 +149,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    console.info("WARSTATE_RUNTIME=5.0-continent");
+    console.info("WARSTATE_RUNTIME=5.1-admin-rewards");
     // Pre-checkout and successful-payment updates use their own Telegram/charge
     // idempotency flow because a failed payment write must be allowed to retry.
     // All ordinary commands, callbacks and membership events are claimed once
@@ -268,6 +270,11 @@ export async function POST(request: Request) {
     }
 
     if (message?.chat?.id && ["group", "supergroup"].includes(message.chat.type)) {
+      // Private-group access requests are handled before ordinary commands.
+      // The request is tied to the exact bot message id, and only a Telegram
+      // owner/admin reply containing an invite link is accepted.
+      if (await handleAdminAccessReply(message)) return Response.json({ ok: true, adminAccessReply: true });
+
       // Telegram does not expose a complete historical member list to bots.
       // We therefore enrol every newly joined human immediately, and any existing
       // member is enrolled on their first message/command or via !вступить.

@@ -5,7 +5,7 @@ import { getDiplomacyForState, getLeaderboard, getWorldFeed, recordWorldEvent } 
 import { getDailyMissions, recordMissionProgress } from "@/lib/missions";
 import { ensureMilestoneBadges, getActiveSeason, getElection, getStateBadges } from "@/lib/politics";
 import { getIslandWorld, syncStateChatMeta } from "@/lib/islands";
-import type { BuildingType, BuildingView, GameSnapshot, WarView } from "@/lib/types";
+import type { BuildingType, BuildingView, GameSnapshot, GovernmentView, WarView } from "@/lib/types";
 import type { TelegramUser } from "@/lib/telegram";
 import { requireData } from "@/lib/invariants";
 import { getRecruitmentHub } from "@/lib/recruitment";
@@ -13,6 +13,7 @@ import { getStrategyView } from "@/lib/strategy";
 import { getGovernmentView, registerTelegramState } from "@/lib/government";
 import { reconcileStateRuntime } from "@/lib/maintenance";
 import { applyWorkforceBonus, isMissingDutyRoleError } from "@/lib/community";
+import { getPlayerMedals, getStateMedals } from "@/lib/medals";
 
 const BUILDING_META: Record<BuildingType, { label: string; description: string; x: number; y: number }> = {
   hq: { label: "Казначейство и штаб", description: "Бюджет, управление, оборона и уровень государства", x: 50, y: 36 },
@@ -64,7 +65,7 @@ function emptyStrategy(role: string, beginnerIsland: boolean) {
 }
 
 const EMPTY_RECRUITMENT = { post: null, listings: [], myRequests: [], incoming: [], freeAgents: [] };
-const EMPTY_GOVERNMENT = { stateUsername: null, telegramChatTitle: null, founder: null, president: null, deputies: [], canFounderManage: false, canProjectAdmin: false };
+const EMPTY_GOVERNMENT: GovernmentView = { stateUsername: null, telegramChatTitle: null, founder: null, president: null, deputies: [], canFounderManage: false, canProjectAdmin: false };
 
 const BASE_COSTS: Record<BuildingType, Partial<Record<"credits" | "steel" | "fuel" | "food" | "tech", number>>> = {
   hq: { credits: 1800, steel: 500, tech: 30 },
@@ -565,8 +566,8 @@ export async function getGameSnapshot(
   if (finishUpgradeError) warnOptionalSnapshotPart("finish building upgrades", finishUpgradeError);
   if (strategyRefreshError && strategyRefreshError.code !== "PGRST202") throw strategyRefreshError;
   const [playerRes, stateRes, buildingsRes, membersRes, myMember] = await Promise.all([
-    supabase.from("players").select("id,display_name,username,level,xp,energy").eq("id", playerId).single(),
-    supabase.from("states").select("id,name,state_username,telegram_chat_title,color,motto,emblem,theme,telegram_chat_id,credits,steel,fuel,food,tech,rating,rating_peak,telegram_member_count,world_x,world_y,island_wins,island_losses,destroyed_until,chat_avatar_file_id,shield_until,next_attack_at,island_integrity,win_streak,best_win_streak,last_battle_at,is_freeport,is_beginner_island,game_level,max_level,influence,reputation,army_power,defense_power,active_player_count,state_size").eq("id", stateId).single(),
+    supabase.from("players").select("id,display_name,username,admin_title,level,xp,energy").eq("id", playerId).single(),
+    supabase.from("states").select("id,name,state_username,telegram_chat_title,color,motto,emblem,theme,telegram_chat_id,credits,steel,fuel,food,tech,rating,rating_peak,telegram_member_count,world_x,world_y,island_wins,island_losses,destroyed_until,chat_avatar_file_id,shield_until,next_attack_at,island_integrity,win_streak,best_win_streak,last_battle_at,is_freeport,is_beginner_island,game_level,max_level,influence,reputation,army_power,defense_power,active_player_count,state_size,achievement_points,admin_army_boost_pct,admin_army_boost_until,admin_threat_shield_until,admin_xp_boost_pct,admin_xp_boost_until").eq("id", stateId).single(),
     supabase.from("buildings").select("building_type,level,upgrade_target_level,upgrade_started_at,upgrade_finishes_at,upgrade_cooldown_until").eq("state_id", stateId).order("building_type"),
     supabase.from("state_members").select("id", { count: "exact", head: true }).eq("state_id", stateId),
     getPlayerMemberSnapshot(stateId, playerId),
@@ -596,7 +597,7 @@ export async function getGameSnapshot(
   // getIslandWorld only needs `diplomacy` and `state`, both already resolved
   // above, so it can run inside this same parallel batch instead of as an
   // extra serial step tacked on after everything else finishes.
-  const [rankRes, worldFeed, leaderboard, dailyMissions, activeBattle, season, election, recruitment, recentWars, strategy, government, islands] = await Promise.all([
+  const [rankRes, worldFeed, leaderboard, dailyMissions, activeBattle, season, election, recruitment, recentWars, strategy, government, islands, playerMedals, stateMedals] = await Promise.all([
     rankPromise,
     optionalSnapshotPart("world feed", [], () => getWorldFeed(24)),
     optionalSnapshotPart("leaderboard", [], () => getLeaderboard(10)),
@@ -609,6 +610,8 @@ export async function getGameSnapshot(
     optionalSnapshotPart("strategy", emptyStrategy(role, Boolean(state.is_beginner_island)), () => getStrategyView(playerId, stateId, role, Boolean(state.is_beginner_island))),
     optionalSnapshotPart("government", EMPTY_GOVERNMENT, () => getGovernmentView(stateId, playerId)),
     optionalSnapshotPart("island world", [], () => getIslandWorld(stateId, diplomacy, { x: Number(state.world_x || 0), y: Number(state.world_y || 0) })),
+    optionalSnapshotPart("player medals", [], () => getPlayerMedals(playerId)),
+    state.is_freeport ? Promise.resolve([]) : optionalSnapshotPart("state medals", [], () => getStateMedals(stateId)),
   ]);
   if (rankRes?.error) warnOptionalSnapshotPart("season rank", rankRes.error);
   if (!state.is_freeport) {
@@ -634,6 +637,7 @@ export async function getGameSnapshot(
       telegramId,
       displayName: player.display_name,
       username: player.username,
+      adminTitle: player.admin_title || null,
       level: player.level,
       xp: player.xp,
       energy: player.energy,
@@ -685,6 +689,12 @@ export async function getGameSnapshot(
       avatarUrl: state.chat_avatar_file_id ? `/api/telegram/chat-photo?stateId=${encodeURIComponent(state.id)}` : null,
       shieldUntil: state.shield_until || null,
       nextAttackAt: state.next_attack_at || null,
+      achievementPoints: Number(state.achievement_points || 0),
+      adminArmyBoostPct: Number(state.admin_army_boost_pct || 0),
+      adminArmyBoostUntil: state.admin_army_boost_until || null,
+      adminThreatShieldUntil: state.admin_threat_shield_until || null,
+      adminXpBoostPct: Number(state.admin_xp_boost_pct || 0),
+      adminXpBoostUntil: state.admin_xp_boost_until || null,
     },
     buildings,
     wars: recentWars,
@@ -696,6 +706,8 @@ export async function getGameSnapshot(
     season,
     election,
     badges,
+    playerMedals,
+    stateMedals,
     activeBattle,
     recruitment,
     strategy,

@@ -3,8 +3,10 @@ import { validateTelegramInitData } from "@/lib/telegram";
 import { assertTelegramChatMembership, TelegramMembershipRequiredError } from "@/lib/telegram-bot";
 import { requireData } from "@/lib/invariants";
 import { normalizeWarstateCopy } from "@/lib/copy";
+import { requireTelegramBotUsername } from "@/lib/config";
 
 export function sessionFromRequest(request: Request) {
+  requireTelegramBotUsername();
   const initData = request.headers.get("x-telegram-init-data") || "";
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error("Telegram-бот не настроен на сервере.");

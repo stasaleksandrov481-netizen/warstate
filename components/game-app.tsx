@@ -55,7 +55,7 @@ class ApiRequestError extends Error {
   }
 }
 
-function mergeIslandLists(current: IslandView[] = [], incoming: IslandView[] = [], max = 420) {
+function mergeIslandLists(current: IslandView[] = [], incoming: IslandView[] = [], max = 520) {
   const incomingIds = new Set(incoming.map((item) => item.id));
   const merged = [...incoming, ...current.filter((item) => !incomingIds.has(item.id))];
   const mine = merged.find((item) => item.isMine);
@@ -139,31 +139,38 @@ export default function GameApp() {
   // admin deep-link cannot accidentally boot the normal game.
   // Fixed: compute isAdminEntry reactively so it re-evaluates once the
   // Telegram WebApp SDK is ready and initDataUnsafe.start_param is populated.
-  const [isAdminEntry, setIsAdminEntry] = useState(() => {
+  const detectAdminEntry = useCallback(() => {
     if (typeof window === "undefined") return false;
+    const app = tg();
     const urlSP = new URLSearchParams(window.location.search);
     const hashSP = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    return urlSP.get("admin") === "1"
-      || window.location.hash.includes("admin")
+    const initSP = app?.initDataUnsafe?.start_param;
+    const initDataSP = app?.initData ? new URLSearchParams(app.initData).get("start_param") : null;
+    return initSP === "admin"
+      || initDataSP === "admin"
+      || urlSP.get("admin") === "1"
       || urlSP.get("tgWebAppStartParam") === "admin"
       || urlSP.get("startapp") === "admin"
-      || hashSP.get("tgWebAppStartParam") === "admin";
-  });
+      || hashSP.get("tgWebAppStartParam") === "admin"
+      || hashSP.get("startapp") === "admin";
+  }, []);
+
+  const [isAdminEntry, setIsAdminEntry] = useState(() => detectAdminEntry());
 
   useEffect(() => {
     if (!telegramReady) return;
-    const app = tg();
-    const sp = app?.initDataUnsafe?.start_param;
-    if (sp === "admin") { setIsAdminEntry(true); return; }
-    // Double-check URL params in case the SDK didn't parse them
-    if (typeof window !== "undefined") {
-      const urlSP = new URLSearchParams(window.location.search);
-      const hashSP = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-      if (urlSP.get("tgWebAppStartParam") === "admin" || urlSP.get("startapp") === "admin" || hashSP.get("tgWebAppStartParam") === "admin") {
-        setIsAdminEntry(true);
-      }
-    }
-  }, [telegramReady]);
+    let attempts = 0;
+    const check = () => {
+      attempts += 1;
+      if (detectAdminEntry()) { setIsAdminEntry(true); return true; }
+      return attempts >= 30;
+    };
+    if (check()) return;
+    const timer = window.setInterval(() => {
+      if (check()) window.clearInterval(timer);
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [telegramReady, detectAdminEntry]);
 
   const acceptSnapshot = useCallback((fresh: GameSnapshot) => {
     setSnapshot((current) => ({
@@ -466,7 +473,7 @@ export default function GameApp() {
     if (!snapshot?.activeBattle) return;
     try {
       const battle = await api<BattleView>("/api/game/battle/join", initData, { method: "POST", body: JSON.stringify({ battleId: snapshot.activeBattle.id, class: klass }) });
-      setSnapshot({ ...snapshot, activeBattle: battle });
+      setSnapshot((current) => current ? { ...current, activeBattle: battle } : current);
     } catch (e) { notify(e instanceof Error ? e.message : "Не удалось войти в бой", "error"); }
   }
 
@@ -474,7 +481,7 @@ export default function GameApp() {
     if (!snapshot?.activeBattle) return;
     try {
       const battle = await api<BattleView>("/api/game/battle/action", initData, { method: "POST", body: JSON.stringify({ battleId: snapshot.activeBattle.id, action, ...payload }) });
-      setSnapshot({ ...snapshot, activeBattle: battle });
+      setSnapshot((current) => current ? { ...current, activeBattle: battle } : current);
     } catch (e) { notify(e instanceof Error ? e.message : "Действие не удалось", "error"); }
   }
 

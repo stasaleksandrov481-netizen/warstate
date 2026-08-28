@@ -98,22 +98,18 @@ const IslandNode = memo(function IslandNode({
   const league = eloLeague(island.rating);
   const relationLabel = island.isBeginnerIsland ? "НОВИЧКИ" : island.isFreeport ? "НЕЙТРАЛЬНО" : island.relation === "war" ? "ВРАГ" : island.relation === "allied" ? "СОЮЗ" : island.relation === "truce" ? "МИР" : null;
 
-  // LOD: the card lives inside `.game-world-layer`, which is itself scaled by
-  // `camera.zoom` (see cameraTransform). Any px value we set here therefore
-  // renders on screen at `value * zoom` — so partially compensating (the old
-  // `zoom^0.38` curve) still let on-screen size collapse toward zero as the
-  // player zoomed all the way out (at MIN_ZOOM it was under 1 on-screen px).
-  // Counteracting zoom fully (1 / zoom) cancels the parent's scale exactly,
-  // so every size below renders at its base on-screen pixel value no matter
-  // how far out the camera is.
-  const labelScale = Math.max(1 / MAX_ZOOM, Math.min(1 / MIN_ZOOM, 1 / zoom));
-  const labelFontSize = Math.max(6, Math.min(220, 10 * labelScale));
-  const kickerFontSize = Math.max(4.5, Math.min(160, 7 * labelScale));
-  const smallFontSize = Math.max(4, Math.min(150, 6.5 * labelScale));
-  const avatarSize = Math.max(18, Math.min(820, 36 * labelScale));
-  const padH = Math.max(3, Math.min(190, 8 * labelScale));
-  const padV = Math.max(2, Math.min(130, 5.5 * labelScale));
-  const gap = Math.max(1, Math.min(60, 2.5 * labelScale));
+  // LOD: labels live inside the scaled world, but should shrink gracefully
+  // rather than becoming microscopic at the world-fit zoom. Keep readability
+  // while still making cards visibly respond to zoom.
+  const zoomRatio = Math.max(0, Math.min(1, (zoom - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM)));
+  const labelScale = 0.72 + zoomRatio * 0.88;
+  const labelFontSize = Math.max(7, Math.min(24, 10 * labelScale));
+  const kickerFontSize = Math.max(5.5, Math.min(17, 7 * labelScale));
+  const smallFontSize = Math.max(5, Math.min(15, 6.5 * labelScale));
+  const avatarSize = Math.max(20, Math.min(58, 36 * labelScale));
+  const padH = Math.max(4, Math.min(13, 8 * labelScale));
+  const padV = Math.max(3, Math.min(9, 5.5 * labelScale));
+  const gap = Math.max(2, Math.min(5, 2.5 * labelScale));
 
   // far: compact badge; mid: medium card; near: full card
   const showFar = detail === "far";
@@ -558,7 +554,10 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
     const halfH = viewport.height / (2 * camera.zoom) + 720;
     const matchesFilter = (island: IslandView) => island.isMine || selected?.id === island.id || mapFilter === "all" || (mapFilter === "enemy" && island.relation === "war") || (mapFilter === "ally" && island.relation === "allied") || (mapFilter === "neutral" && !island.relation && !island.isMine);
     const candidates = sortedIslands.filter((island) => matchesFilter(island) && Math.abs(island.worldX - camera.x) <= halfW && Math.abs(island.worldY - camera.y) <= halfH);
-    const cap = detail === "far" ? 240 : detail === "mid" ? 240 : 300;
+    // At world-fit zoom the whole returned world should remain renderable.
+    // Capping far LOD at 240 silently hid half the map once the backend returned
+    // more than 240 states. Mid/near still use a tighter cap for mobile FPS.
+    const cap = detail === "far" ? 520 : detail === "mid" ? 280 : 320;
     if (candidates.length <= cap) return candidates;
     const nearest = [...candidates].sort((a, b) => Math.hypot(a.worldX - camera.x, a.worldY - camera.y) - Math.hypot(b.worldX - camera.x, b.worldY - camera.y)).slice(0, cap);
     for (const special of candidates.filter((island) => island.isMine || island.id === selected?.id)) if (!nearest.some((item) => item.id === special.id)) nearest.push(special);

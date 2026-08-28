@@ -491,12 +491,22 @@ export async function findActiveBattleForState(stateId: string, playerId: string
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("battles")
-    .select("id")
+    .select("id,starts_at,ends_at,status")
     .in("status", ["scheduled", "active"])
     .or(`attacker_state_id.eq.${stateId},defender_state_id.eq.${stateId}`)
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(5);
   if (error) throw error;
-  return data?.id ? getBattleView(data.id, playerId) : null;
+
+  for (const row of data || []) {
+    const endsAt = new Date(row.ends_at).getTime();
+    if (Number.isFinite(endsAt) && endsAt <= Date.now()) {
+      await tickBattle(String(row.id));
+      continue;
+    }
+    const view = await getBattleView(String(row.id), playerId);
+    if (view.status === "active") return view;
+    if (view.status === "scheduled" && new Date(view.startsAt).getTime() > Date.now()) return view;
+  }
+  return null;
 }

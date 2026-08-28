@@ -7,12 +7,12 @@ import { IslandArt } from "@/components/game/island-art";
 
 const INFRA: Record<BuildingType, { icon: string; label: string; desc: string }> = {
   hq: { icon: "⚑", label: "Казначейство и штаб", desc: "Бюджет, управление и уровень государства" },
-  barracks: { icon: "⚔", label: "Гарнизон", desc: "Подготовка бойцов к морским атакам" },
+  barracks: { icon: "⚔", label: "Гарнизон", desc: "Подготовка бойцов к военным операциям" },
   mine: { icon: "▰", label: "Карьер", desc: "Добыча стали для инфраструктуры" },
-  refinery: { icon: "◈", label: "Топливный порт", desc: "Топливо для флота" },
+  refinery: { icon: "◈", label: "Топливный порт", desc: "Топливо для армияа" },
   farm: { icon: "◆", label: "Фермы", desc: "Продовольствие государства" },
   lab: { icon: "⌁", label: "Академия", desc: "Технологии, исследования и развитие" },
-  outpost: { icon: "▣", label: "Застава", desc: "Оборона острова и защитный буфер" },
+  outpost: { icon: "▣", label: "Застава", desc: "Оборона государства и защитный буфер" },
   trade_chamber: { icon: "◇", label: "Торговая палата", desc: "Доход, торговля и дипломатия" },
 };
 
@@ -56,7 +56,7 @@ function FreeportHome({ snapshot, onRecruitment }: { snapshot: GameSnapshot; onR
 
       <section className="freeport-guide">
         <article><b>1</b><div><strong>Развивай профиль</strong><small>Ежедневные задания и участие в событиях дают XP.</small></div></article>
-        <article><b>2</b><div><strong>Выбери государство</strong><small>Открытые острова публикуют набор прямо в Freeport. Вступление доступно через одну кнопку, без поиска острова.</small></div></article>
+        <article><b>2</b><div><strong>Выбери государство</strong><small>Открытые государства публикуют набор прямо в Freeport. Вступление доступно через одну кнопку, без поиска государства.</small></div></article>
         <article><b>3</b><div><strong>Вступи в Telegram-группу</strong><small>После принятия получишь одноразовую ссылку от бота.</small></div></article>
       </section>
 
@@ -156,12 +156,12 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment, onOpenS
         </button>
       )}
 
-      {destroyed ? <div className="rebuild-card"><b>☠ Остров разрушен</b><p>Идёт аварийное восстановление. После выхода из руин остров вернётся с базовой прочностью и щитом.</p></div> : state.islandIntegrity < 100 ? (
+      {destroyed ? <div className="rebuild-card"><b>☠ Государство разрушен</b><p>Идёт аварийное восстановление. После выхода из руин государство вернётся с базовой прочностью и щитом.</p></div> : state.islandIntegrity < 100 ? (
         <div className="repair-card"><div><small>РЕМОНТ ОСТРОВА</small><b>{state.islandIntegrity}% → {Math.min(100, state.islandIntegrity + repairAmount)}%</b><span>Повреждения снижают производство.</span></div><button type="button" disabled={!canRepair} onClick={() => onRepair(repairAmount)}>Ремонт<small>{repairCredits} ₡ · {repairSteel} стали</small></button></div>
       ) : null}
 
       <section className="island-section">
-        <div className="section-row"><div><small>ИНФРАСТРУКТУРА</small><h3>Развитие острова</h3></div><span>{developmentCurrent}/{developmentMax} уровней</span></div><div className="development-track"><i style={{ width: `${developmentPct}%` }} /><span>{developmentPct}% освоено</span></div>
+        <div className="section-row"><div><small>ИНФРАСТРУКТУРА</small><h3>Развитие государства</h3></div><span>{developmentCurrent}/{developmentMax} уровней</span></div><div className="development-track"><i style={{ width: `${developmentPct}%` }} /><span>{developmentPct}% освоено</span></div>
         <div className="infra-grid">
           {snapshot.buildings.map((building) => {
             const meta = INFRA[building.type];
@@ -176,7 +176,7 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment, onOpenS
             const remainingMinutes = upgrading ? Math.max(1, Math.ceil((upgradeUntil - now) / 60_000)) : cooling ? Math.max(1, Math.ceil((cooldownUntil - now) / 60_000)) : 0;
             const canUpgrade = canManage && !destroyed && !aggressiveLocked && !upgrading && !cooling && building.level < maxLevel && state.treasury.credits >= credits && state.treasury.steel >= steel;
             const buttonTitle = aggressiveLocked ? "LOCK" : building.level >= maxLevel ? "MAX" : upgrading ? "⏳" : cooling ? "◷" : "↑";
-            const buttonHint = aggressiveLocked ? "учебный остров" : building.level >= maxLevel ? "уровень" : upgrading ? `до ур. ${building.upgradeTargetLevel} · ${remainingMinutes} мин` : cooling ? `остывание · ${remainingMinutes} мин` : `${credits.toLocaleString("ru-RU")} ₡`;
+            const buttonHint = aggressiveLocked ? "учебный государство" : building.level >= maxLevel ? "уровень" : upgrading ? `до ур. ${building.upgradeTargetLevel} · ${remainingMinutes} мин` : cooling ? `остывание · ${remainingMinutes} мин` : `${credits.toLocaleString("ru-RU")} ₡`;
             return <article className={`infra-card infra-${building.type} ${upgrading ? "infra-upgrading" : ""}`} key={building.type}><div className="infra-icon">{meta.icon}</div><div className="infra-copy"><b>{meta.label}</b><small>{meta.desc}</small><span className="infra-level">ур. {building.level}{upgrading ? ` → ${building.upgradeTargetLevel}` : ""}<i>{Array.from({ length: Math.min(5, Math.max(1, Math.ceil(building.level / 2))) }, (_, i) => <em key={i} />)}</i></span></div><button type="button" disabled={!canUpgrade} onClick={() => onUpgrade(building.type)}>{buttonTitle}<small>{buttonHint}</small></button></article>;
           })}
         </div>

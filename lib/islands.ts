@@ -211,8 +211,8 @@ export async function createIslandBattle(attackerStateId: string, defenderStateI
     }
     const attacker = (states || []).find((state: any) => state.id === attackerStateId);
     const defender = (states || []).find((state: any) => state.id === defenderStateId);
-    if (attacker?.is_beginner_island) throw new Error("Атаки с Острова новичков запрещены.");
-    if (defender?.is_beginner_island) throw new Error("Остров новичков находится под защитой.");
+    if (attacker?.is_beginner_island) throw new Error("Атаки из государства новичков запрещены.");
+    if (defender?.is_beginner_island) throw new Error("Государство новичков находится под защитой.");
     const durations: Record<WarType, number> = { raid: 900, siege: 1800, territory: 1200 };
     const { data: battleId, error } = await supabase.rpc("gw_start_island_battle", {
       p_attacker_state_id: attackerStateId,
@@ -220,7 +220,7 @@ export async function createIslandBattle(attackerStateId: string, defenderStateI
       p_duration_seconds: durations[battleType],
     });
     if (error) throw error;
-    if (!battleId) throw new Error("Не удалось начать атаку на остров.");
+    if (!battleId) throw new Error("Не удалось начать атаку на государство.");
     const { error: typeError } = await supabase.from("battles").update({ battle_type: battleType }).eq("id", battleId);
     if (typeError) throw typeError;
     return String(battleId);

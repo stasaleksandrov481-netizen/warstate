@@ -33,7 +33,7 @@ export async function POST(request: Request) {
 
     const { player, member, state } = await authorizeStateAction(request, stateId, { verifyTelegramMembership: true });
     if (state.is_freeport) throw new Error("Freeport сохраняет нейтралитет и не участвует в дипломатии.");
-    if (member.role === "curator" && !state.is_beginner_island) throw new Error("Роль куратора действует только на Острове новичков.");
+    if (member.role === "curator" && !state.is_beginner_island) throw new Error("Роль куратора действует только в государстве новичков.");
 
     const supabase = getSupabaseAdmin();
     const { data: states, error: statesError } = await supabase

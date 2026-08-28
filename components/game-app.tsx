@@ -16,7 +16,7 @@ import type {
   WarType,
 } from "@/lib/types";
 import { IslandMap } from "@/components/game/island-map";
-const IslandHome = dynamic(() => import("@/components/game/island-home").then((m) => m.IslandHome), { ssr: false, loading: () => <SceneLoading label="Поднимаем остров…" /> });
+const IslandHome = dynamic(() => import("@/components/game/island-home").then((m) => m.IslandHome), { ssr: false, loading: () => <SceneLoading label="Открываем замок…" /> });
 const IslandRanking = dynamic(() => import("@/components/game/island-ranking").then((m) => m.IslandRanking), { ssr: false, loading: () => <SceneLoading label="Считаем рейтинг…" /> });
 const IslandAlliances = dynamic(() => import("@/components/game/island-alliances").then((m) => m.IslandAlliances), { ssr: false, loading: () => <SceneLoading label="Открываем дипломатию…" /> });
 
@@ -25,7 +25,7 @@ const AdminPanel = dynamic(() => import("@/components/game/admin-panel").then((m
 const StateViewPanel = dynamic(() => import("@/components/game/state-view").then((m) => m.StateViewPanel), { ssr: false, loading: () => <SceneLoading label="Открываем профиль…" /> });
 const StrategyPanel = dynamic(() => import("@/components/game/strategy-panel").then((m) => m.StrategyPanel), { ssr: false, loading: () => <SceneLoading label="Открываем штаб…" /> });
 
-type View = "map" | "island" | "battle" | "rating" | "alliances" | "strategy" | "profile";
+type View = "menu" | "map" | "island" | "battle" | "rating" | "alliances" | "strategy" | "profile";
 
 type TelegramWebApp = {
   initData: string;
@@ -102,16 +102,17 @@ async function api<T>(path: string, initData: string, init?: RequestInit): Promi
 const COMPACT_FORMATTER = new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 });
 
 const NAV: Array<{ key: View; label: string }> = [
+  { key: "menu", label: "Главная" },
   { key: "map", label: "Карта" },
-  { key: "island", label: "Остров" },
-  { key: "battle", label: "Битвы" },
-  { key: "rating", label: "Рейтинг" },
+  { key: "island", label: "Замок" },
+  { key: "battle", label: "Армия" },
   { key: "alliances", label: "Союзы" },
   { key: "profile", label: "Профиль" },
 ];
 
 export default function GameApp() {
-  const [view, setView] = useState<View>("map");
+  const [view, setView] = useState<View>("menu");
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [viewPhase, setViewPhase] = useState<"idle" | "leaving" | "entering">("idle");
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [selectedIsland, setSelectedIsland] = useState<IslandView | null>(null);
@@ -156,6 +157,16 @@ export default function GameApp() {
   }, []);
 
   const [isAdminEntry, setIsAdminEntry] = useState(() => detectAdminEntry());
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setOnboardingOpen(window.localStorage.getItem("warstate:onboarding:v5") !== "done");
+  }, []);
+
+  const finishOnboarding = useCallback(() => {
+    if (typeof window !== "undefined") window.localStorage.setItem("warstate:onboarding:v5", "done");
+    setOnboardingOpen(false);
+  }, []);
 
   useEffect(() => {
     if (!telegramReady) return;
@@ -493,7 +504,7 @@ export default function GameApp() {
         body: JSON.stringify({ stateId: snapshot.state.id, targetStateId, action }),
       });
       await refreshLive();
-      notify(["propose_alliance", "accept_alliance"].includes(action) ? "Голосование о союзе отправлено в чат" : "Отношения островов обновлены", "success");
+      notify(["propose_alliance", "accept_alliance"].includes(action) ? "Голосование о союзе отправлено в чат" : "Дипломатические отношения обновлены", "success");
     } catch (e) { notify(e instanceof Error ? e.message : "Дипломатия не удалась", "error"); }
   }
 
@@ -573,7 +584,7 @@ export default function GameApp() {
     try {
       const fresh = await api<GameSnapshot>("/api/game/customize", initData, { method: "POST", body: JSON.stringify({ stateId: snapshot.state.id, ...patch }) });
       acceptSnapshot(fresh);
-      notify("Оформление острова обновлено", "success");
+      notify("Оформление государства обновлено", "success");
     } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить оформление", "error"); }
   }
 
@@ -597,7 +608,7 @@ export default function GameApp() {
     return <AdminPanel initData={initData} />;
   }
 
-  if (loading) return <Splash text="Открываем мировой океан…" />;
+  if (loading) return <Splash text="Загружаем государство…" />;
   if (error || !snapshot) return <Splash text={error || "Ошибка"} action="Повторить" onAction={bootstrap} />;
 
   const availableNav = NAV;
@@ -605,11 +616,13 @@ export default function GameApp() {
 
   return (
     <main className={`app-shell island-app-shell ${hasWorldPulse ? "has-world-pulse" : ""}`}>
+      {onboardingOpen && <WarstateOnboarding onFinish={finishOnboarding} />}
       <MobileHeader snapshot={snapshot} online={isOnline} lastSyncAt={lastSyncAt} syncing={syncing} onSync={syncNow} />
       <WorldPulseBar snapshot={snapshot} onBattle={() => navigate("battle")} onIsland={() => navigate("island")} onProfile={() => navigate("profile")} />
 
       <section className={`viewport island-viewport ws-view-${viewPhase}`} data-view={view}>
         <div className="ws-view-stage" key={view}>
+        {view === "menu" && <WarstateMenu snapshot={snapshot} onOpen={navigate} />}
         {view === "map" && (
           <IslandMap
             snapshot={snapshot}
@@ -646,6 +659,43 @@ export default function GameApp() {
       {toast && <div className={`toast toast-${toast.tone}`} role="status" aria-live="polite"><span>{toast.message}</span></div>}
     </main>
   );
+}
+
+function WarstateOnboarding({ onFinish }: { onFinish: () => void }) {
+  const [step, setStep] = useState(0);
+  const slides = [
+    { icon: "🏰", title: "Ваше государство", text: "Telegram-чат становится государством с замком, территорией, казной и армией." },
+    { icon: "🗺", title: "Карта материка", text: "Изучайте государства, открывайте карточки и следите за союзами и конфликтами." },
+    { icon: "⚔", title: "Управляйте армией", text: "Развивайте силы, участвуйте в голосованиях и реагируйте на войны." },
+    { icon: "⚠", title: "Следите за событиями", text: "ЧП требуют решения в течение 10 минут. Каждое действие получает явный ответ." },
+  ];
+  const slide = slides[step];
+  return <div className="ws-onboarding" role="dialog" aria-modal="true" aria-label="Знакомство с WARSTATE">
+    <button type="button" className="ws-onboarding-skip" onClick={onFinish}>Пропустить</button>
+    <div className="ws-onboarding-card">
+      <div className="ws-onboarding-icon" aria-hidden="true">{slide.icon}</div>
+      <small>WARSTATE · {step + 1}/{slides.length}</small>
+      <h2>{slide.title}</h2><p>{slide.text}</p>
+      <div className="ws-onboarding-dots">{slides.map((_, i) => <i key={i} className={i === step ? "active" : ""} />)}</div>
+      <button type="button" className="ws-onboarding-next" onClick={() => step === slides.length - 1 ? onFinish() : setStep(step + 1)}>{step === slides.length - 1 ? "Открыть государство" : "Далее"}</button>
+    </div>
+  </div>;
+}
+
+function WarstateMenu({ snapshot, onOpen }: { snapshot: GameSnapshot; onOpen: (view: View) => void }) {
+  const tiles: Array<{ view: View; icon: string; title: string; text: string }> = [
+    { view: "island", icon: "🏰", title: "Замок", text: "Развитие и инфраструктура" },
+    { view: "battle", icon: "⚔", title: "Армия", text: "Силы и текущие бои" },
+    { view: "map", icon: "🗺", title: "Карта", text: "Материк и государства" },
+    { view: "alliances", icon: "🤝", title: "Союзы", text: "Дипломатия и партнёры" },
+    { view: "profile", icon: "📜", title: "Профиль", text: "Роль, выборы и заслуги" },
+    { view: "rating", icon: "🏅", title: "Рейтинг", text: "Позиция государства" },
+  ];
+  return <div className="ws-command-center">
+    <section className="ws-command-hero"><small>ЦЕНТР УПРАВЛЕНИЯ</small><h1>{snapshot.state.name}</h1><p>Выберите раздел. Основные действия доступны в один переход.</p></section>
+    <div className="ws-menu-grid">{tiles.map(tile => <button key={tile.view} type="button" onClick={() => onOpen(tile.view)}><span>{tile.icon}</span><div><b>{tile.title}</b><small>{tile.text}</small></div><i>›</i></button>)}</div>
+    <button type="button" className="ws-help-hint" onClick={() => onOpen("profile")}><span>?</span><div><b>Что делать дальше?</b><small>Откройте профиль, чтобы увидеть роль, выборы и текущие задачи.</small></div></button>
+  </div>;
 }
 
 function Splash({ text, action, onAction }: { text: string; action?: string; onAction?: () => void }) {
@@ -706,7 +756,7 @@ const MobileHeader = memo(function MobileHeader({ snapshot, online, lastSyncAt, 
       <div className="game-header-identity">
         <span className="game-brand-rune" aria-hidden="true">GW</span>
         <span className="header-avatar game-header-avatar" style={{ background: state.color }}>{state.avatarUrl ? <Image src={state.avatarUrl} alt="" width={42} height={42} unoptimized /> : state.emblem}</span>
-        <div className="header-state-name game-header-name"><b>{state.name}</b>{state.stateUsername && !state.isFreeport ? <em>@{state.stateUsername}</em> : null}<small>{role}{state.isFreeport ? " · нейтральная гавань" : ` · #${state.seasonRank}`}</small></div>
+        <div className="header-state-name game-header-name"><b>{state.name}</b>{state.stateUsername && !state.isFreeport ? <em>@{state.stateUsername}</em> : null}<small>{role}{state.isFreeport ? " · нейтральная территория" : ` · #${state.seasonRank}`}</small></div>
         <button type="button" className={`game-sync ${online ? "online" : "offline"} ${syncing ? "syncing" : ""}`} onClick={onSync} disabled={!online || syncing} aria-label="Синхронизировать данные" title={online ? `Последняя синхронизация · ${new Date(lastSyncAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Нет соединения"}><i />{syncing ? "SYNC" : online ? "LIVE" : "OFF"}</button>
       </div>
       <div className="game-header-stats">
@@ -730,8 +780,9 @@ const MobileHeader = memo(function MobileHeader({ snapshot, online, lastSyncAt, 
 
 function NavIcon({ type }: { type: View }) {
   const common = { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+  if (type === "menu") return <svg {...common}><path d="M4 11.5 12 5l8 6.5V20h-6v-5h-4v5H4Z"/><path d="M9 9h6"/></svg>;
   if (type === "map") return <svg {...common}><path d="M4 6.5 9 4l6 2.5L20 4v13.5L15 20l-6-2.5L4 20Z"/><path d="M9 4v13.5M15 6.5V20"/></svg>;
-  if (type === "island") return <svg {...common}><path d="M5 17c3.2-2.1 4.6-5.4 5.6-9.5 3.5 1.4 5.4 4.1 6.4 7.9"/><path d="M3 18.5c3.5-1.3 6.2-.7 8.9 1 3-1.6 6-1.8 9.1-.4"/><path d="M11 8c1-2 2.5-3.1 4.5-3.4"/></svg>;
+  if (type === "island") return <svg {...common}><path d="M5 20V9h3V5h3v4h2V5h3v4h3v11Z"/><path d="M3 20h18M9 20v-5h6v5"/></svg>;
   if (type === "battle") return <svg {...common}><path d="m6 4 5 5-6.5 6.5M18 4l-5 5 6.5 6.5"/><path d="m3.5 18.5 3-3 2 2-3 3ZM20.5 18.5l-3-3-2 2 3 3Z"/></svg>;
   if (type === "rating") return <svg {...common}><path d="M7 4h10v3.5c0 3.4-2.2 6-5 6s-5-2.6-5-6Z"/><path d="M7 6H4v2c0 2 1.3 3 3.4 3M17 6h3v2c0 2-1.3 3-3.4 3M12 13.5V18M8.5 20h7"/></svg>;
   if (type === "alliances") return <svg {...common}><path d="M7.5 13.5 4 10l3-3 3.5 3.5M16.5 13.5 20 10l-3-3-3.5 3.5"/><path d="m9.5 9.5 2.5-2 2.5 2M8.5 14.5 12 17l3.5-2.5"/></svg>;

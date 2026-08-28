@@ -45,14 +45,14 @@ function StrategyPanelInner({ snapshot, onActivity, onSupport, onSurrender }: Pr
           <h2>{state.name}</h2>
           <p>Армия, экономика, решения и прозрачный расчёт войны в одном центре.</p>
           <div className="strategy-health-row">
-            <span><i style={{ width: `${state.islandIntegrity}%` }} /><b>{state.islandIntegrity}%</b><small>прочность острова</small></span>
+            <span><i style={{ width: `${state.islandIntegrity}%` }} /><b>{state.islandIntegrity}%</b><small>прочность государства</small></span>
             <span><b>{state.activePlayers}</b><small>активных игроков</small></span>
           </div>
         </div>
         <span className="strategy-level"><small>УРОВЕНЬ</small><b>{state.level}</b><em>/ {state.maxLevel}</em></span>
       </section>
 
-      {state.isBeginnerIsland && <div className="beginner-banner"><b>Остров новичков</b><span>Атаки запрещены · максимум ур. 5 · безопасные активности · поддержка только обороны.</span></div>}
+      {state.isBeginnerIsland && <div className="beginner-banner"><b>Государство новичков</b><span>Атаки запрещены · максимум ур. 5 · безопасные активности · поддержка только обороны.</span></div>}
 
       <nav className="strategy-tabs" aria-label="Разделы штаба">
         {([
@@ -93,7 +93,7 @@ function StrategyPanelInner({ snapshot, onActivity, onSupport, onSurrender }: Pr
               {["president", "minister", "deputy"].includes(snapshot.player.role) && activeBattle.status === "active" && <button className="danger-strategy" type="button" onClick={onSurrender}>Сдаться и завершить бой</button>}
             </section>
           ) : (
-            <section className="strategy-card strategy-peace-card"><div className="strategy-peace-mark">◌</div><div><small>ВОЕННАЯ ОБСТАНОВКА</small><h3>Активных боёв нет</h3><p>Флот свободен. Для атаки выберите государство на мировой карте.</p></div></section>
+            <section className="strategy-card strategy-peace-card"><div className="strategy-peace-mark">◌</div><div><small>ВОЕННАЯ ОБСТАНОВКА</small><h3>Активных боёв нет</h3><p>Армия свободен. Для атаки выберите государство на мировой карте.</p></div></section>
           )}
 
           {strategy.supportableBattles.length > 0 && (

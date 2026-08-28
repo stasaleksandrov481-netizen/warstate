@@ -16,13 +16,13 @@ export const PRODUCTS: Record<string, GameProduct> = {
   },
   state_banner: {
     title: "State Banner Pack",
-    description: "Премиальный набор оформления острова-государства",
+    description: "Премиальный набор оформления государства",
     stars: 125,
     scope: "state",
   },
   city_noir: {
     title: "Night Island Skin",
-    description: "Ночная тема острова и профиля государства",
+    description: "Тёмная тема профиля государства",
     stars: 300,
     scope: "state",
   },

@@ -1663,3 +1663,53 @@ body{background:radial-gradient(circle at 50% -15%,rgba(30,135,146,.22),transpar
   padding: 5px var(--pad-h, 8px) 5px calc(var(--avatar-size, 36px) + 12px) !important;
   transform: translate(-50%,-100%) !important; transform-origin: center bottom !important;
 }
+
+/* WARSTATE v5: continental redesign */
+:root{--ws-bg:#161812;--ws-panel:#24251f;--ws-panel-2:#2e2c25;--ws-stone:#817b70;--ws-green:#314231;--ws-gold:#b59654;--ws-bronze:#87633d;--ws-text:#eee9dc;--ws-muted:#a49d8e;--ws-line:rgba(194,169,112,.18)}
+html,body{background:#151710!important;color:var(--ws-text)!important;font-family:Lora,Georgia,"Times New Roman",serif!important}
+button,input{font:inherit}
+.app-shell.island-app-shell{background:radial-gradient(circle at 50% -10%,#32372a 0,#1a1d16 42%,#12140f 100%)!important;color:var(--ws-text)!important}
+.game-mobile-header{background:linear-gradient(180deg,#282821,#1c1d18)!important;border-bottom:1px solid var(--ws-line)!important;box-shadow:0 10px 28px rgba(0,0,0,.28)!important}
+.game-brand-rune{background:#3a3427!important;border:1px solid #715c35!important;color:#d8bf82!important;border-radius:8px!important;font-family:Cinzel,Georgia,serif!important}
+.game-header-name b,.ws-command-hero h1,.ws-onboarding-card h2{font-family:Cinzel,Georgia,serif!important;letter-spacing:.02em!important}
+.game-header-name small,.game-header-stats small{color:#aaa493!important}
+.game-stat-chip{background:#25251f!important;border:1px solid rgba(181,150,84,.14)!important;border-radius:10px!important;box-shadow:none!important}
+.game-sync{background:#293126!important;border:1px solid #45523f!important;color:#b8c4aa!important;border-radius:8px!important}
+.island-viewport{background:transparent!important}
+.island-bottom-nav{background:#1c1d18!important;border-top:1px solid rgba(181,150,84,.22)!important;box-shadow:0 -12px 32px rgba(0,0,0,.3)!important}
+.island-bottom-nav button,.island-bottom-nav button:nth-child(3){border-radius:10px!important;color:#aaa493!important;background:transparent!important;border:1px solid transparent!important;box-shadow:none!important}
+.island-bottom-nav button.active,.island-bottom-nav button:nth-child(3).active{background:#302d25!important;border-color:#6f5c38!important;color:#e6d5a8!important;box-shadow:inset 0 0 0 1px rgba(210,180,112,.08)!important}
+
+/* Command center */
+.ws-command-center{height:100%;overflow:auto;padding:18px 14px 28px;background:linear-gradient(180deg,rgba(32,35,27,.92),rgba(18,20,15,.98))}
+.ws-command-hero{padding:20px 18px;border:1px solid rgba(181,150,84,.24);border-radius:16px;background:linear-gradient(145deg,#343126,#24251f);box-shadow:0 18px 40px rgba(0,0,0,.22)}
+.ws-command-hero small{font-size:10px;letter-spacing:.16em;color:#b99d61}.ws-command-hero h1{font-size:25px;margin:7px 0 6px;color:#f1ead9}.ws-command-hero p{margin:0;color:#aaa493;font-size:13px;line-height:1.45}
+.ws-menu-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
+.ws-menu-grid button{min-height:94px;text-align:left;display:grid;grid-template-columns:38px 1fr auto;gap:10px;align-items:center;padding:14px;border-radius:14px;border:1px solid rgba(167,154,124,.15);background:linear-gradient(155deg,#2b2c25,#20211c);color:#ece6d9;box-shadow:0 8px 24px rgba(0,0,0,.16)}
+.ws-menu-grid button:active{transform:translateY(1px);background:#333128}.ws-menu-grid button>span{font-size:24px;filter:saturate(.65)}.ws-menu-grid b{display:block;font-size:15px}.ws-menu-grid small{display:block;margin-top:4px;color:#9c9689;font-size:10px;line-height:1.25}.ws-menu-grid i{font-style:normal;color:#9f8550;font-size:24px}
+.ws-help-hint{width:100%;margin-top:10px;display:grid;grid-template-columns:34px 1fr;gap:10px;text-align:left;align-items:center;padding:12px;border-radius:12px;border:1px solid rgba(181,150,84,.18);background:#23241f;color:#e8e1d3}.ws-help-hint>span{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;border:1px solid #725d35;color:#c6a866}.ws-help-hint b{font-size:12px}.ws-help-hint small{display:block;color:#969084;font-size:9px;margin-top:3px;line-height:1.3}
+
+/* Onboarding */
+.ws-onboarding{position:fixed;z-index:9999;inset:0;background:rgba(12,13,10,.94);display:grid;place-items:center;padding:20px;backdrop-filter:blur(10px)}
+.ws-onboarding-skip{position:absolute;right:18px;top:calc(16px + env(safe-area-inset-top));border:0;background:transparent;color:#aaa493;font-size:13px;padding:8px}
+.ws-onboarding-card{width:min(100%,430px);padding:28px 22px 22px;border-radius:18px;border:1px solid rgba(181,150,84,.24);background:linear-gradient(160deg,#302f28,#1f201b);box-shadow:0 28px 70px rgba(0,0,0,.5);text-align:center}
+.ws-onboarding-icon{font-size:46px;filter:saturate(.55);margin-bottom:16px}.ws-onboarding-card>small{font-size:9px;letter-spacing:.16em;color:#b99d61}.ws-onboarding-card h2{font-size:24px;margin:8px 0;color:#f0e7d4}.ws-onboarding-card p{font-size:13px;line-height:1.55;color:#aaa493;min-height:62px;margin:0 auto 18px;max-width:330px}
+.ws-onboarding-dots{display:flex;justify-content:center;gap:6px;margin:14px 0 20px}.ws-onboarding-dots i{width:18px;height:3px;border-radius:10px;background:#514d42}.ws-onboarding-dots i.active{background:#b59654}
+.ws-onboarding-next{width:100%;min-height:48px;border-radius:11px;border:1px solid #8b7042;background:linear-gradient(180deg,#b59654,#8d713e);color:#18150f;font-weight:800}
+
+/* Continental map */
+.game-ocean{background:#273127!important;overflow:hidden!important}
+.continent-texture{position:absolute;inset:-10%;background:radial-gradient(ellipse at 25% 18%,rgba(116,111,79,.22),transparent 26%),radial-gradient(ellipse at 75% 68%,rgba(84,96,63,.28),transparent 31%),linear-gradient(125deg,#334033,#252f28 56%,#202720);pointer-events:none}
+.continent-texture:after{content:"";position:absolute;inset:0;opacity:.18;background-image:linear-gradient(30deg,rgba(199,181,137,.18) 1px,transparent 1px),linear-gradient(120deg,rgba(0,0,0,.25) 1px,transparent 1px);background-size:42px 42px}
+.ocean-depth-vignette{background:radial-gradient(circle at 50% 45%,transparent 25%,rgba(8,10,8,.48) 100%)!important}
+.world-ambient{display:none!important}.game-minimap-water{background:#303c30!important;border:1px solid rgba(181,150,84,.16)!important}.game-minimap{background:#1c201a!important;border-color:rgba(181,150,84,.25)!important}.map-radar-panel,.game-island-sheet{background:linear-gradient(160deg,#292a24,#1d1e19)!important;border-color:rgba(181,150,84,.26)!important;color:#eee9dc!important}.map-radar-head small,.sheet-title-copy small{color:#b79b60!important}.map-search input{background:#1b1c18!important;color:#eee9dc!important;border-color:#474638!important}
+.game-island-node{filter:drop-shadow(0 12px 10px rgba(0,0,0,.26))!important}.island-art.castle-region{overflow:visible}.game-island-label{background:#27271f!important;border-color:#71613f!important;color:#eee9dc!important;box-shadow:0 6px 16px rgba(0,0,0,.32)!important}.game-island-copy strong{color:#eee9dc!important}.game-island-copy small,.game-island-kicker em,.lod-president{color:#aaa493!important}.game-island-avatar,.lod-badge-icon{border-radius:7px!important}.relation-tag{border-radius:5px!important}
+.game-map-tools button{background:#27271f!important;border-color:#6e5d39!important;color:#d7c28e!important;box-shadow:0 3px 0 #14150f!important}.game-map-status{background:#1f211c!important;border-color:#5d5239!important;color:#c7b27d!important}
+.sheet-switch-state,.sheet-attack{background:linear-gradient(180deg,#8f7444,#715a34)!important;color:#17140f!important;border-color:#ab8d55!important}.sheet-home{background:#2d332a!important;color:#dbe1d2!important;border-color:#4c5b47!important}
+
+/* Panels */
+.island-home-screen,.ranking-screen,.alliances-screen,.state-screen,.battle-screen{background:linear-gradient(180deg,#1c1e18,#151710)!important;color:#eee9dc!important}
+.island-section,.ranking-hero,.relations-list article,.ranking-list article,.panel,.infra-card,.repair-card,.rebuild-card,.recruit-post,.recruit-request,.free-agent-list article{background:#24251f!important;border-color:rgba(181,150,84,.15)!important;box-shadow:none!important}
+.infra-icon{background:#33342d!important;color:#c9b37e!important}.infra-card button{background:#3a3427!important;color:#d8c394!important}.empty-state{border-color:rgba(181,150,84,.2)!important;color:#aaa493!important}
+
+@media(max-width:380px){.ws-menu-grid{grid-template-columns:1fr}.ws-menu-grid button{min-height:76px}}

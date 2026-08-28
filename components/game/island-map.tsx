@@ -5,7 +5,6 @@ import Image from "next/image";
 import { eloDeltaPreview, eloLeague } from "@/lib/elo";
 import type { GameSnapshot, IslandView, WarType } from "@/lib/types";
 import { IslandArt } from "@/components/game/island-art";
-import { OceanCanvas } from "@/components/game/ocean-canvas";
 
 function islandSize(members: number, freeport = false) {
   if (freeport) return 720;
@@ -25,19 +24,19 @@ function timeLeft(iso?: string | null, now = Date.now()) {
 }
 
 function attackReason(snapshot: GameSnapshot, island: IslandView, now: number) {
-  if (island.isMine) return "Это ваш остров";
+  if (island.isMine) return "Это ваше государство";
   if (snapshot.state.isFreeport) return "Свободные игроки Freeport не участвуют в войнах";
-  if (snapshot.state.isBeginnerIsland) return "С Острова новичков нельзя начинать войны";
+  if (snapshot.state.isBeginnerIsland) return "Из государства новичков нельзя начинать войны";
   if (island.isFreeport) return "Freeport — нейтральная территория";
-  if (island.isBeginnerIsland) return "Остров новичков находится под защитой";
+  if (island.isBeginnerIsland) return "Государство новичков находится под защитой";
   if (snapshot.player.role !== "president") return "Голосование о войне запускает только Президент";
-  if (snapshot.activeBattle) return "Ваш флот уже участвует в битве";
-  if (snapshot.state.destroyedUntil && new Date(snapshot.state.destroyedUntil).getTime() > now) return "Ваш остров восстанавливается";
-  if (island.destroyedUntil && new Date(island.destroyedUntil).getTime() > now) return "Остров уже в руинах";
+  if (snapshot.activeBattle) return "Ваша армия уже участвует в битве";
+  if (snapshot.state.destroyedUntil && new Date(snapshot.state.destroyedUntil).getTime() > now) return "Ваше государство восстанавливается";
+  if (island.destroyedUntil && new Date(island.destroyedUntil).getTime() > now) return "Государство уже восстанавливается";
   if (island.shieldUntil && new Date(island.shieldUntil).getTime() > now) return "Защитный щит активен";
-  if (island.relation === "allied") return "Союзный остров";
+  if (island.relation === "allied") return "Союзное государство";
   if (island.relation === "truce") return "Действует перемирие";
-  if (snapshot.state.nextAttackAt && new Date(snapshot.state.nextAttackAt).getTime() > now) return `Флот готовится · ${timeLeft(snapshot.state.nextAttackAt, now) || "скоро"}`;
+  if (snapshot.state.nextAttackAt && new Date(snapshot.state.nextAttackAt).getTime() > now) return `Армия готовится · ${timeLeft(snapshot.state.nextAttackAt, now) || "скоро"}`;
   if (snapshot.state.treasury.fuel < 120 || snapshot.state.treasury.food < 80) return "Нужно 120 топлива и 80 еды";
   return null;
 }
@@ -144,7 +143,7 @@ const IslandNode = memo(function IslandNode({
           </span>
           <span className="game-island-copy" style={{ fontSize: labelFontSize }}>
             <span className="game-island-kicker" style={{ fontSize: kickerFontSize }}>
-              <em>{island.isMine ? "МОЙ ОСТРОВ" : island.isBeginnerIsland ? "ОСТРОВ НОВИЧКОВ" : island.isFreeport ? "FREEPORT" : league.label.toUpperCase()}</em>
+              <em>{island.isMine ? "МОЁ ГОСУДАРСТВО" : island.isBeginnerIsland ? "ГОСУДАРСТВО НОВИЧКОВ" : island.isFreeport ? "FREEPORT" : league.label.toUpperCase()}</em>
               {island.rank > 0 && <b>#{island.rank}</b>}
             </span>
             <strong>{island.name}</strong>
@@ -168,7 +167,7 @@ const IslandNode = memo(function IslandNode({
           </span>
           <span className="game-island-copy">
             <span className="game-island-kicker">
-              <em>{island.isMine ? "МОЙ ОСТРОВ" : island.isBeginnerIsland ? "ОСТРОВ НОВИЧКОВ" : island.isFreeport ? "FREEPORT" : league.label.toUpperCase()}</em>
+              <em>{island.isMine ? "МОЁ ГОСУДАРСТВО" : island.isBeginnerIsland ? "ГОСУДАРСТВО НОВИЧКОВ" : island.isFreeport ? "FREEPORT" : league.label.toUpperCase()}</em>
               {island.rank > 0 && <b>#{island.rank}</b>}
             </span>
             <strong>{island.name}</strong>{island.stateUsername && <em className="game-island-handle">@{island.stateUsername}</em>}
@@ -634,7 +633,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
         onWheel={wheel}
         onClick={() => { if (!movedRef.current && selected) closeSelectedSheet(); }}
       >
-        <OceanCanvas cameraRef={cameraRef} interactingRef={interactingRef} viewport={viewport} reduced={detail === "far"} />
+        <div className="continent-texture" aria-hidden="true" />
         <div className="ocean-depth-vignette" />
         <div className="world-ambient" aria-hidden="true">
           <i className="ambient-gull gull-a">⌁</i><i className="ambient-gull gull-b">⌁</i><i className="ambient-gull gull-c">⌁</i>
@@ -644,7 +643,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
 
         {radarOpen && (
           <aside className="map-radar-panel" onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-            <div className="map-radar-head"><div><small>РАДАР МИРА</small><b>Навигация по островам</b></div><button type="button" onClick={() => { setRadarOpen(false); setQuery(""); }} aria-label="Закрыть радар"><CloseIcon /></button></div>
+            <div className="map-radar-head"><div><small>РАДАР МИРА</small><b>Навигация по государствам</b></div><button type="button" onClick={() => { setRadarOpen(false); setQuery(""); }} aria-label="Закрыть радар"><CloseIcon /></button></div>
             <label className="map-search"><span aria-hidden="true">⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Название или @юз" autoComplete="off" /></label>
             <div className="map-filter-row">
               {([
@@ -662,7 +661,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
               )}
               {beginnerIsland && !beginnerIsland.isMine && (
                 <button className="map-beginner-shortcut" type="button" onClick={() => focusIsland(beginnerIsland)}>
-                  <span>🧭</span><div><b>Остров новичков</b><small>Защищённая территория · выбрать на карте</small></div><i>›</i>
+                  <span>🧭</span><div><b>Государство новичков</b><small>Защищённая территория · выбрать на карте</small></div><i>›</i>
                 </button>
               )}
             </div>
@@ -700,7 +699,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
         )}
 
         <div className="game-map-tools game-map-tools-left">
-          <button className="map-tool-home" type="button" onClick={(event) => { event.stopPropagation(); centerMine(); }} aria-label="Мой остров"><span>⌂</span></button>
+          <button className="map-tool-home" type="button" onClick={(event) => { event.stopPropagation(); centerMine(); }} aria-label="Моё государство"><span>⌂</span></button>
           <button className={radarOpen ? "map-tool-radar active" : "map-tool-radar"} type="button" onClick={(event) => { event.stopPropagation(); setRadarOpen((value) => !value); }} aria-label="Радар и поиск" aria-expanded={radarOpen}><span>⌕</span></button>
         </div>
         <div className="game-map-tools game-map-tools-right">
@@ -743,7 +742,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
             <span><b>{selected.stateSize.toFixed(2)}</b><small>размер · {selected.activePlayers} акт.</small></span>
           </div>
           <div className="sheet-status-row">
-            {selected.isBeginnerIsland && <span className="sheet-status beginner">🧭 ОСТРОВ НОВИЧКОВ · ПОД ЗАЩИТОЙ</span>}
+            {selected.isBeginnerIsland && <span className="sheet-status beginner">🧭 ГОСУДАРСТВО НОВИЧКОВ · ПОД ЗАЩИТОЙ</span>}
             {selected.isFreeport && <span className="sheet-status freeport">⚓ НЕЙТРАЛЬНЫЙ FREEPORT</span>}
             {selected.relation === "war" && <span className="sheet-status enemy">⚔ ВОЙНА</span>}
             {selected.relation === "allied" && <span className="sheet-status ally">◆ СОЮЗ</span>}
@@ -759,10 +758,10 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
           {selected.isFreeport && !selected.isMine ? (
             <div className="sheet-freeport">⚓ Freeport нельзя атаковать. Это нейтральный хаб свободных игроков.</div>
           ) : selected.destroyedUntil && timeLeft(selected.destroyedUntil, now) ? (
-            <div className="sheet-danger">☠ Остров восстанавливается · {timeLeft(selected.destroyedUntil, now)}</div>
+            <div className="sheet-danger">☠ Государство восстанавливается · {timeLeft(selected.destroyedUntil, now)}</div>
           ) : selected.isMine ? (
             <button className="sheet-home" type="button" onClick={onOpenIsland}>
-              <span>⌂ МОЙ ОСТРОВ</span><small>Инфраструктура, ремонт и развитие</small>
+              <span>⌂ МОЁ ГОСУДАРСТВО</span><small>Инфраструктура, ремонт и развитие</small>
             </button>
           ) : (
             <div className="sheet-foreign-actions">

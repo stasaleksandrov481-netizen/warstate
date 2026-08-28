@@ -125,8 +125,8 @@ async function resolveBattleRow(battle: any, attackerScore: number, defenderScor
     text: isDraw
       ? `Ничья ${attackerScore}:${defenderScore}. Обе стороны переходят к восстановлению.`
       : attackerWon
-        ? (islandBattle ? `Остров атакующих победил ${attackerScore}:${defenderScore}` : `Атакующие победили ${attackerScore}:${defenderScore}`)
-        : (islandBattle ? `Защитники острова отбили атаку ${defenderScore}:${attackerScore}` : `Защита удержала сектор ${defenderScore}:${attackerScore}`),
+        ? (islandBattle ? `Атакующее государство победило ${attackerScore}:${defenderScore}` : `Атакующие победили ${attackerScore}:${defenderScore}`)
+        : (islandBattle ? `Защитники государства отбили атаку ${defenderScore}:${attackerScore}` : `Защита удержала сектор ${defenderScore}:${attackerScore}`),
   });
   const { data: namedStates, error: namedStatesError } = await supabase.from("states").select("id,name,telegram_chat_id,is_beginner_island").in("id", [battle.attacker_state_id, battle.defender_state_id].filter(Boolean));
   if (namedStatesError) throw namedStatesError;
@@ -140,14 +140,14 @@ async function resolveBattleRow(battle: any, attackerScore: number, defenderScor
       ? (attackerWon ? (destroyed ? "island_destroyed" : "island_damaged") : "island_defended")
       : "battle_resolved",
     title: isDraw ? "Бой завершился ничьей" : islandBattle
-      ? (attackerWon ? (destroyed ? "Остров разрушен" : "Остров повреждён") : "Остров выстоял")
+      ? (attackerWon ? (destroyed ? "Государство разгромлено" : "Оборона повреждена") : "Государство выстояло")
       : (attackerWon ? "Территория захвачена" : "Наступление отбито"),
     body: isDraw ? `${attackerName} и ${defenderName} завершили бой ${attackerScore}:${defenderScore}. Обе стороны несут расходы на восстановление.` : islandBattle
       ? (attackerWon
           ? (destroyed
-              ? `${attackerName} добил оборону ${defenderName} ${attackerScore}:${defenderScore}. Остров превращён в руины.`
+              ? `${attackerName} добил оборону ${defenderName} ${attackerScore}:${defenderScore}. Оборона государства разрушена.`
               : `${attackerName} выиграл вторжение ${attackerScore}:${defenderScore} и снял ${integrityDamage}% прочности. У ${defenderName} осталось ${defenderIntegrity}%.`)
-          : `${defenderName} отбил морскую атаку ${attackerName}. Счёт ${defenderScore}:${attackerScore}.`)
+          : `${defenderName} отбил атаку ${attackerName}. Счёт ${defenderScore}:${attackerScore}.`)
       : (attackerWon
           ? `${attackerName} победил ${defenderName} со счётом ${attackerScore}:${defenderScore} и занял сектор.`
           : `${defenderName} удержал сектор против ${attackerName}. Счёт ${defenderScore}:${attackerScore}.`),
@@ -204,10 +204,10 @@ async function resolveBattleRow(battle: any, attackerScore: number, defenderScor
     const beginnerChats = new Map<number, string>();
     for (const support of trainingSupports || []) {
       const state: any = Array.isArray((support as any).states) ? (support as any).states[0] : (support as any).states;
-      if (state?.is_beginner_island && Number.isSafeInteger(Number(state.telegram_chat_id))) beginnerChats.set(Number(state.telegram_chat_id), String(state.name || "Остров новичков"));
+      if (state?.is_beginner_island && Number.isSafeInteger(Number(state.telegram_chat_id))) beginnerChats.set(Number(state.telegram_chat_id), String(state.name || "Государство новичков"));
     }
     await Promise.all([...beginnerChats.entries()].map(([chatId, stateName]) =>
-      notifyBattleFinished(chatId, `🗺️ Тренировочный бой завершён. ${stateName} потренировался в обороне. Получены опыт, репутация и вклад. Ресурсы из боя Остров новичков не получает.`)
+      notifyBattleFinished(chatId, `🗺️ Тренировочный бой завершён. ${stateName} потренировался в обороне. Получены опыт, репутация и вклад. Ресурсы из боя Государство новичков не получает.`)
     ));
   }
 

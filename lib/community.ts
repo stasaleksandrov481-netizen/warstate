@@ -388,7 +388,7 @@ export async function startSpyQuest(params: {
   if (member?.duty_role !== "spy") throw new Error("Шпионский квест доступен только участнику со специализацией «Шпион».");
   if (!ownState || ownState.is_freeport || ownState.is_beginner_island) throw new Error("Из защищённой территории шпионские операции недоступны.");
   if (!target || target.is_freeport) throw new Error("Эта цель недоступна для шпионской операции.");
-  if (target.is_beginner_island) throw new Error("Остров новичков защищён от шпионских операций.");
+  if (target.is_beginner_island) throw new Error("Государство новичков защищено от шпионских операций.");
   if (params.stateId === params.targetStateId) throw new Error("Шпионить за собственной канцелярией слишком мета.");
   if (recent) throw new Error("Шпион уже был на задании. Новая операция доступна раз в 6 часов.");
   const { data, error } = await supabase.from("spy_quests").insert({

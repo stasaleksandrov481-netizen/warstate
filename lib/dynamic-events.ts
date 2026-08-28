@@ -7,7 +7,7 @@ import { telegramApi } from "@/lib/telegram-bot";
  * Chat-driven pressure loop that keeps every state chat alive:
  *  - 2-hour President vacancy timer → anarchy notification + real losses;
  *  - night mode announcement at 23:00 (ЧП paused until 08:00);
- *  - random daytime emergencies every 3 hours with interactive button
+ *  - scheduled daytime emergencies every 5 hours with interactive button
  *    reactions and a limited response window;
  *  - periodic reminders while key specializations (Шахтёр / Шпион) are unset.
  *
@@ -27,8 +27,8 @@ export const THREAT_RESPONSE_WINDOW_MS = 10 * 60_000;
 export const ROLE_NUDGE_INTERVAL_MS = 2 * 60 * 60_000;
 export const ELECTION_REMINDER_INTERVAL_MS = 5 * 60_000;
 
-/** Local hours (game timezone) when a new emergency may spawn: 08/11/14/17/20. */
-const THREAT_SLOT_HOURS = [8, 11, 14, 17, 20] as const;
+/** Local hours (game timezone) when a new emergency may spawn: 08:00, 13:00, 18:00. */
+const THREAT_SLOT_HOURS = [8, 13, 18] as const;
 const NIGHT_START_HOUR = 23;
 const NIGHT_END_HOUR = 8;
 
@@ -93,7 +93,7 @@ function localWallClockToUtc(parts: LocalParts, hour: number, timeZone: string):
   return new Date(guess);
 }
 
-/** Next 3-hour emergency slot strictly after `date` (game timezone). */
+/** Next 5-hour emergency slot strictly after `date` (game timezone). */
 export function nextThreatSlotAfter(date: Date, timeZone: string): Date {
   const parts = localParts(date, timeZone);
   for (const slotHour of THREAT_SLOT_HOURS) {
@@ -161,8 +161,8 @@ export const THREAT_TEMPLATES: ThreatTemplate[] = [
     title: "🚨 ЧП · РЕДКОЕ ЯВЛЕНИЕ",
     shortTitle: "РЕДКОЕ ЯВЛЕНИЕ",
     body: (name) =>
-      `Над островом государства «${name}» зависло необъяснимое явление. Граждане в панике, учёные требуют немедленной реакции. Без действий явление нарушит инфраструктуру и нанесёт экономике серьёзный урон.`,
-    failureText: "Явление спровоцировало аварии на инфраструктуре острова.",
+      `Над территорией государства «${name}» зависло необъяснимое явление. Граждане в панике, учёные требуют немедленной реакции. Без действий явление нарушит инфраструктуру и нанесёт экономике серьёзный урон.`,
+    failureText: "Явление спровоцировало аварии на инфраструктуре государства.",
     options: [
       { action: "study", label: "🔭 Изучить явление", successText: "Явление изучено — государство обращает его на пользу науки!" },
       { action: "track", label: "🛰️ Отследить траекторию", successText: "Траектория просчитана — ущерб полностью предотвращён." },

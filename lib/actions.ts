@@ -28,7 +28,7 @@ export async function upgradeBuildingAction(input: {
   buildingType: BuildingType;
   stateIsFreeport?: boolean;
 }) {
-  if (!UPGRADE_ROLES.has(input.actorRole)) throw new Error("Развивать остров может президент, заместитель или куратор.");
+  if (!UPGRADE_ROLES.has(input.actorRole)) throw new Error("Развивать государство может президент, заместитель или куратор.");
   if (input.stateIsFreeport) throw new Error("Freeport развивается через личный прогресс игроков, а не общую казну.");
   await reconcileStateRuntime(input.stateId, { force: true });
   return upgradeBuilding(input.stateId, input.buildingType);

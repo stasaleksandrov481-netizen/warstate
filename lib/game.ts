@@ -181,7 +181,7 @@ async function ensureStateForChat(chatId: number, _playerId: string, _telegramUs
       .select("*")
       .single();
     if (protectError) throw protectError;
-    current = requireData(protectedState, "Не удалось включить Остров новичков.");
+    current = requireData(protectedState, "Не удалось включить государство новичков.");
   }
 
   await ensureStateBuildings(current.id);
@@ -716,8 +716,8 @@ export async function upgradeBuilding(stateId: string, buildingType: BuildingTyp
   const maxBuildingLevel = state?.is_beginner_island ? Math.min(5, Number(state.max_level || 5)) : 12;
   if (buildingRow.upgrade_target_level && buildingRow.upgrade_finishes_at && new Date(buildingRow.upgrade_finishes_at).getTime() > Date.now()) throw new Error("Это здание уже улучшается.");
   if (buildingRow.upgrade_cooldown_until && new Date(buildingRow.upgrade_cooldown_until).getTime() > Date.now()) throw new Error("Здание ещё остывает после предыдущего улучшения.");
-  if (buildingRow.level >= maxBuildingLevel) throw new Error(state?.is_beginner_island ? "На Острове новичков постройки ограничены 5 уровнем." : "Максимальный уровень здания достигнут.");
-  if (state?.is_beginner_island && buildingType === "barracks") throw new Error("На Острове новичков агрессивные улучшения казарм запрещены.");
+  if (buildingRow.level >= maxBuildingLevel) throw new Error(state?.is_beginner_island ? "В государстве новичков постройки ограничены 5 уровнем." : "Максимальный уровень здания достигнут.");
+  if (state?.is_beginner_island && buildingType === "barracks") throw new Error("В государстве новичков агрессивные улучшения казарм запрещены.");
 
   const rawCost = scaleCost(buildingType, buildingRow.level + 1);
   const cost = Object.fromEntries(Object.entries(rawCost).map(([key, value]) => [key, state?.is_beginner_island ? Math.max(1, Math.round((value || 0) * 0.60)) : value]));

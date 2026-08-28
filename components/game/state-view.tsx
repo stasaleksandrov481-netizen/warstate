@@ -107,7 +107,7 @@ function GovernmentPanel({ snapshot, onGovernment }: Pick<Props, "snapshot" | "o
       <div className="government-danger-zone">
         <small>ОПАСНАЯ ЗОНА · ТОЛЬКО ВЛАДЕЛЕЦ ЧАТА</small>
         {!deleteConfirm ? <>
-          <p>Удаление необратимо. Граждане будут переведены во Freeport, а остров исчезнет с карты.</p>
+          <p>Удаление необратимо. Граждане будут переведены во Freeport, а государство исчезнет с карты.</p>
           <button type="button" onClick={() => setDeleteConfirm(true)}>Удалить государство</button>
         </> : <div className="government-delete-confirm">
           <b>Точно удалить «{snapshot.state.name}»?</b>
@@ -149,7 +149,7 @@ function IdentityEditor({ snapshot, onCustomize }: Pick<Props, "snapshot" | "onC
 }
 
 function ElectionPanel({ snapshot, onPolitics, now }: Pick<Props, "snapshot" | "onPolitics"> & { now: number }) {
-  const [statement, setStatement] = useState("Развивать остров, укреплять флот и поднимать рейтинг.");
+  const [statement, setStatement] = useState("Развивать государство, укреплять армия и поднимать рейтинг.");
   const election = snapshot.election;
   const canOpen = snapshot.government.canFounderManage;
   const myCandidate = election?.candidates.find((candidate) => candidate.isMe);

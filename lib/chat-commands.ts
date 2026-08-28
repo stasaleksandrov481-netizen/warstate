@@ -529,6 +529,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "часовойпояс" || command === "timezone" || command === "tz") {
+      const supabase = getSupabaseAdmin();
       const { data: zoneRow, error: zoneReadError } = await supabase.from("states").select("time_zone").eq("id", snapshot.state.id).single();
       if (zoneReadError && String((zoneReadError as any)?.code || "") !== "PGRST204") throw zoneReadError;
       const requestedZone = String(args[0] || "").trim();

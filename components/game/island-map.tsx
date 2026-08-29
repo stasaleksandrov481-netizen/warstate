@@ -123,8 +123,12 @@ function buildRenderItems(states: IslandView[], cam: Camera, width: number, heig
   if (!cell) return candidates.map((item) => ({ ...item, clusterCount: 1 }));
 
   const buckets = new Map<string, Array<typeof candidates[number]>>();
+  // Anchor decluttering cells to WORLD coordinates. Screen-space cells changed
+  // whenever the camera panned, making representatives pop in/out even though
+  // the underlying states had not moved. World anchoring keeps pan stable.
+  const worldCell = cell / Math.max(cam.zoom, MIN_ZOOM);
   for (const item of candidates) {
-    const key = `${Math.floor(item.x / cell)}:${Math.floor(item.y / cell)}`;
+    const key = `${Math.floor(item.state.worldX / worldCell)}:${Math.floor(item.state.worldY / worldCell)}`;
     const bucket = buckets.get(key) || [];
     bucket.push(item);
     buckets.set(key, bucket);
@@ -247,6 +251,59 @@ function drawShield(ctx: CanvasRenderingContext2D, x: number, y: number, size: n
   ctx.restore();
 }
 
+
+function clampCameraToWorld(camera: Camera, bounds: { minX:number; maxX:number; minY:number; maxY:number }, width: number, height: number) {
+  const zoom = clamp(camera.zoom, MIN_ZOOM, MAX_ZOOM);
+  const padding = 900;
+  const viewW = width / zoom;
+  const viewH = height / zoom;
+  const worldW = Math.max(1, bounds.maxX - bounds.minX);
+  const worldH = Math.max(1, bounds.maxY - bounds.minY);
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerY = (bounds.minY + bounds.maxY) / 2;
+
+  let x = camera.x;
+  let y = camera.y;
+
+  if (viewW >= worldW + padding * 2) x = centerX;
+  else x = clamp(x, bounds.minX - padding + viewW / 2, bounds.maxX + padding - viewW / 2);
+
+  if (viewH >= worldH + padding * 2) y = centerY;
+  else y = clamp(y, bounds.minY - padding + viewH / 2, bounds.maxY + padding - viewH / 2);
+
+  return { x, y, zoom };
+}
+
+function fillPolygon(ctx: CanvasRenderingContext2D, points: Array<[number, number]>, fill: string, stroke?: string) {
+  if (!points.length) return;
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i][0], points[i][1]);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.stroke(); }
+}
+
+function drawIsoBox(ctx: CanvasRenderingContext2D, x: number, baseY: number, w: number, h: number, depth: number, front: string, side: string, top: string) {
+  const dx = depth * .56;
+  const dy = depth * .34;
+  const left = x - w / 2;
+  const right = x + w / 2;
+  const topY = baseY - h;
+  fillPolygon(ctx, [[left,topY],[right,topY],[right+dx,topY-dy],[left+dx,topY-dy]], top, 'rgba(65,53,42,.75)');
+  fillPolygon(ctx, [[right,topY],[right,baseY],[right+dx,baseY-dy],[right+dx,topY-dy]], side, 'rgba(59,48,39,.75)');
+  fillPolygon(ctx, [[left,topY],[right,topY],[right,baseY],[left,baseY]], front, 'rgba(70,58,46,.82)');
+}
+
+function drawIsoRoof(ctx: CanvasRenderingContext2D, x: number, topY: number, w: number, depth: number, height: number, color: string) {
+  const dx = depth * .56;
+  const dy = depth * .34;
+  const peakX = x + dx * .28;
+  const peakY = topY - height - dy * .35;
+  fillPolygon(ctx, [[x-w/2,topY],[x+w/2,topY],[peakX,peakY]], color, 'rgba(62,46,34,.74)');
+  fillPolygon(ctx, [[x+w/2,topY],[x+w/2+dx,topY-dy],[peakX,peakY]], 'rgba(108,70,43,.95)', 'rgba(62,46,34,.70)');
+}
 function drawCastle(ctx: CanvasRenderingContext2D, item: RenderItem, lod: Lod, selectedId?: string | null) {
   const { state, x, y, clusterCount } = item;
   const s = markerSize(state, selectedId);
@@ -256,58 +313,80 @@ function drawCastle(ctx: CanvasRenderingContext2D, item: RenderItem, lod: Lod, s
 
   ctx.save();
   ctx.translate(x, y);
-  ctx.globalAlpha = ruined ? .56 : 1;
+  ctx.globalAlpha = ruined ? .58 : 1;
 
-  // Cheap far renderer: no gradients, no blur, no avatar decode. This is the critical FPS path.
-  if (lod === "far") {
-    ctx.fillStyle = relation === "war" ? "rgba(111,52,38,.72)" : relation === "allied" ? "rgba(58,102,43,.72)" : "rgba(42,55,31,.70)";
-    ctx.beginPath(); ctx.ellipse(0, s*.28, s*.42, s*.12, 0, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = "#aaa18d";
-    ctx.fillRect(-s*.28,-s*.06,s*.56,s*.34);
-    ctx.fillRect(-s*.33,-s*.22,s*.17,s*.50);
-    ctx.fillRect(s*.16,-s*.22,s*.17,s*.50);
-    ctx.fillRect(-s*.10,-s*.31,s*.20,s*.59);
-    ctx.fillStyle = "#d2c7ad";
-    for (const tx of [-s*.33,-s*.10,s*.16]) {
-      for (let i=0;i<3;i++) ctx.fillRect(tx+i*s*.055,-s*.28,s*.032,s*.065);
-    }
-    ctx.fillStyle = "#30241b";
-    ctx.beginPath(); ctx.arc(0,s*.19,s*.055,Math.PI,0); ctx.lineTo(s*.055,s*.28); ctx.lineTo(-s*.055,s*.28); ctx.closePath(); ctx.fill();
+  // Ground contact shadow gives the castle a stable 3D footprint.
+  ctx.save();
+  ctx.globalAlpha *= .30;
+  ctx.fillStyle = '#1c2217';
+  ctx.beginPath();
+  ctx.ellipse(s*.06, s*.31, s*.46, s*.15, -.05, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+
+  const territoryColor = relation === 'war' ? 'rgba(118,54,38,.64)' : relation === 'allied' ? 'rgba(58,105,44,.64)' : 'rgba(50,69,35,.62)';
+  ctx.fillStyle = territoryColor;
+  ctx.beginPath();
+  ctx.ellipse(0,s*.27,s*.48,s*.16,-.04,0,Math.PI*2);
+  ctx.fill();
+
+  if (lod === 'far') {
+    // Cheap 2.5D silhouette for the critical zoomed-out path.
+    drawIsoBox(ctx, -s*.17, s*.20, s*.24, s*.34, s*.12, '#9f9889', '#665f55', '#c8bea8');
+    drawIsoBox(ctx,  s*.17, s*.20, s*.24, s*.34, s*.12, '#9f9889', '#665f55', '#c8bea8');
+    drawIsoBox(ctx, 0, s*.18, s*.30, s*.44, s*.15, '#aaa291', '#6d655a', '#d0c6af');
+    drawIsoRoof(ctx, 0, -s*.26, s*.30, s*.15, s*.12, state.color || '#8c673f');
   } else {
-    ctx.shadowColor = selected || state.isMine ? "rgba(244,205,105,.58)" : "rgba(0,0,0,.34)";
-    ctx.shadowBlur = selected || state.isMine ? 14 : 7;
-    ctx.shadowOffsetY = 7;
-    ctx.fillStyle = relation === "war" ? "rgba(116,48,35,.55)" : relation === "allied" ? "rgba(76,120,52,.58)" : "rgba(38,51,29,.55)";
-    ctx.beginPath(); ctx.ellipse(0,s*.28,s*.44,s*.13,0,0,Math.PI*2); ctx.fill();
-    ctx.shadowColor = "transparent";
+    ctx.shadowColor = selected || state.isMine ? 'rgba(244,205,105,.52)' : 'rgba(0,0,0,.30)';
+    ctx.shadowBlur = selected || state.isMine ? 15 : 8;
+    ctx.shadowOffsetY = 8;
 
-    const stone = ctx.createLinearGradient(0,-s*.35,0,s*.32);
-    stone.addColorStop(0,"#e5dcc4"); stone.addColorStop(.42,"#aaa18e"); stone.addColorStop(1,"#625b50");
-    ctx.fillStyle = stone;
-    roundRect(ctx,-s*.30,-s*.08,s*.60,s*.38,s*.025); ctx.fill();
-    for (const tx of [-s*.34,s*.18]) { roundRect(ctx,tx,-s*.27,s*.16,s*.55,s*.018); ctx.fill(); }
-    roundRect(ctx,-s*.13,-s*.31,s*.26,s*.58,s*.018); ctx.fill();
-    ctx.fillStyle="#d8ceb6";
-    for (const tx of [-s*.34,-s*.13,s*.18]) for(let b=0;b<3;b++) ctx.fillRect(tx+b*s*.055,-s*.33,s*.032,s*.065);
-    ctx.fillStyle="#30241b";
-    ctx.beginPath(); ctx.arc(0,s*.18,s*.06,Math.PI,0); ctx.lineTo(s*.06,s*.28); ctx.lineTo(-s*.06,s*.28); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle="#4a3928"; ctx.lineWidth=2;
-    ctx.beginPath(); ctx.moveTo(-s*.27,-s*.25); ctx.lineTo(-s*.27,-s*.48); ctx.moveTo(s*.27,-s*.25); ctx.lineTo(s*.27,-s*.48); ctx.stroke();
-    ctx.fillStyle=state.color || "#8d6840";
-    ctx.beginPath(); ctx.moveTo(-s*.27,-s*.47); ctx.lineTo(-s*.08,-s*.43); ctx.lineTo(-s*.27,-s*.37); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(s*.27,-s*.47); ctx.lineTo(s*.08,-s*.43); ctx.lineTo(s*.27,-s*.37); ctx.closePath(); ctx.fill();
+    // Back keep, then walls/towers. Overlap order is intentional and creates depth.
+    drawIsoBox(ctx, 0, s*.18, s*.34, s*.56, s*.20, '#b7ae9c', '#6d665b', '#ddd2ba');
+    drawIsoRoof(ctx, 0, -s*.38, s*.34, s*.20, s*.15, state.color || '#8d6840');
+    drawIsoBox(ctx, 0, s*.24, s*.56, s*.30, s*.16, '#a39b8c', '#625c53', '#c9bea7');
+    drawIsoBox(ctx, -s*.27, s*.24, s*.23, s*.48, s*.16, '#ada596', '#665f55', '#d1c6ae');
+    drawIsoBox(ctx,  s*.27, s*.24, s*.23, s*.48, s*.16, '#ada596', '#665f55', '#d1c6ae');
+    drawIsoRoof(ctx, -s*.27, -s*.24, s*.23, s*.16, s*.11, state.color || '#8d6840');
+    drawIsoRoof(ctx,  s*.27, -s*.24, s*.23, s*.16, s*.11, state.color || '#8d6840');
+
+    ctx.shadowColor = 'transparent';
+    // Gate and windows sit on the front plane.
+    ctx.fillStyle = '#2f241d';
+    ctx.beginPath();
+    ctx.arc(0, s*.10, s*.065, Math.PI, 0);
+    ctx.lineTo(s*.065, s*.24); ctx.lineTo(-s*.065, s*.24); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(244,207,112,.72)';
+    for (const wx of [-s*.26, -s*.08, s*.10, s*.28]) {
+      ctx.fillRect(wx, -s*.05, s*.035, s*.055);
+    }
+
+    // Flags have different heights, which further breaks the flat-icon feeling.
+    ctx.strokeStyle = '#4f3a28'; ctx.lineWidth = 2;
+    for (const fx of [-s*.28, s*.28]) {
+      ctx.beginPath(); ctx.moveTo(fx,-s*.26); ctx.lineTo(fx,-s*.50); ctx.stroke();
+      ctx.fillStyle = state.color || '#8d6840';
+      fillPolygon(ctx, [[fx,-s*.49],[fx+s*.17,-s*.45],[fx,-s*.38]], state.color || '#8d6840');
+    }
   }
   ctx.restore();
 
   if (selected) {
-    ctx.save(); ctx.strokeStyle="#f2cf75"; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,s*.55,0,Math.PI*2); ctx.stroke(); ctx.restore();
+    ctx.save();
+    ctx.strokeStyle = '#f2cf75';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6,5]);
+    ctx.beginPath(); ctx.ellipse(x,y+s*.06,s*.58,s*.47,0,0,Math.PI*2); ctx.stroke();
+    ctx.restore();
   }
 
   if (clusterCount > 1) {
     ctx.save();
-    ctx.fillStyle="#281f16"; ctx.strokeStyle="#e6c46d"; ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.arc(x+s*.38,y-s*.36,13,0,Math.PI*2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle="#fff0c6"; ctx.font="800 9px system-ui"; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(`+${clusterCount-1}`,x+s*.38,y-s*.36+.5); ctx.restore();
+    ctx.fillStyle='#281f16'; ctx.strokeStyle='#e6c46d'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(x+s*.40,y-s*.40,13,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#fff0c6'; ctx.font='800 9px system-ui'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(`+${clusterCount-1}`,x+s*.40,y-s*.40+.5);
+    ctx.restore();
   }
 }
 
@@ -323,6 +402,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   const gestureRef = useRef({ moved: false, pinched: false });
   const pinchRef = useRef<{ distance: number; zoom: number; worldX: number; worldY: number } | null>(null);
   const exploreTimer = useRef<number | null>(null);
+  const liveExploreAtRef = useRef(0);
   const lodRef = useRef<Lod>(lodForZoom(DEFAULT_ZOOM));
   const [lod, setLod] = useState<Lod>(lodRef.current);
   const [filter, setFilter] = useState<MapFilter>("all");
@@ -335,6 +415,8 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
     if (!snapshot.islands.length) return { minX:-3000,maxX:3000,minY:-3000,maxY:3000 };
     return snapshot.islands.reduce((acc,state)=>({minX:Math.min(acc.minX,state.worldX),maxX:Math.max(acc.maxX,state.worldX),minY:Math.min(acc.minY,state.worldY),maxY:Math.max(acc.maxY,state.worldY)}),{minX:Infinity,maxX:-Infinity,minY:Infinity,maxY:-Infinity});
   }, [snapshot.islands]);
+
+  const constrainCamera = useCallback((camera: Camera) => clampCameraToWorld(camera, bounds, sizeRef.current.width, sizeRef.current.height), [bounds]);
 
   const normalizedQuery = query.trim().replace(/^@/, "").toLocaleLowerCase("ru-RU");
   const searchResults = useMemo(() => normalizedQuery ? snapshot.islands.filter((state)=>displayName(state).toLocaleLowerCase("ru-RU").includes(normalizedQuery)||(state.stateUsername||"").toLocaleLowerCase("ru-RU").includes(normalizedQuery)).slice(0,8) : [], [normalizedQuery,snapshot.islands]);
@@ -355,9 +437,19 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
     const {width,height,dpr}=sizeRef.current;
     const ctx=canvas.getContext("2d",{alpha:false});
     if (!ctx) return;
-    const cam=cameraRef.current;
+    const cam=constrainCamera(cameraRef.current);
+    cameraRef.current=cam;
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    drawWorldTerrain(ctx,cam,width,height);
+    ctx.globalAlpha=1;
+    ctx.globalCompositeOperation="source-over";
+    ctx.imageSmoothingEnabled=true;
+    ctx.clearRect(0,0,width,height);
+    try {
+      drawWorldTerrain(ctx,cam,width,height);
+    } catch {
+      ctx.fillStyle="#4f7932";
+      ctx.fillRect(0,0,width,height);
+    }
 
     const worldToScreen=(x:number,y:number)=>({x:width/2+(x-cam.x)*cam.zoom,y:height/2+(y-cam.y)*cam.zoom});
     if (cam.zoom>=.43 && mine) {
@@ -389,7 +481,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
         ctx.restore();
       }
     }
-  }, [allied,mine,selected?.id,visibleStates]);
+  }, [allied,constrainCamera,mine,selected?.id,visibleStates]);
 
   const requestDraw = useCallback(() => {
     if(rafRef.current!=null) return;
@@ -409,50 +501,67 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
     }
   }, [onExplore,updateLod]);
 
+  const exploreDuringMotion = useCallback((camera: Camera) => {
+    if (!onExplore) return;
+    const at = performance.now();
+    if (at - liveExploreAtRef.current < 420) return;
+    liveExploreAtRef.current = at;
+    onExplore(camera.x, camera.y, Math.min(9000, Math.max(2600, 3400 / camera.zoom)));
+  }, [onExplore]);
+
   const animateCameraTo = useCallback((target:Camera,duration=260,explore=true) => {
     stopAnimation();
-    const from={...cameraRef.current};
+    const from=constrainCamera({...cameraRef.current});
+    const safeTarget=constrainCamera(target);
     const started=performance.now();
     const frame=(at:number)=>{
       const t=clamp((at-started)/duration,0,1);
       const eased=1-Math.pow(1-t,3);
-      cameraRef.current={x:from.x+(target.x-from.x)*eased,y:from.y+(target.y-from.y)*eased,zoom:from.zoom+(target.zoom-from.zoom)*eased};
+      cameraRef.current=constrainCamera({x:from.x+(safeTarget.x-from.x)*eased,y:from.y+(safeTarget.y-from.y)*eased,zoom:from.zoom+(safeTarget.zoom-from.zoom)*eased});
       updateLod(cameraRef.current.zoom);requestDraw();
       if(t<1) animationRef.current=window.requestAnimationFrame(frame);
       else{animationRef.current=null;persistAndExplore(cameraRef.current,explore);}
     };
     animationRef.current=window.requestAnimationFrame(frame);
-  }, [persistAndExplore,requestDraw,stopAnimation,updateLod]);
+  }, [constrainCamera,persistAndExplore,requestDraw,stopAnimation,updateLod]);
 
   const startInertia = useCallback((vx:number,vy:number) => {
     stopAnimation();
+    vx=clamp(vx,-3.6,3.6); vy=clamp(vy,-3.6,3.6);
     const started=performance.now();
     let previous=started;
     const frame=(at:number)=>{
-      const dt=Math.min(32,at-previous);previous=at;
+      const dt=Math.min(32,at-previous); previous=at;
       const elapsed=at-started;
-      const decay=Math.pow(.90,dt/16.67);
-      vx*=decay;vy*=decay;
-      if(elapsed>720||Math.hypot(vx,vy)<.015){animationRef.current=null;persistAndExplore(cameraRef.current,true);return;}
-      cameraRef.current={...cameraRef.current,x:cameraRef.current.x+vx*dt,y:cameraRef.current.y+vy*dt};
-      requestDraw();animationRef.current=window.requestAnimationFrame(frame);
+      const decay=Math.pow(.875,dt/16.67);
+      vx*=decay; vy*=decay;
+      if(elapsed>620||Math.hypot(vx,vy)<.012){animationRef.current=null;persistAndExplore(cameraRef.current,true);return;}
+      const before=cameraRef.current;
+      const next=constrainCamera({...before,x:before.x+vx*dt,y:before.y+vy*dt});
+      if (Math.abs(next.x-before.x)<.001) vx*=.15;
+      if (Math.abs(next.y-before.y)<.001) vy*=.15;
+      cameraRef.current=next;
+      exploreDuringMotion(next);
+      requestDraw(); animationRef.current=window.requestAnimationFrame(frame);
     };
     animationRef.current=window.requestAnimationFrame(frame);
-  }, [persistAndExplore,requestDraw,stopAnimation]);
+  }, [constrainCamera,exploreDuringMotion,persistAndExplore,requestDraw,stopAnimation]);
 
   useEffect(()=>{
     const el=viewportRef.current,canvas=canvasRef.current;if(!el||!canvas)return;
-    const update=()=>{const width=el.clientWidth||390,height=el.clientHeight||620,dpr=Math.min(1.75,window.devicePixelRatio||1);sizeRef.current={width,height,dpr};canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);canvas.style.width=`${width}px`;canvas.style.height=`${height}px`;requestDraw();};
-    update();const observer=new ResizeObserver(update);observer.observe(el);return()=>observer.disconnect();
-  },[requestDraw]);
+    const update=()=>{const width=el.clientWidth||390,height=el.clientHeight||620,dpr=Math.min(1.6,window.devicePixelRatio||1);sizeRef.current={width,height,dpr};canvas.width=Math.max(1,Math.round(width*dpr));canvas.height=Math.max(1,Math.round(height*dpr));canvas.style.width=`${width}px`;canvas.style.height=`${height}px`;cameraRef.current=clampCameraToWorld(cameraRef.current,bounds,width,height);requestDraw();};
+    const restore=()=>requestDraw();
+    update(); const observer=new ResizeObserver(update); observer.observe(el); canvas.addEventListener("contextrestored",restore);
+    return()=>{observer.disconnect();canvas.removeEventListener("contextrestored",restore);};
+  },[bounds,requestDraw]);
 
   useEffect(()=>{requestDraw();},[requestDraw,snapshot.islands,selected?.id,filter]);
   useEffect(()=>{const timer=window.setInterval(()=>setNow(Date.now()),30_000);return()=>window.clearInterval(timer);},[]);
   useEffect(()=>{
-    try{const stored=window.sessionStorage.getItem("warstate-map-camera-v7")||window.sessionStorage.getItem("warstate-map-camera-v6");if(stored){const parsed=JSON.parse(stored) as Camera;if(Number.isFinite(parsed.x)&&Number.isFinite(parsed.y)&&Number.isFinite(parsed.zoom))cameraRef.current={x:parsed.x,y:parsed.y,zoom:clamp(parsed.zoom,MIN_ZOOM,MAX_ZOOM)};}}catch{/* optional */}
-    updateLod(cameraRef.current.zoom);requestDraw();
+    try{const stored=window.sessionStorage.getItem("warstate-map-camera-v7")||window.sessionStorage.getItem("warstate-map-camera-v6");if(stored){const parsed=JSON.parse(stored) as Camera;if(Number.isFinite(parsed.x)&&Number.isFinite(parsed.y)&&Number.isFinite(parsed.zoom))cameraRef.current=constrainCamera({x:parsed.x,y:parsed.y,zoom:clamp(parsed.zoom,MIN_ZOOM,MAX_ZOOM)});}}catch{/* optional */}
+    cameraRef.current=constrainCamera(cameraRef.current); updateLod(cameraRef.current.zoom);requestDraw();
     return()=>{if(rafRef.current!=null)window.cancelAnimationFrame(rafRef.current);stopAnimation();if(exploreTimer.current!=null)window.clearTimeout(exploreTimer.current);};
-  },[requestDraw,stopAnimation,updateLod]);
+  },[constrainCamera,requestDraw,stopAnimation,updateLod]);
 
   const localPoint=useCallback((event:ReactPointerEvent<HTMLDivElement>)=>{const rect=event.currentTarget.getBoundingClientRect();return{x:event.clientX-rect.left,y:event.clientY-rect.top};},[]);
 
@@ -472,13 +581,13 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
 
   const pointerMove=useCallback((event:ReactPointerEvent<HTMLDivElement>)=>{
     if(!pointers.current.has(event.pointerId))return;const point=localPoint(event);pointers.current.set(event.pointerId,point);
-    if(pointers.current.size>=2&&pinchRef.current){const[a,b]=[...pointers.current.values()];const midX=(a.x+b.x)/2,midY=(a.y+b.y)/2,distance=Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),pinch=pinchRef.current,zoom=clamp(pinch.zoom*distance/pinch.distance,MIN_ZOOM,MAX_ZOOM);cameraRef.current={x:pinch.worldX-(midX-sizeRef.current.width/2)/zoom,y:pinch.worldY-(midY-sizeRef.current.height/2)/zoom,zoom};updateLod(zoom);requestDraw();return;}
+    if(pointers.current.size>=2&&pinchRef.current){const[a,b]=[...pointers.current.values()];const midX=(a.x+b.x)/2,midY=(a.y+b.y)/2,distance=Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),pinch=pinchRef.current,zoom=clamp(pinch.zoom*distance/pinch.distance,MIN_ZOOM,MAX_ZOOM);cameraRef.current=constrainCamera({x:pinch.worldX-(midX-sizeRef.current.width/2)/zoom,y:pinch.worldY-(midY-sizeRef.current.height/2)/zoom,zoom});updateLod(cameraRef.current.zoom);exploreDuringMotion(cameraRef.current);requestDraw();return;}
     const drag=dragRef.current;if(!drag||drag.id!==event.pointerId)return;
     const threshold=event.pointerType==="touch"?CLICK_THRESHOLD_TOUCH:CLICK_THRESHOLD_MOUSE;if(Math.hypot(point.x-drag.x,point.y-drag.y)>threshold)gestureRef.current.moved=true;
     const at=performance.now(),dt=Math.max(1,at-drag.lastAt),dx=point.x-drag.lastX,dy=point.y-drag.lastY;
-    drag.vx=drag.vx*.68+(-dx/drag.camera.zoom/dt)*.32;drag.vy=drag.vy*.68+(-dy/drag.camera.zoom/dt)*.32;drag.lastX=point.x;drag.lastY=point.y;drag.lastAt=at;
-    cameraRef.current={...drag.camera,x:drag.camera.x-(point.x-drag.x)/drag.camera.zoom,y:drag.camera.y-(point.y-drag.y)/drag.camera.zoom};requestDraw();
-  },[localPoint,requestDraw,updateLod]);
+    drag.vx=clamp(drag.vx*.68+(-dx/drag.camera.zoom/dt)*.32,-3.8,3.8);drag.vy=clamp(drag.vy*.68+(-dy/drag.camera.zoom/dt)*.32,-3.8,3.8);drag.lastX=point.x;drag.lastY=point.y;drag.lastAt=at;
+    cameraRef.current=constrainCamera({...drag.camera,x:drag.camera.x-(point.x-drag.x)/drag.camera.zoom,y:drag.camera.y-(point.y-drag.y)/drag.camera.zoom});exploreDuringMotion(cameraRef.current);requestDraw();
+  },[constrainCamera,exploreDuringMotion,localPoint,requestDraw,updateLod]);
 
   const finishPointer=useCallback((event:ReactPointerEvent<HTMLDivElement>,cancelled=false)=>{
     const point=pointers.current.get(event.pointerId);const drag=dragRef.current;pointers.current.delete(event.pointerId);
@@ -492,8 +601,9 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
 
   const zoomAt=useCallback((nextZoom:number,screenX=sizeRef.current.width/2,screenY=sizeRef.current.height/2,animated=false)=>{
     const current=cameraRef.current,zoom=clamp(nextZoom,MIN_ZOOM,MAX_ZOOM),worldX=current.x+(screenX-sizeRef.current.width/2)/current.zoom,worldY=current.y+(screenY-sizeRef.current.height/2)/current.zoom,target={x:worldX-(screenX-sizeRef.current.width/2)/zoom,y:worldY-(screenY-sizeRef.current.height/2)/zoom,zoom};
-    if(animated){animateCameraTo(target,180,false);return;}cameraRef.current=target;updateLod(zoom);requestDraw();persistAndExplore(target,false);
-  },[animateCameraTo,persistAndExplore,requestDraw,updateLod]);
+    const safeTarget=constrainCamera(target);
+    if(animated){animateCameraTo(safeTarget,180,false);return;}cameraRef.current=safeTarget;updateLod(safeTarget.zoom);requestDraw();persistAndExplore(safeTarget,false);
+  },[animateCameraTo,constrainCamera,persistAndExplore,requestDraw,updateLod]);
 
   const wheel=useCallback((event:ReactWheelEvent<HTMLDivElement>)=>{event.preventDefault();stopAnimation();const rect=event.currentTarget.getBoundingClientRect(),x=event.clientX-rect.left,y=event.clientY-rect.top,factor=Math.exp(-event.deltaY*.00135);zoomAt(cameraRef.current.zoom*factor,x,y,false);},[stopAnimation,zoomAt]);
   const fitWorld=useCallback(()=>{const spanX=Math.max(900,bounds.maxX-bounds.minX+1300),spanY=Math.max(900,bounds.maxY-bounds.minY+1300),zoom=clamp(Math.min(.72,Math.min(sizeRef.current.width/spanX,sizeRef.current.height/spanY)),MIN_ZOOM,.72);animateCameraTo({x:(bounds.minX+bounds.maxX)/2,y:(bounds.minY+bounds.maxY)/2,zoom},320,true);},[animateCameraTo,bounds]);

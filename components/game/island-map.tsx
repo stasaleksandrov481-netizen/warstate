@@ -71,15 +71,21 @@ function crestText(state: IslandView) {
   return stateMarkText(displayName(state), state.emblem);
 }
 
-const CastleNode = memo(function CastleNode({ state, detail, selected, onSelect }: { state: IslandView; detail: "far" | "mid" | "near"; selected: boolean; onSelect: (state: IslandView) => void }) {
+const CastleNode = memo(function CastleNode({ state, detail, selected, onSelect, zoom }: { state: IslandView; detail: "far" | "mid" | "near"; selected: boolean; onSelect: (state: IslandView) => void; zoom: number }) {
   const ruined = Boolean(state.destroyedUntil && new Date(state.destroyedUntil).getTime() > Date.now());
   const size = Math.max(190, Math.min(340, 190 + Math.sqrt(Math.max(1, state.memberCount)) * 10));
+  // At far zoom the whole world shrinks together with the camera and castles become tiny illegible dots
+  // (this is what was showing on screen). Counter-scale them back up on top of the zoom so they stay a
+  // readable size — this only kicks in once zoomed out past the "far" LOD threshold, so near/mid zoom is
+  // untouched. Pure CSS transform, no layout cost.
+  const counterScale = detail === "far" ? Math.min(3.4, Math.max(1, 0.6 / Math.max(zoom, MIN_ZOOM))) : 1;
   const style = {
     left: state.worldX,
     top: state.worldY,
     width: size,
     height: size * 0.78,
     "--state-color": state.color,
+    transform: `translate(-50%,-50%) scale(${counterScale})`,
   } as CSSProperties;
 
   return (
@@ -90,22 +96,33 @@ const CastleNode = memo(function CastleNode({ state, detail, selected, onSelect 
       onClick={(event) => { event.stopPropagation(); onSelect(state); }}
       aria-label={`${displayName(state)}. ${relationText(state)}`}
     >
-      <span className="territory-region" aria-hidden="true" />
-      <span className="territory-wall" aria-hidden="true" />
-      <span className="castle-structure" aria-hidden="true">
-        <i className="castle-tower tower-left" />
-        <i className="castle-tower tower-center" />
-        <i className="castle-tower tower-right" />
-        <i className="castle-keep" />
-        <i className="castle-wall wall-left" />
-        <i className="castle-wall wall-right" />
-        <i className="castle-gate" />
-        <i className="castle-banner banner-left" />
-        <i className="castle-banner banner-right" />
-      </span>
-      <span className="castle-crest" style={{ background: state.color }}>
-        {state.avatarUrl ? <Image src={state.avatarUrl} alt="" width={52} height={52} unoptimized /> : crestText(state)}
-      </span>
+      {detail === "far" ? (
+        // Far zoom: one cheap glyph instead of the full 9-layer castle graphic below. With dozens of
+        // states visible at once at this zoom level, this is what was causing the map to lag — every one
+        // of them was painting shadows/gradients on 9 separate elements simultaneously.
+        <span className="castle-marker-far" aria-hidden="true" style={{ background: state.color }}>
+          {state.avatarUrl ? <Image src={state.avatarUrl} alt="" width={44} height={44} unoptimized /> : crestText(state)}
+        </span>
+      ) : (
+        <>
+          <span className="territory-region" aria-hidden="true" />
+          <span className="territory-wall" aria-hidden="true" />
+          <span className="castle-structure" aria-hidden="true">
+            <i className="castle-tower tower-left" />
+            <i className="castle-tower tower-center" />
+            <i className="castle-tower tower-right" />
+            <i className="castle-keep" />
+            <i className="castle-wall wall-left" />
+            <i className="castle-wall wall-right" />
+            <i className="castle-gate" />
+            <i className="castle-banner banner-left" />
+            <i className="castle-banner banner-right" />
+          </span>
+          <span className="castle-crest" style={{ background: state.color }}>
+            {state.avatarUrl ? <Image src={state.avatarUrl} alt="" width={52} height={52} unoptimized /> : crestText(state)}
+          </span>
+        </>
+      )}
       {detail !== "far" && (
         <span className="castle-label">
           <b>{displayName(state)}</b>
@@ -330,7 +347,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
               return <g key={ally.id}><line x1={mine.worldX} y1={mine.worldY} x2={ally.worldX} y2={ally.worldY}/><circle cx={mx} cy={my} r={16}/><text x={mx} y={my + 5} textAnchor="middle">◆</text></g>;
             })}
           </svg>
-          {visibleStates.map((state) => <CastleNode key={state.id} state={state} detail={detail} selected={selected?.id === state.id} onSelect={onSelect} />)}
+          {visibleStates.map((state) => <CastleNode key={state.id} state={state} detail={detail} selected={selected?.id === state.id} onSelect={onSelect} zoom={camera.zoom} />)}
         </div>
 
         <div className="continent-map-head" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>

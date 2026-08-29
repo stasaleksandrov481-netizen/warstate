@@ -340,6 +340,7 @@ export type JoinStateResult = {
   state: { id: string; name: string };
   role: string;
   switchedFrom: string | null;
+  alreadyMember: boolean;
 };
 
 // !вступить (and the equivalent Mini App "Перейти" button) is a deliberate,
@@ -367,8 +368,29 @@ export async function joinStateFromChat(user: TelegramUser, chatId: number): Pro
   if (playerError) throw playerError;
 
   const alreadyHome = String(playerRow?.home_state_id || "") === String(target.id);
+
+  // No-op fast path: repeated !вступить (or repeated taps on "Перейти" in the Mini App) while already a
+  // citizen of this exact state must NOT re-run the switch RPC or trigger another chat announcement —
+  // that's what was spamming the group. Just report current membership instead.
+  if (alreadyHome) {
+    const { data: memberRow, error: memberError } = await supabase
+      .from("state_members")
+      .select("role")
+      .eq("state_id", target.id)
+      .eq("player_id", player.id)
+      .maybeSingle();
+    if (memberError) throw memberError;
+    return {
+      player: { id: player.id, displayName: player.display_name },
+      state: { id: target.id, name: target.name },
+      role: memberRow?.role || "citizen",
+      switchedFrom: null,
+      alreadyMember: true,
+    };
+  }
+
   let switchedFrom: string | null = null;
-  if (!alreadyHome && playerRow?.home_state_id) {
+  if (playerRow?.home_state_id) {
     const { data: previousState, error: previousStateError } = await supabase
       .from("states")
       .select("name,is_freeport")
@@ -399,7 +421,8 @@ export async function joinStateFromChat(user: TelegramUser, chatId: number): Pro
     player: { id: player.id, displayName: player.display_name },
     state: { id: target.id, name: target.name },
     role: memberRow?.role || "citizen",
-    switchedFrom: alreadyHome ? null : switchedFrom,
+    switchedFrom,
+    alreadyMember: false,
   };
 }
 

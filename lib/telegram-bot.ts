@@ -1,3 +1,5 @@
+import { tryCommandCooldown } from "@/lib/cooldown";
+
 const API = "https://api.telegram.org";
 
 export async function telegramApi<T>(method: string, payload: Record<string, unknown>): Promise<T> {
@@ -107,9 +109,13 @@ export async function assertTelegramChatMembership(
   const member = await getChatMember(chatId, userId);
   if (isTelegramChatMember(member)) return member;
 
+  // The Mini App itself uses the returned inviteLink to redirect the user (see game-app.tsx), so we
+  // always resolve it — but repeated taps on "Перейти" shouldn't re-send a fresh DM every time. Guard
+  // only the DM: if we already DM'd this same invite attempt in the last 20s, skip sending another.
   const inviteLink = await createStateJoinLink(chatId, `WARSTATE · ${playerName}`);
+  const allowSend = options.sendInvite !== false && (await tryCommandCooldown(chatId, userId, "join_invite_dm", 20));
   let inviteSent = false;
-  if (options.sendInvite !== false && inviteLink) {
+  if (allowSend && inviteLink) {
     inviteSent = await telegramApi("sendMessage", {
       chat_id: userId,
       text: "🏛 ВСТУПЛЕНИЕ В ГОСУДАРСТВО\n────────────\nСначала вступите в Telegram-чат этого государства. Затем вернитесь на карту WARSTATE и нажмите «Перейти» ещё раз.",

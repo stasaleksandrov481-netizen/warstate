@@ -133,6 +133,24 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   const pinchRef = useRef<{ distance: number; zoom: number; worldX: number; worldY: number } | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const exploreTimer = useRef<number | null>(null);
+  // Perf: pointermove/wheel can fire far faster than the screen refreshes (especially on trackpads and
+  // fast touch drags). Without coalescing, every single event triggered a React re-render of the whole
+  // map (all visible castles, search results, terrain bounds), which is what was causing the pan/zoom lag.
+  // We now collapse any number of events within one frame down to a single setCamera call.
+  const rafRef = useRef<number | null>(null);
+  const pendingFrame = useRef<(() => void) | null>(null);
+  const scheduleFrame = useCallback((fn: () => void) => {
+    pendingFrame.current = fn;
+    if (rafRef.current == null) {
+      rafRef.current = window.requestAnimationFrame(() => {
+        rafRef.current = null;
+        const run = pendingFrame.current;
+        pendingFrame.current = null;
+        if (run) run();
+      });
+    }
+  }, []);
+  useEffect(() => () => { if (rafRef.current != null) window.cancelAnimationFrame(rafRef.current); }, []);
   const [size, setSize] = useState({ width: 390, height: 620 });
   const [camera, setCamera] = useState<Camera>(() => ({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: DEFAULT_ZOOM }));
   const [filter, setFilter] = useState<MapFilter>("all");
@@ -233,13 +251,14 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
       const midY = (a.y + b.y) / 2;
       const distance = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
       const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchRef.current.zoom * distance / pinchRef.current.distance));
-      setCamera({ x: pinchRef.current.worldX - (midX - size.width / 2) / zoom, y: pinchRef.current.worldY - (midY - size.height / 2) / zoom, zoom });
+      const pinch = pinchRef.current;
+      scheduleFrame(() => setCamera({ x: pinch.worldX - (midX - size.width / 2) / zoom, y: pinch.worldY - (midY - size.height / 2) / zoom, zoom }));
       return;
     }
     const start = dragRef.current;
     if (!start || start.id !== event.pointerId) return;
-    setCamera({ ...start.camera, x: start.camera.x - (point.x - start.x) / start.camera.zoom, y: start.camera.y - (point.y - start.y) / start.camera.zoom });
-  }, [localPoint, size.height, size.width]);
+    scheduleFrame(() => setCamera({ ...start.camera, x: start.camera.x - (point.x - start.x) / start.camera.zoom, y: start.camera.y - (point.y - start.y) / start.camera.zoom }));
+  }, [localPoint, scheduleFrame, size.height, size.width]);
 
   const pointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     pointers.current.delete(event.pointerId);
@@ -253,8 +272,11 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   const wheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
     event.preventDefault();
     const rect = event.currentTarget.getBoundingClientRect();
-    zoomAt(camera.zoom * (event.deltaY > 0 ? .9 : 1.1), event.clientX - rect.left, event.clientY - rect.top);
-  }, [camera.zoom, zoomAt]);
+    const clientX = event.clientX - rect.left;
+    const clientY = event.clientY - rect.top;
+    const direction = event.deltaY > 0 ? .9 : 1.1;
+    scheduleFrame(() => zoomAt(camera.zoom * direction, clientX, clientY));
+  }, [camera.zoom, scheduleFrame, zoomAt]);
 
   const detail: "far" | "mid" | "near" = camera.zoom < .52 ? "far" : camera.zoom < 1.02 ? "mid" : "near";
   const transform = `translate3d(${size.width / 2 - camera.x * camera.zoom}px, ${size.height / 2 - camera.y * camera.zoom}px, 0) scale(${camera.zoom})`;

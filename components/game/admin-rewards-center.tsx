@@ -127,23 +127,24 @@ export function AdminRewardsCenter({ initData }: { initData: string }) {
     window.setTimeout(() => stateListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 20);
   };
 
-  const resolveAndCache = useCallback(async (state: AdminState) => {
-    const result = await adminCall<{ isPublic: boolean; url: string | null; pendingRequest?: { id: string; requestedAt: string } | null }>(initData, "/api/admin/groups", { action: "resolve", stateId: state.id });
+  const resolveAndCache = useCallback(async (state: AdminState, notify = false) => {
+    const result = await adminCall<{ isPublic: boolean; url: string | null; pendingRequest?: { id: string; requestedAt: string } | null }>(initData, "/api/admin/groups", { action: "resolve", stateId: state.id, notify });
     const cached: ResolvedGroupLink = { url: result.url, isPublic: result.isPublic, pendingRequest: result.pendingRequest || null };
     groupLinkCache.current.set(state.id, cached);
     return cached;
   }, [initData]);
 
   // Prefetch links in the background for groups we don't already know a public username for (private
-  // groups need a server round-trip to check for a fulfilled invite link). Public groups don't need this —
-  // their username already arrives with the state list, so opening them never has to wait on the network.
+  // groups need a server round-trip to check/mint an invite link). Public groups don't need this — their
+  // username already arrives with the state list, so opening them never has to wait on the network.
+  // notify=false here: this is silent background warm-up, not a real "open" the admin asked for.
   useEffect(() => {
     let cancelled = false;
     const targets = states.filter((s) => !s.telegramChatUsername && s.botPresent && !groupLinkCache.current.has(s.id));
     (async () => {
       for (const state of targets) {
         if (cancelled) return;
-        try { await resolveAndCache(state); } catch { /* best-effort prefetch, ignore failures here */ }
+        try { await resolveAndCache(state, false); } catch { /* best-effort prefetch, ignore failures here */ }
       }
     })();
     return () => { cancelled = true; };
@@ -158,23 +159,25 @@ export function AdminRewardsCenter({ initData }: { initData: string }) {
       // Fire the redirect immediately, synchronously, inside the click handler — this is what actually
       // fixes the flaky/first-click-doesn't-work behaviour.
       launchTelegramLink(knownUrl);
-      setStatus(`Вы сейчас смотрите группу: ${state.name}`);
-      void resolveAndCache(state).catch(() => undefined); // refresh cache/username quietly for next time
+      setStatus(`Вы сейчас смотрите группу: ${state.name}. Ссылку на неё бот также прислал вам в личные сообщения.`);
+      // notify=true: this is a real, explicit "open" — the bot also DMs the same link as a reliable
+      // fallback, in case the in-app redirect doesn't fire on this device/client.
+      void resolveAndCache(state, true).catch(() => undefined);
       return;
     }
     if (cached?.pendingRequest) {
       setStatus(`Для «${state.name}» уже запрошено приглашение.`);
-      void resolveAndCache(state).catch(() => undefined); // in case the invite was just fulfilled
+      void resolveAndCache(state, true).catch(() => undefined); // in case the invite was just fulfilled
       return;
     }
 
     // Nothing cached yet (rare — background prefetch hasn't finished). We can't guarantee the redirect
-    // fires after this async call due to Telegram's user-interaction requirement, so just resolve and
-    // cache it; the group will open reliably on the next click.
+    // fires after this async call due to Telegram's user-interaction requirement, so the bot DM below is
+    // the reliable path here; the in-app redirect is a bonus if it happens to still work.
     setBusy(true);
-    resolveAndCache(state)
+    resolveAndCache(state, true)
       .then((result) => {
-        if (result.url) { launchTelegramLink(result.url); setStatus(`Вы сейчас смотрите группу: ${state.name}`); }
+        if (result.url) { launchTelegramLink(result.url); setStatus(`Вы сейчас смотрите группу: ${state.name}. Ссылку на неё бот также прислал вам в личные сообщения.`); }
         else setStatus(result.pendingRequest ? `Для «${state.name}» уже запрошено приглашение.` : `«${state.name}» — приватная группа. Запросите доступ у владельца.`);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Не удалось открыть группу"))

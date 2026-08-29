@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { getChat, getChatMember, telegramApi } from "@/lib/telegram-bot";
+import { getChat, getChatMember, telegramApi, createSingleUseInviteLink } from "@/lib/telegram-bot";
 
 export type AdminRewardType =
   | "resource"
@@ -267,7 +267,58 @@ export async function sendAdminStateMessage(input: {
   return { ok: true };
 }
 
-export async function resolveAdminGroupLink(stateId: string) {
+// Sentinel request_message_id used for invite links the bot minted itself (no owner reply involved).
+// Real owner-reply flows always have a positive Telegram message id, so 0 never collides with those.
+const AUTO_INVITE_MESSAGE_ID = 0;
+
+async function dmAdminGroupLink(adminTelegramId: number, stateName: string, url: string, isInvite: boolean) {
+  await telegramApi("sendMessage", {
+    chat_id: adminTelegramId,
+    text: isInvite ? `🔗 Приглашение в группу «${stateName}»\n${url}` : `🔗 Ссылка на группу «${stateName}»\n${url}`,
+    reply_markup: { inline_keyboard: [[{ text: "Открыть группу", url }]] },
+    link_preview_options: { is_disabled: true },
+  });
+}
+
+// Reuses a previously bot-minted invite for this group if we have one, otherwise asks Telegram to create
+// one. Requires the bot to be an admin with "invite users" rights in the group — the same right it already
+// needs for the ordinary player-join flow, so this normally just works without any owner involvement.
+async function getOrCreateAutoInvite(stateId: string, chatId: number, stateName: string): Promise<string | null> {
+  const supabase = getSupabaseAdmin();
+  const { data: existing } = await supabase
+    .from("admin_chat_access_requests")
+    .select("invite_link")
+    .eq("state_id", stateId)
+    .eq("request_message_id", AUTO_INVITE_MESSAGE_ID)
+    .eq("status", "fulfilled")
+    .order("fulfilled_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existing?.invite_link) return String(existing.invite_link);
+
+  try {
+    const invite = await createSingleUseInviteLink(chatId, `Admin · ${stateName}`);
+    if (!invite?.invite_link) return null;
+    await supabase.from("admin_chat_access_requests").insert({
+      state_id: stateId,
+      admin_telegram_id: 0,
+      admin_username: null,
+      request_message_id: AUTO_INVITE_MESSAGE_ID,
+      status: "fulfilled",
+      invite_link: invite.invite_link,
+      fulfilled_at: new Date().toISOString(),
+    });
+    return invite.invite_link;
+  } catch (inviteError) {
+    console.warn("WARSTATE admin auto-invite failed (bot likely lacks invite rights)", inviteError);
+    return null;
+  }
+}
+
+export async function resolveAdminGroupLink(
+  stateId: string,
+  options: { admin?: { telegramId: number }; notify?: boolean } = {},
+) {
   const supabase = getSupabaseAdmin();
   const { data: state, error } = await supabase.from("states").select("id,name,telegram_chat_id,telegram_chat_username,bot_present").eq("id", stateId).eq("is_freeport", false).single();
   if (error || !state) throw new Error("Государство не найдено.");
@@ -280,22 +331,42 @@ export async function resolveAdminGroupLink(stateId: string) {
   } catch (chatError) {
     console.warn("WARSTATE admin group link refresh failed", chatError);
   }
+
+  const notify = options.notify !== false && Boolean(options.admin);
+
+  if (username) {
+    const url = `https://t.me/${username}`;
+    if (notify) void dmAdminGroupLink(options.admin!.telegramId, String(state.name), url, false).catch((e) => console.warn("WARSTATE admin link DM failed", e));
+    return { stateId, name: String(state.name), isPublic: true, url, pendingRequest: null, inviteRecovered: false };
+  }
+
+  // Private group without a username: try to have the bot mint (or reuse) an invite link itself, so the
+  // admin doesn't have to wait on the group owner at all.
+  const autoInvite = await getOrCreateAutoInvite(stateId, Number(state.telegram_chat_id), String(state.name));
+  if (autoInvite) {
+    if (notify) void dmAdminGroupLink(options.admin!.telegramId, String(state.name), autoInvite, true).catch((e) => console.warn("WARSTATE admin link DM failed", e));
+    return { stateId, name: String(state.name), isPublic: false, url: autoInvite, pendingRequest: null, inviteRecovered: false };
+  }
+
+  // Bot has no invite rights in this group — fall back to the manual owner-reply flow.
   const { data: latestAccess } = await supabase
     .from("admin_chat_access_requests")
     .select("id,status,requested_at,invite_link,fulfilled_at")
     .eq("state_id", stateId)
+    .neq("request_message_id", AUTO_INVITE_MESSAGE_ID)
     .in("status", ["pending", "fulfilled"])
     .order("requested_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   const fulfilledInvite = latestAccess?.status === "fulfilled" && latestAccess?.invite_link ? String(latestAccess.invite_link) : null;
+  if (fulfilledInvite && notify) void dmAdminGroupLink(options.admin!.telegramId, String(state.name), fulfilledInvite, true).catch((e) => console.warn("WARSTATE admin link DM failed", e));
   return {
     stateId,
     name: String(state.name),
-    isPublic: Boolean(username),
-    url: username ? `https://t.me/${username}` : fulfilledInvite,
+    isPublic: false,
+    url: fulfilledInvite,
     pendingRequest: latestAccess?.status === "pending" ? { id: String(latestAccess.id), requestedAt: String(latestAccess.requested_at) } : null,
-    inviteRecovered: Boolean(!username && fulfilledInvite),
+    inviteRecovered: Boolean(fulfilledInvite),
   };
 }
 

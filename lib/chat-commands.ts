@@ -1,6 +1,7 @@
 import { getBattleView } from "@/lib/battle";
 import { getAlliedStateChats, performDiplomacyAction } from "@/lib/diplomacy";
 import { bootstrapGame, getGameSnapshot, joinStateFromChat, tickState } from "@/lib/game";
+import { tryCommandCooldown } from "@/lib/cooldown";
 import { startWarAction, upgradeBuildingAction } from "@/lib/actions";
 import { addAllianceBattleSupport, completeDailyActivity, surrenderBattle } from "@/lib/strategy";
 import { appointPresident, appointPresidentByPlayerId, openGovernmentElection, removePresident, renameState, requestFounderSelfPresidency, resolveStateMemberByTelegramId, resolveStateMemberByUsername, resolveStateTarget, searchStates, setDeputy, setDeputyByPlayerId, setStateUsername, voteForUsername } from "@/lib/government";
@@ -197,17 +198,17 @@ const HELP_SECTIONS: Record<string, { title: string; text: string }> = {
   emergency: { title: "⚠️ ЧП", text: "ЧП возникают каждые 5 часов с 08:00 до 23:00 по времени государства. На реакцию даётся 10 минут. Игнорирование приводит к убыткам. Руководство может задать часовой пояс командой !часовойпояс Europe/Paris." },
 };
 
-function helpMenuKeyboard() {
+function helpMenuKeyboard(ownerId: number) {
   return [
-    [{ text: "🏰 Замок", callback_data: "gw:help:castle" }, { text: "⚔️ Армия", callback_data: "gw:help:army" }],
-    [{ text: "🤝 Союзы", callback_data: "gw:help:alliances" }, { text: "📜 Указы", callback_data: "gw:help:decrees" }],
-    [{ text: "🗳 Выборы", callback_data: "gw:help:elections" }, { text: "💰 Казна", callback_data: "gw:help:treasury" }],
-    [{ text: "🎭 Роли", callback_data: "gw:help:roles" }, { text: "⚠️ ЧП", callback_data: "gw:help:emergency" }],
+    [{ text: "🏰 Замок", callback_data: `gw:help:castle:${ownerId}` }, { text: "⚔️ Армия", callback_data: `gw:help:army:${ownerId}` }],
+    [{ text: "🤝 Союзы", callback_data: `gw:help:alliances:${ownerId}` }, { text: "📜 Указы", callback_data: `gw:help:decrees:${ownerId}` }],
+    [{ text: "🗳 Выборы", callback_data: `gw:help:elections:${ownerId}` }, { text: "💰 Казна", callback_data: `gw:help:treasury:${ownerId}` }],
+    [{ text: "🎭 Роли", callback_data: `gw:help:roles:${ownerId}` }, { text: "⚠️ ЧП", callback_data: `gw:help:emergency:${ownerId}` }],
   ];
 }
 
-function helpSectionKeyboard() {
-  return [[{ text: "← Назад", callback_data: "gw:help:menu" }]];
+function helpSectionKeyboard(ownerId: number) {
+  return [[{ text: "← Назад", callback_data: `gw:help:menu:${ownerId}` }]];
 }
 
 async function editHelpMessage(query: any, text: string, keyboard: Array<Array<{ text: string; callback_data: string }>>) {
@@ -347,7 +348,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (["help", "помощь", "команды"].includes(command)) {
-      await send(chatId, "Вот что я умею. Выбери раздел.", helpMenuKeyboard());
+      await send(chatId, "Вот что я умею. Выбери раздел.", helpMenuKeyboard(Number(from.id)));
       return true;
     }
 
@@ -363,10 +364,17 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (["вступить", "войти", "присоединиться"].includes(command)) {
+      // Spam guard: repeated !вступить within a few seconds (impatient double/triple-typing) is ignored
+      // silently instead of re-processing and re-announcing every single time.
+      if (!(await tryCommandCooldown(chatId, Number(from.id), "join", 8))) return true;
       const joined = await joinStateFromChat(telegramUser(from), chatId);
-      await send(chatId, joined.switchedFrom
-        ? `✅ ${joined.player.displayName} сменил(а) гражданство: «${joined.switchedFrom}» → «${joined.state.name}».`
-        : `✅ ${joined.player.displayName} теперь числится гражданином государства «${joined.state.name}».\n\nMini App открывать для вступления не обязательно.`);
+      if (joined.alreadyMember) {
+        await send(chatId, `ℹ️ ${joined.player.displayName}, вы уже гражданин государства «${joined.state.name}».`);
+      } else {
+        await send(chatId, joined.switchedFrom
+          ? `✅ ${joined.player.displayName} сменил(а) гражданство: «${joined.switchedFrom}» → «${joined.state.name}».`
+          : `✅ ${joined.player.displayName} теперь числится гражданином государства «${joined.state.name}».\n\nMini App открывать для вступления не обязательно.`);
+      }
       return true;
     }
 
@@ -1076,13 +1084,21 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
 
 
   if (data.startsWith("gw:help:")) {
-    const key = data.split(":")[2] || "menu";
+    const parts = data.split(":");
+    const key = parts[2] || "menu";
+    const ownerId = Number(parts[3] || NaN);
+    // Only the person who typed !помощь may drive their own help menu — anyone else tapping the buttons
+    // was silently doing so before; now they get a clear alert and nothing happens to the shared message.
+    if (Number.isFinite(ownerId) && ownerId !== Number(from.id)) {
+      await answer("Это меню открыл другой участник. Напишите !помощь, чтобы открыть своё.", true);
+      return true;
+    }
     try {
-      if (key === "menu") await editHelpMessage(query, "Вот что я умею. Выбери раздел.", helpMenuKeyboard());
+      if (key === "menu") await editHelpMessage(query, "Вот что я умею. Выбери раздел.", helpMenuKeyboard(ownerId || Number(from.id)));
       else {
         const section = HELP_SECTIONS[key];
         if (!section) { await answer("Раздел не найден.", true); return true; }
-        await editHelpMessage(query, `${section.title}\n\n${section.text}`, helpSectionKeyboard());
+        await editHelpMessage(query, `${section.title}\n\n${section.text}`, helpSectionKeyboard(ownerId || Number(from.id)));
       }
       await answer("Готово");
     } catch {

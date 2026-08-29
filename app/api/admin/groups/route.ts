@@ -12,7 +12,10 @@ export async function POST(request: Request) {
     const stateId = String(body?.stateId || "");
     if (!stateId) throw new Error("Выберите государство.");
     const action = String(body?.action || "resolve");
-    if (action === "resolve") return Response.json(await resolveAdminGroupLink(stateId));
+    if (action === "resolve") {
+      const notify = body?.notify !== false;
+      return Response.json(await resolveAdminGroupLink(stateId, { admin: { telegramId: Number(session.user.id) }, notify }));
+    }
     if (action === "request_access") {
       const requestRow = await requestAdminGroupAccess({
         stateId,

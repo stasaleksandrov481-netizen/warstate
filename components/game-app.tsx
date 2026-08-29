@@ -458,8 +458,13 @@ export default function GameApp() {
     } catch (e) { notify(e instanceof Error ? e.message : "Голосование не запущено", "error"); }
   }
 
+  const switchInFlightRef = useRef(false);
   async function switchState(island: IslandView) {
     if (!snapshot || island.isMine || island.isFreeport) return;
+    // Guard against rapid repeated taps on "Перейти" firing many parallel requests — each one used to
+    // trigger its own invite-link DM from the bot, which is what was spamming the player's chat with it.
+    if (switchInFlightRef.current) return;
+    switchInFlightRef.current = true;
     try {
       const fresh = await api<GameSnapshot>("/api/game/state/switch", initData, {
         method: "POST",
@@ -478,6 +483,8 @@ export default function GameApp() {
         return;
       }
       notify(e instanceof Error ? e.message : "Не удалось сменить государство", "error");
+    } finally {
+      switchInFlightRef.current = false;
     }
   }
 

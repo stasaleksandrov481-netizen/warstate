@@ -454,19 +454,64 @@ export async function bootstrapGame(
       membershipCheck,
       ensureStateForChat(chatId, player.id, user.id),
     ]);
-    state = await syncStateChatMeta(ensuredState.id, chatId);
 
-    const { data: existingMember, error: existingMemberError } = await supabase
-      .from("state_members")
-      .select("role")
-      .eq("state_id", state.id)
-      .eq("player_id", player.id)
-      .maybeSingle();
-    if (existingMemberError) throw existingMemberError;
-    role = state.is_beginner_island
-      ? (existingMember?.role === "curator" ? "curator" : "citizen")
-      : existingMember?.role || (state.founder_player_id === player.id ? "founder" : "citizen");
-    membershipVerifiedAt = new Date().toISOString();
+    // v5.2.0 FIX: If the player recently switched citizenship, their home_state_id
+    // points to the NEW state, but start_param still references the OLD chat.
+    // Detect this mismatch and prefer the player's actual home state.
+    const { data: playerHome } = await supabase
+      .from("players")
+      .select("home_state_id, last_state_change_at")
+      .eq("id", player.id)
+      .single();
+    const recentSwitch = playerHome?.last_state_change_at
+      && (Date.now() - new Date(playerHome.last_state_change_at).getTime()) < 300_000;
+    const homeMismatch = recentSwitch && playerHome.home_state_id && playerHome.home_state_id !== ensuredState.id;
+
+    if (homeMismatch) {
+      // Player recently switched - use their actual home state, not the stale chat.
+      const { data: homeState } = await supabase
+        .from("states")
+        .select("*")
+        .eq("id", playerHome.home_state_id)
+        .single();
+      if (homeState) {
+        state = homeState;
+        const { data: homeMember, error: homeMemberError } = await supabase
+          .from("state_members")
+          .select("role")
+          .eq("state_id", state.id)
+          .eq("player_id", player.id)
+          .maybeSingle();
+        if (homeMemberError) throw homeMemberError;
+        role = homeMember?.role || "citizen";
+        membershipVerifiedAt = new Date().toISOString();
+      } else {
+        // Fallback: use the chat-derived state if home state was deleted.
+        state = await syncStateChatMeta(ensuredState.id, chatId);
+        const { data: fallbackMember, error: fallbackError } = await supabase
+          .from("state_members")
+          .select("role")
+          .eq("state_id", state.id)
+          .eq("player_id", player.id)
+          .maybeSingle();
+        if (fallbackError) throw fallbackError;
+        role = fallbackMember?.role || (state.founder_player_id === player.id ? "founder" : "citizen");
+        membershipVerifiedAt = new Date().toISOString();
+      }
+    } else {
+      state = await syncStateChatMeta(ensuredState.id, chatId);
+      const { data: existingMember, error: existingMemberError } = await supabase
+        .from("state_members")
+        .select("role")
+        .eq("state_id", state.id)
+        .eq("player_id", player.id)
+        .maybeSingle();
+      if (existingMemberError) throw existingMemberError;
+      role = state.is_beginner_island
+        ? (existingMember?.role === "curator" ? "curator" : "citizen")
+        : existingMember?.role || (state.founder_player_id === player.id ? "founder" : "citizen");
+      membershipVerifiedAt = new Date().toISOString();
+    }
 
   } else {
     const home = await existingHomeState(player.id);

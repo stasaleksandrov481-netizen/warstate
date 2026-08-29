@@ -137,6 +137,8 @@ function drawShield(ctx: CanvasRenderingContext2D, x: number, y: number, size: n
  */
 function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState, onExplore, onOpenBattle, onOpenIsland }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const terrainCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const terrainKeyRef = useRef<string>("");
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const sizeRef = useRef({ width: 390, height: 620, dpr: 1 });
   const cameraRef = useRef<Camera>({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: DEFAULT_ZOOM });
@@ -203,20 +205,24 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
     ctx.ellipse(center.x, center.y, continentRadius, continentRadius * .82, -.12, 0, Math.PI * 2);
     ctx.fill();
 
-    // Cheap terrain texture: clipped patches, no giant DOM layers.
-    ctx.save();
-    ctx.globalAlpha = .18;
-    for (let i = 0; i < 24; i++) {
-      const wx = -5000 + ((i * 1379) % 10000);
-      const wy = -4200 + ((i * 977) % 8400);
-      const p = worldToScreen(wx, wy);
-      const r = (180 + (i % 5) * 70) * cam.zoom;
-      ctx.fillStyle = i % 3 === 0 ? "#263e20" : i % 3 === 1 ? "#9aa45d" : "#6c8f42";
-      ctx.beginPath();
-      ctx.ellipse(p.x, p.y, r * 1.5, r * .7, i * .31, 0, Math.PI * 2);
-      ctx.fill();
+    // Cheap terrain texture: cached into offscreen terrain canvas.
+    if (needTerrainRepaint && terrainCanvasRef.current) {
+      const tc = terrainCanvasRef.current.getContext("2d", { alpha: false })!;
+      tc.setTransform(dpr, 0, 0, dpr, 0, 0);
+      tc.save();
+      tc.globalAlpha = .18;
+      for (let i = 0; i < 24; i++) {
+        const wx = -5000 + ((i * 1379) % 10000);
+        const wy = -4200 + ((i * 977) % 8400);
+        const p = worldToScreen(wx, wy);
+        const r = (180 + (i % 5) * 70) * cam.zoom;
+        tc.fillStyle = i % 3 === 0 ? "#263e20" : i % 3 === 1 ? "#9aa45d" : "#6c8f42";
+        tc.beginPath();
+        tc.ellipse(p.x, p.y, r * 1.5, r * .7, i * .31, 0, Math.PI * 2);
+        tc.fill();
+      }
+      tc.restore();
     }
-    ctx.restore();
 
     // Strategic roads become thinner and disappear when zoomed out.
     if (cam.zoom > .28) {
@@ -247,9 +253,10 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
 
     const far = cam.zoom < .52;
     const mid = cam.zoom < 1.02;
+    const near = !far && !mid;
     for (const state of visibleStates) {
       const p = worldToScreen(state.worldX, state.worldY);
-      const markerPx = far ? 112 : mid ? 92 : 116;
+      const markerPx = cam.zoom < 0.30 ? 100 : cam.zoom < 0.52 ? 100 + (cam.zoom - 0.30) * 60 : cam.zoom < 1.02 ? 112 - (cam.zoom - 0.52) * 40 : 100 + (cam.zoom - 1.02) * 21;
       const half = markerPx / 2;
       if (p.x < -half - 40 || p.x > width + half + 40 || p.y < -half - 70 || p.y > height + half + 100) continue;
       const ruined = Boolean(state.destroyedUntil && new Date(state.destroyedUntil).getTime() > Date.now());
@@ -268,6 +275,21 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
       ctx.beginPath();
       ctx.ellipse(0, markerPx * .28, markerPx * .44, markerPx * .13, 0, 0, Math.PI * 2);
       ctx.fill();
+
+      // Territory glow ring - gives each settlement a sense of owned land.
+      if (cam.zoom > 0.38) {
+        const glowAlpha = Math.min(0.18, (cam.zoom - 0.38) * 0.5);
+        const glowR = markerPx * 0.72;
+        const territoryGrad = ctx.createRadialGradient(0, 0, markerPx * 0.15, 0, 0, glowR);
+        territoryGrad.addColorStop(0, (state.color || "#7d6342") + "44");
+        territoryGrad.addColorStop(0.6, (state.color || "#7d6342") + "18");
+        territoryGrad.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.save();
+        ctx.globalAlpha = glowAlpha;
+        ctx.fillStyle = territoryGrad;
+        ctx.beginPath(); ctx.ellipse(0, markerPx * 0.08, glowR, glowR * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
 
       const s = markerPx;
       // Isometric-ish castle body with bevels and three towers.
@@ -330,15 +352,20 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
         ctx.save(); ctx.strokeStyle = "#f2cf75"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x,p.y,markerPx*.56,0,Math.PI*2); ctx.stroke(); ctx.restore();
       }
 
-      if (!far) {
-        const labelY = p.y + markerPx*.62;
+      // Smooth label fade: alpha ramps from 0 at zoom 0.28 to 1 at zoom 0.62.
+      const labelAlpha = cam.zoom < 0.28 ? 0 : cam.zoom < 0.62 ? (cam.zoom - 0.28) / 0.34 : 1;
+      if (labelAlpha > 0.01) {
+        const labelY = p.y + markerPx * .62;
         ctx.save();
-        ctx.font = `800 ${mid ? 12 : 14}px Georgia, serif`;
+        ctx.globalAlpha *= labelAlpha;
+        const fontSize = cam.zoom < 0.62 ? 11 : cam.zoom < 1.02 ? 12 : 14;
+        ctx.font = `800 ${fontSize}px Georgia, serif`;
         const title = displayName(state);
         const textW = Math.min(220, Math.max(90, ctx.measureText(title).width + 22));
         ctx.fillStyle = "rgba(25,22,16,.94)";
-        roundRect(ctx, p.x - textW/2, labelY, textW, mid ? 25 : 29, 8); ctx.fill();
-        ctx.fillStyle = "#f4e8c9"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(title, p.x, labelY + (mid ? 12 : 14));
+        roundRect(ctx, p.x - textW/2, labelY, textW, fontSize < 13 ? 23 : 29, 8); ctx.fill();
+        ctx.fillStyle = "#f4e8c9"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(title, p.x, labelY + (fontSize < 13 ? 11 : 14));
         ctx.restore();
       }
     }
@@ -365,7 +392,8 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
       canvas.height = Math.round(height * dpr);
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
-      setSize({ width, height });
+      // Intentionally NOT calling setSize to avoid per-resize React re-renders.
+      // Canvas is repainted via requestDraw; DOM layout is CSS-driven.
       requestDraw();
     };
     update();
@@ -402,14 +430,20 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
     };
   }, [requestDraw]);
 
+  const prevLodRef = useRef<string>("mid");
   const commitCamera = useCallback((next: Camera, explore = true) => {
     cameraRef.current = next;
-    setCamera(next);
+    // Only trigger React re-render when LOD tier changes - avoids per-frame renders.
+    const lod = next.zoom < 0.52 ? "far" : next.zoom < 1.02 ? "mid" : "near";
+    if (lod !== prevLodRef.current) {
+      prevLodRef.current = lod;
+      setCamera(next);
+    }
     try { window.sessionStorage.setItem("warstate-map-camera-v6", JSON.stringify(next)); } catch { /* optional */ }
     requestDraw();
     if (explore && onExplore) {
       if (exploreTimer.current != null) window.clearTimeout(exploreTimer.current);
-      exploreTimer.current = window.setTimeout(() => onExplore(next.x, next.y, Math.min(6500, Math.max(2400, 3200 / next.zoom))), 180);
+      exploreTimer.current = window.setTimeout(() => onExplore(next.x, next.y, Math.min(9000, Math.max(2400, 3200 / next.zoom))), 180);
     }
   }, [onExplore, requestDraw]);
 
@@ -517,7 +551,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   const focusState = useCallback((state: IslandView) => { commitCamera({x:state.worldX,y:state.worldY,zoom:Math.max(.88,cameraRef.current.zoom)}); onSelect(state); setPanelOpen(false); }, [commitCamera,onSelect]);
 
   // Keep the state around for controls/LOD labels without driving the renderer on every pointer event.
-  const detail: "far" | "mid" | "near" = camera.zoom < .52 ? "far" : camera.zoom < 1.02 ? "mid" : "near";
+  const detail: "far" | "mid" | "near" = cameraRef.current.zoom < .52 ? "far" : cameraRef.current.zoom < 1.02 ? "mid" : "near";
 
   return (
     <div className="continent-map-screen">

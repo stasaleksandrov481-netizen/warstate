@@ -88,8 +88,51 @@ export function botClosedText(reason: string | null) {
   return `⏸ WARSTATE ВРЕМЕННО ЗАКРЫТ\n────────────\nСейчас бот временно приостановил работу и не принимает игровые команды.\n\n${body}`;
 }
 
+/**
+ * Determines whether an incoming Telegram message is a direct bot interaction
+ * (command, reply to bot, or explicit mention). Regular chat messages return false
+ * so the bot stays completely silent when closed.
+ *
+ * Usage in the bot handler:
+ *   if (!isBotInteraction(message)) return;
+ *   const status = await getBotStatus();
+ *   if (!status.enabled) { await reply(chatId, botClosedText(status.reason)); return; }
+ */
+export function isBotInteraction(message: {
+  text?: string | null;
+  reply_to_message?: { from?: { is_bot?: boolean } | null } | null;
+  entities?: Array<{ type: string; offset: number; length: number }> | null;
+  bot_username?: string | null;
+}): boolean {
+  const text = message.text || "";
+
+  // Any /command or !command is a direct interaction.
+  if (text.startsWith("/") || text.startsWith("!")) return true;
+
+  // Reply to a bot message (callback buttons, inline queries, etc.).
+  if (message.reply_to_message?.from?.is_bot) return true;
+
+  // @bot_username mention anywhere in the text.
+  if (message.bot_username && text.includes(`@${message.bot_username}`)) return true;
+
+  // Telegram "mention" entity (even without username text match).
+  if (message.entities) {
+    for (const entity of message.entities) {
+      if (entity.type === "mention" || entity.type === "text_mention") return true;
+    }
+  }
+
+  return false;
+}
+
 export function botClosedMiniAppText(reason: string | null) {
   return reason
     ? `WARSTATE временно закрыт.\n\nПричина: ${reason}\n\nОбратитесь к администрации WARSTATE, если нужна дополнительная информация.`
     : `WARSTATE временно закрыт.\n\nИгровой доступ приостановлен до открытия бота. Обратитесь к администрации WARSTATE, если нужна дополнительная информация.`;
 }
+
+// --- v5.2.0: Bot stays silent when closed unless directly addressed ---------
+// The bot handler MUST call isBotInteraction(message) BEFORE processing.
+// If it returns false, the handler returns immediately - no reply, no logging.
+// If it returns true AND the bot is closed, reply once with botClosedText().
+// No rate-limit state is needed: the filter is deterministic per-message.

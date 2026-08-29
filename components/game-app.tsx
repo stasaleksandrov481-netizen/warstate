@@ -486,6 +486,8 @@ export default function GameApp() {
       setSelectedIsland(null);
       setSnapshot(fresh);
       setLastSyncAt(Date.now());
+      // Clear cached islands so the map reloads neighbors for the new state.
+      lastExploreRef.current = null;
       navigate("island");
       notify(`Теперь вы гражданин государства «${fresh.state.name}»`, "success");
     } catch (e) {
@@ -631,7 +633,12 @@ export default function GameApp() {
 
   if (loading) return <Splash text="Загружаем карту государств…" />;
   if (botClosedReason !== null || (error === "WARSTATE временно закрыт для использования." && !snapshot)) return <BotClosedSplash reason={botClosedReason} />;
-  if (error || !snapshot) return <Splash text={error || "Ошибка"} action="Повторить" onAction={bootstrap} />;
+  if (error || !snapshot) {
+    const isMembershipError = /не состоите|состоите в другом|членство|membership/i.test(error || "");
+    return isMembershipError
+      ? <Splash text="Вы перешли в другое государство. Откройте Mini App из нового Telegram-чата." action="Обновить" onAction={bootstrap} />
+      : <Splash text={error || "Ошибка"} action="Повторить" onAction={bootstrap} />;
+  }
 
   const availableNav = NAV;
   const hasWorldPulse = hasActiveWorldPulse(snapshot);

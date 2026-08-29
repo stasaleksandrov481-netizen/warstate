@@ -48,10 +48,14 @@ function tg(): TelegramWebApp | null {
 
 class ApiRequestError extends Error {
   inviteLink: string | null;
-  constructor(message: string, inviteLink: string | null = null) {
+  code: string | null;
+  reason: string | null;
+  constructor(message: string, inviteLink: string | null = null, code: string | null = null, reason: string | null = null) {
     super(message);
     this.name = "ApiRequestError";
     this.inviteLink = inviteLink;
+    this.code = code;
+    this.reason = reason;
   }
 }
 
@@ -84,10 +88,12 @@ async function api<T>(path: string, initData: string, init?: RequestInit): Promi
     let json: unknown = null;
     try { json = await response.json(); } catch { /* non-JSON gateway errors */ }
     if (!response.ok) {
-      const payload = typeof json === "object" && json ? json as { error?: unknown; inviteLink?: unknown } : null;
+      const payload = typeof json === "object" && json ? json as { error?: unknown; inviteLink?: unknown; code?: unknown; reason?: unknown } : null;
       const message = payload?.error ? String(payload.error) : "";
       const inviteLink = payload?.inviteLink ? String(payload.inviteLink) : null;
-      throw new ApiRequestError(message || `Сервер вернул ошибку ${response.status}`, inviteLink);
+      const code = payload?.code ? String(payload.code) : null;
+      const reason = payload?.reason ? String(payload.reason) : null;
+      throw new ApiRequestError(message || `Сервер вернул ошибку ${response.status}`, inviteLink, code, reason);
     }
     return json as T;
   } catch (error) {
@@ -118,6 +124,7 @@ export default function GameApp() {
   const [selectedIsland, setSelectedIsland] = useState<IslandView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [botClosedReason, setBotClosedReason] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; tone: "info" | "success" | "error" } | null>(null);
   const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
   const [lastSyncAt, setLastSyncAt] = useState(() => Date.now());
@@ -216,6 +223,7 @@ export default function GameApp() {
   const bootstrap = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setBotClosedReason(null);
     try {
       const app = tg();
       app?.ready?.();
@@ -233,7 +241,12 @@ export default function GameApp() {
       setSnapshot(data);
       setLastSyncAt(Date.now());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось открыть игру");
+      if (e instanceof ApiRequestError && e.code === "BOT_CLOSED") {
+        setBotClosedReason(e.reason);
+        setError("WARSTATE временно закрыт для использования.");
+      } else {
+        setError(e instanceof Error ? e.message : "Не удалось открыть игру");
+      }
     } finally {
       setLoading(false);
     }
@@ -617,6 +630,7 @@ export default function GameApp() {
   }
 
   if (loading) return <Splash text="Загружаем карту государств…" />;
+  if (botClosedReason !== null || (error === "WARSTATE временно закрыт для использования." && !snapshot)) return <BotClosedSplash reason={botClosedReason} />;
   if (error || !snapshot) return <Splash text={error || "Ошибка"} action="Повторить" onAction={bootstrap} />;
 
   const availableNav = NAV;
@@ -737,6 +751,16 @@ function Onboarding({ onDone }: { onDone: () => void }) {
     <div className="onboarding-dots">{ONBOARDING_SLIDES.map((_, dot) => <i key={dot} className={dot === index ? "active" : ""} />)}</div>
     <button type="button" className="onboarding-next" onClick={() => index === ONBOARDING_SLIDES.length - 1 ? onDone() : setIndex(index + 1)}>{index === ONBOARDING_SLIDES.length - 1 ? "Открыть WARSTATE" : "Далее"}</button>
   </section></div>;
+}
+
+function BotClosedSplash({ reason }: { reason: string | null }) {
+  return <main className="splash ws-splash bot-closed-splash">
+    <div className="ws-splash-orbit"><div className="logo-mark">⏸</div></div>
+    <h1>WARSTATE</h1>
+    <h2>Временно закрыт</h2>
+    <p>{reason ? <>Причина: <b>{reason}</b></> : "Игровой доступ временно приостановлен."}</p>
+    <small>Обратитесь к администрации WARSTATE, если нужна дополнительная информация.</small>
+  </main>;
 }
 
 function Splash({ text, action, onAction }: { text: string; action?: string; onAction?: () => void }) {

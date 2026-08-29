@@ -4,6 +4,7 @@ import { assertTelegramChatMembership, TelegramMembershipRequiredError } from "@
 import { requireData } from "@/lib/invariants";
 import { normalizeWarstateCopy } from "@/lib/copy";
 import { requireTelegramBotUsername } from "@/lib/config";
+import { assertBotOpenForUser } from "@/lib/bot-maintenance";
 
 export function sessionFromRequest(request: Request) {
   requireTelegramBotUsername();
@@ -20,6 +21,7 @@ export async function authorizeStateAction(
   options: { verifyTelegramMembership?: boolean; membershipMaxAgeMs?: number } = {},
 ) {
   const session = sessionFromRequest(request);
+  await assertBotOpenForUser(session.user.id);
   const supabase = getSupabaseAdmin();
   const { data: player, error: playerError } = await supabase.from("players").select("*").eq("telegram_id", session.user.id).single();
   if (playerError) throw new Error("Игрок не найден. Откройте WARSTATE из Telegram-группы.");
@@ -62,16 +64,17 @@ function readableErrorMessage(error: unknown) {
 
 export function jsonError(error: unknown, status?: number) {
   const message = readableErrorMessage(error);
+  const botClosed = Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "BOT_CLOSED");
   const lower = message.toLocaleLowerCase("ru-RU");
   const inferred = status ?? (
-    lower.includes("подп") || lower.includes("initdata") || lower.includes("в браузере live-версия") || lower.includes("внутри telegram") || lower.includes("истёк") || lower.includes("expired") ? 401 :
+    botClosed ? 503 : lower.includes("подп") || lower.includes("initdata") || lower.includes("в браузере live-версия") || lower.includes("внутри telegram") || lower.includes("истёк") || lower.includes("expired") ? 401 :
     lower.includes("нет прав") || lower.includes("только президент") || lower.includes("не состоите") || lower.includes("больше не состоите") || lower.includes("другому игроку") ? 403 :
     lower.includes("не найден") || lower.includes("не найдена") ? 404 :
     lower.includes("слишком много") || lower.includes("rate limit") ? 429 :
     lower.includes("уже выполняется") || lower.includes("уже идёт") || lower.includes("уже идет") || lower.includes("already") ? 409 :
     lower.includes("не настроен") || lower.includes("not configured") || lower.includes("unavailable") ? 503 : 400
   );
-  return Response.json({ error: message, ...(error instanceof TelegramMembershipRequiredError ? { inviteLink: error.inviteLink } : {}) }, {
+  return Response.json({ error: message, ...(botClosed ? { code: "BOT_CLOSED", reason: (error as { reason?: string | null }).reason ?? null } : {}), ...(error instanceof TelegramMembershipRequiredError ? { inviteLink: error.inviteLink } : {}) }, {
     status: inferred,
     headers: inferred === 429 ? { "retry-after": "5" } : undefined,
   });
@@ -79,6 +82,7 @@ export function jsonError(error: unknown, status?: number) {
 
 export async function authorizeBattleAction(request: Request, battleId: string) {
   const session = sessionFromRequest(request);
+  await assertBotOpenForUser(session.user.id);
   const supabase = getSupabaseAdmin();
   const { data: player, error: playerError } = await supabase.from("players").select("*").eq("telegram_id", session.user.id).single();
   if (playerError) throw new Error("Игрок не найден. Откройте WARSTATE из своей Telegram-группы.");

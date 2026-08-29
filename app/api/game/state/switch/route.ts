@@ -1,5 +1,6 @@
 import { getGameSnapshot } from "@/lib/game";
 import { jsonError, sessionFromRequest } from "@/lib/request-auth";
+import { assertBotOpenForUser } from "@/lib/bot-maintenance";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { assertTelegramChatMembership } from "@/lib/telegram-bot";
 
@@ -12,6 +13,7 @@ export async function POST(request: Request) {
     if (!targetStateId) throw new Error("Не выбрано государство.");
 
     const session = sessionFromRequest(request);
+    await assertBotOpenForUser(session.user.id);
     const supabase = getSupabaseAdmin();
     const [{ data: player, error: playerError }, { data: target, error: targetError }] = await Promise.all([
       supabase.from("players").select("id,home_state_id").eq("telegram_id", session.user.id).single(),

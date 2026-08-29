@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AdminRewardsCenter } from "@/components/game/admin-rewards-center";
+import { AdminBotControl } from "@/components/game/admin-bot-control";
 
 export interface AdminStatsView {
   generatedAt: string;
@@ -199,6 +200,7 @@ export function AdminPanel({ initData }: Props) {
         </div>
       )}
 
+      <AdminBotControl initData={initData} />
       <AdminRewardsCenter initData={initData} />
 
       {stats && (

@@ -9,6 +9,7 @@ import { reconcileStateRuntimeByChatId } from "@/lib/maintenance";
 import { initializeDynamicTrackers, reconcileDynamicEventsForChat } from "@/lib/dynamic-events";
 import { markSeenOnce } from "@/lib/redis";
 import { handleAdminAccessReply } from "@/lib/admin-rewards";
+import { assertBotOpenForUser, botClosedText, getBotStatus } from "@/lib/bot-maintenance";
 
 export const runtime = "nodejs";
 // Command handling can chain several Supabase round-trips plus Telegram API
@@ -24,6 +25,24 @@ function validWebhookSecret(request: Request) {
   return request.headers.get("x-telegram-bot-api-secret-token") === expected;
 }
 
+
+
+async function sendBotClosedNotice(chatId: number, userId?: number) {
+  const key = `bot-closed:${chatId}:${userId || 0}`;
+  const allowed = await markSeenOnce(key, 20);
+  if (!allowed) return;
+  const status = await getBotStatus();
+  await telegramApi("sendMessage", {
+    chat_id: chatId,
+    text: botClosedText(status.reason),
+  });
+}
+
+async function isBotClosedForTelegramUser(userId?: number) {
+  if (!userId || isProjectAdminTelegramId(userId)) return false;
+  const status = await getBotStatus();
+  return !status.enabled;
+}
 
 async function sendFreeportMessage(chatId: number) {
   return telegramApi("sendMessage", {
@@ -179,6 +198,14 @@ export async function POST(request: Request) {
 
     if (update.pre_checkout_query) {
       const query = update.pre_checkout_query;
+      if (await isBotClosedForTelegramUser(query.from?.id)) {
+        await telegramApi("answerPreCheckoutQuery", {
+          pre_checkout_query_id: query.id,
+          ok: false,
+          error_message: "WARSTATE временно закрыт для использования. Попробуйте позже.",
+        });
+        return Response.json({ ok: true, botClosed: true });
+      }
       const payload = parseInvoicePayload(query.invoice_payload);
       const valid = Boolean(
         payload
@@ -207,6 +234,16 @@ export async function POST(request: Request) {
     }
 
     if (update.callback_query) {
+      if (await isBotClosedForTelegramUser(update.callback_query.from?.id)) {
+        const callback = update.callback_query;
+        await telegramApi("answerCallbackQuery", {
+          callback_query_id: callback.id,
+          text: "WARSTATE временно закрыт для использования.",
+          show_alert: true,
+        }).catch(() => undefined);
+        if (callback.message?.chat?.id) await sendBotClosedNotice(Number(callback.message.chat.id), Number(callback.from?.id));
+        return Response.json({ ok: true, botClosed: true });
+      }
       if (await handleGroupCallback(update.callback_query)) return Response.json({ ok: true });
     }
 
@@ -263,6 +300,10 @@ export async function POST(request: Request) {
         }
         return Response.json({ ok: true });
       }
+      if (await isBotClosedForTelegramUser(message.from?.id)) {
+        await sendBotClosedNotice(Number(message.chat.id), Number(message.from?.id));
+        return Response.json({ ok: true, botClosed: true });
+      }
       if (text.startsWith("/start") || text === "/freeport") {
         await sendFreeportMessage(message.chat.id);
       }
@@ -270,6 +311,10 @@ export async function POST(request: Request) {
     }
 
     if (message?.chat?.id && ["group", "supergroup"].includes(message.chat.type)) {
+      if (await isBotClosedForTelegramUser(message.from?.id)) {
+        await sendBotClosedNotice(Number(message.chat.id), Number(message.from?.id));
+        return Response.json({ ok: true, botClosed: true });
+      }
       // Private-group access requests are handled before ordinary commands.
       // The request is tied to the exact bot message id, and only a Telegram
       // owner/admin reply containing an invite link is accepted.

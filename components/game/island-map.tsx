@@ -78,7 +78,7 @@ const CastleNode = memo(function CastleNode({ state, detail, selected, onSelect,
   // (this is what was showing on screen). Counter-scale them back up on top of the zoom so they stay a
   // readable size — this only kicks in once zoomed out past the "far" LOD threshold, so near/mid zoom is
   // untouched. Pure CSS transform, no layout cost.
-  const counterScale = detail === "far" ? Math.min(3.4, Math.max(1, 0.6 / Math.max(zoom, MIN_ZOOM))) : 1;
+  const counterScale = detail === "far" ? Math.min(6, Math.max(1, 100 / (112 * Math.max(zoom, MIN_ZOOM)))) : 1;
   const style = {
     left: state.worldX,
     top: state.worldY,
@@ -97,11 +97,11 @@ const CastleNode = memo(function CastleNode({ state, detail, selected, onSelect,
       aria-label={`${displayName(state)}. ${relationText(state)}`}
     >
       {detail === "far" ? (
-        // Far zoom: one cheap glyph instead of the full 9-layer castle graphic below. With dozens of
-        // states visible at once at this zoom level, this is what was causing the map to lag — every one
-        // of them was painting shadows/gradients on 9 separate elements simultaneously.
-        <span className="castle-marker-far" aria-hidden="true" style={{ background: state.color }}>
-          {state.avatarUrl ? <Image src={state.avatarUrl} alt="" width={44} height={44} unoptimized /> : crestText(state)}
+        <span className="castle-marker-far" aria-hidden="true" style={{ "--marker-color": state.color } as CSSProperties}>
+          <span className="castle-far-silhouette" />
+          <span className="castle-far-crest">
+            {state.avatarUrl ? <Image src={state.avatarUrl} alt="" width={34} height={34} unoptimized /> : crestText(state)}
+          </span>
         </span>
       ) : (
         <>
@@ -146,10 +146,12 @@ const CastleNode = memo(function CastleNode({ state, detail, selected, onSelect,
 
 function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState, onExplore, onOpenBattle, onOpenIsland }: Props) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const worldRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ id: number; x: number; y: number; camera: Camera } | null>(null);
   const pinchRef = useRef<{ distance: number; zoom: number; worldX: number; worldY: number } | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const exploreTimer = useRef<number | null>(null);
+  const interactionCommitTimer = useRef<number | null>(null);
   // Perf: pointermove/wheel can fire far faster than the screen refreshes (especially on trackpads and
   // fast touch drags). Without coalescing, every single event triggered a React re-render of the whole
   // map (all visible castles, search results, terrain bounds), which is what was causing the pan/zoom lag.
@@ -169,7 +171,9 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   }, []);
   useEffect(() => () => { if (rafRef.current != null) window.cancelAnimationFrame(rafRef.current); }, []);
   const [size, setSize] = useState({ width: 390, height: 620 });
+  const sizeRef = useRef(size);
   const [camera, setCamera] = useState<Camera>(() => ({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: DEFAULT_ZOOM }));
+  const cameraRef = useRef<Camera>({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: DEFAULT_ZOOM });
   const [filter, setFilter] = useState<MapFilter>("all");
   const [query, setQuery] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
@@ -184,29 +188,69 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   useEffect(() => {
     const element = viewportRef.current;
     if (!element) return;
-    const update = () => setSize({ width: element.clientWidth || 390, height: element.clientHeight || 620 });
+    const update = () => {
+      const next = { width: element.clientWidth || 390, height: element.clientHeight || 620 };
+      sizeRef.current = next;
+      setSize(next);
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
 
+  const applyWorldTransform = useCallback((next: Camera) => {
+    const world = worldRef.current;
+    if (!world) return;
+    const viewport = sizeRef.current;
+    world.style.transform = `translate3d(${viewport.width / 2 - next.x * next.zoom}px, ${viewport.height / 2 - next.y * next.zoom}px, 0) scale(${next.zoom})`;
+  }, []);
+
+  const scheduleExplore = useCallback((next: Camera) => {
+    if (!onExplore) return;
+    if (exploreTimer.current) window.clearTimeout(exploreTimer.current);
+    exploreTimer.current = window.setTimeout(() => {
+      onExplore(next.x, next.y, Math.min(6500, Math.max(2400, 3200 / next.zoom)));
+    }, 180);
+  }, [onExplore]);
+
+  const commitCamera = useCallback((next: Camera, explore = true) => {
+    cameraRef.current = next;
+    applyWorldTransform(next);
+    setCamera(next);
+    try { window.sessionStorage.setItem("warstate-map-camera-v5", JSON.stringify(next)); } catch { /* optional */ }
+    if (explore) scheduleExplore(next);
+  }, [applyWorldTransform, scheduleExplore]);
+
   useEffect(() => {
     try {
       const stored = window.sessionStorage.getItem("warstate-map-camera-v5");
-      if (!stored) return;
+      if (!stored) {
+        applyWorldTransform(cameraRef.current);
+        scheduleExplore(cameraRef.current);
+        return;
+      }
       const parsed = JSON.parse(stored) as Camera;
-      if (Number.isFinite(parsed.x) && Number.isFinite(parsed.y) && Number.isFinite(parsed.zoom)) setCamera({ x: parsed.x, y: parsed.y, zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, parsed.zoom)) });
-    } catch { /* session storage is optional */ }
-  }, []);
+      if (Number.isFinite(parsed.x) && Number.isFinite(parsed.y) && Number.isFinite(parsed.zoom)) {
+        const restored = { x: parsed.x, y: parsed.y, zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, parsed.zoom)) };
+        cameraRef.current = restored;
+        setCamera(restored);
+        applyWorldTransform(restored);
+        scheduleExplore(restored);
+      }
+    } catch {
+      applyWorldTransform(cameraRef.current);
+      scheduleExplore(cameraRef.current);
+    }
+    return () => {
+      if (exploreTimer.current) window.clearTimeout(exploreTimer.current);
+      if (interactionCommitTimer.current) window.clearTimeout(interactionCommitTimer.current);
+    };
+  }, [applyWorldTransform, scheduleExplore]);
 
   useEffect(() => {
-    try { window.sessionStorage.setItem("warstate-map-camera-v5", JSON.stringify(camera)); } catch { /* optional */ }
-    if (!onExplore) return;
-    if (exploreTimer.current) window.clearTimeout(exploreTimer.current);
-    exploreTimer.current = window.setTimeout(() => onExplore(camera.x, camera.y, Math.min(6500, Math.max(2400, 3200 / camera.zoom))), 180);
-    return () => { if (exploreTimer.current) window.clearTimeout(exploreTimer.current); };
-  }, [camera, onExplore]);
+    applyWorldTransform(camera);
+  }, [applyWorldTransform, camera]);
 
   const bounds = useMemo(() => {
     if (!snapshot.islands.length) return { minX: -1000, maxX: 1000, minY: -1000, maxY: 1000 };
@@ -216,27 +260,34 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   const fitWorld = useCallback(() => {
     const spanX = Math.max(900, bounds.maxX - bounds.minX + 900);
     const spanY = Math.max(900, bounds.maxY - bounds.minY + 900);
-    setCamera({ x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2, zoom: Math.max(MIN_ZOOM, Math.min(.7, Math.min(size.width / spanX, size.height / spanY))) });
-  }, [bounds, size.height, size.width]);
+    commitCamera({ x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2, zoom: Math.max(MIN_ZOOM, Math.min(.7, Math.min(size.width / spanX, size.height / spanY))) });
+  }, [bounds, commitCamera, size.height, size.width]);
 
   const focusState = useCallback((state: IslandView) => {
-    setCamera((current) => ({ x: state.worldX, y: state.worldY, zoom: Math.max(.88, current.zoom) }));
+    commitCamera({ x: state.worldX, y: state.worldY, zoom: Math.max(.88, cameraRef.current.zoom) });
     onSelect(state);
     setPanelOpen(false);
-  }, [onSelect]);
+  }, [commitCamera, onSelect]);
 
   const centerMine = useCallback(() => {
-    setCamera({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: .92 });
-  }, [snapshot.state.worldX, snapshot.state.worldY]);
+    commitCamera({ x: snapshot.state.worldX, y: snapshot.state.worldY, zoom: .92 });
+  }, [commitCamera, snapshot.state.worldX, snapshot.state.worldY]);
 
-  const zoomAt = useCallback((nextZoom: number, screenX = size.width / 2, screenY = size.height / 2) => {
-    setCamera((current) => {
-      const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
-      const worldX = current.x + (screenX - size.width / 2) / current.zoom;
-      const worldY = current.y + (screenY - size.height / 2) / current.zoom;
-      return { x: worldX - (screenX - size.width / 2) / zoom, y: worldY - (screenY - size.height / 2) / zoom, zoom };
-    });
-  }, [size.height, size.width]);
+  const zoomAt = useCallback((nextZoom: number, screenX = size.width / 2, screenY = size.height / 2, immediate = true) => {
+    const current = cameraRef.current;
+    const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
+    const worldX = current.x + (screenX - size.width / 2) / current.zoom;
+    const worldY = current.y + (screenY - size.height / 2) / current.zoom;
+    const next = { x: worldX - (screenX - size.width / 2) / zoom, y: worldY - (screenY - size.height / 2) / zoom, zoom };
+    cameraRef.current = next;
+    applyWorldTransform(next);
+    scheduleExplore(next);
+    if (immediate) commitCamera(next, false);
+    else {
+      if (interactionCommitTimer.current) window.clearTimeout(interactionCommitTimer.current);
+      interactionCommitTimer.current = window.setTimeout(() => commitCamera(cameraRef.current, false), 120);
+    }
+  }, [applyWorldTransform, commitCamera, scheduleExplore, size.height, size.width]);
 
   const localPoint = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -248,15 +299,16 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
     const point = localPoint(event);
     event.currentTarget.setPointerCapture(event.pointerId);
     pointers.current.set(event.pointerId, point);
-    if (pointers.current.size === 1) dragRef.current = { id: event.pointerId, x: point.x, y: point.y, camera };
+    const currentCamera = cameraRef.current;
+    if (pointers.current.size === 1) dragRef.current = { id: event.pointerId, x: point.x, y: point.y, camera: currentCamera };
     if (pointers.current.size === 2) {
       const [a, b] = [...pointers.current.values()];
       const midX = (a.x + b.x) / 2;
       const midY = (a.y + b.y) / 2;
-      pinchRef.current = { distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), zoom: camera.zoom, worldX: camera.x + (midX - size.width / 2) / camera.zoom, worldY: camera.y + (midY - size.height / 2) / camera.zoom };
+      pinchRef.current = { distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), zoom: currentCamera.zoom, worldX: currentCamera.x + (midX - size.width / 2) / currentCamera.zoom, worldY: currentCamera.y + (midY - size.height / 2) / currentCamera.zoom };
       dragRef.current = null;
     }
-  }, [camera, localPoint, size.height, size.width]);
+  }, [localPoint, size.height, size.width]);
 
   const pointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (!pointers.current.has(event.pointerId)) return;
@@ -267,24 +319,38 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
       const midX = (a.x + b.x) / 2;
       const midY = (a.y + b.y) / 2;
       const distance = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
-      const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchRef.current.zoom * distance / pinchRef.current.distance));
       const pinch = pinchRef.current;
-      scheduleFrame(() => setCamera({ x: pinch.worldX - (midX - size.width / 2) / zoom, y: pinch.worldY - (midY - size.height / 2) / zoom, zoom }));
+      const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinch.zoom * distance / pinch.distance));
+      const next = { x: pinch.worldX - (midX - size.width / 2) / zoom, y: pinch.worldY - (midY - size.height / 2) / zoom, zoom };
+      scheduleFrame(() => {
+        cameraRef.current = next;
+        applyWorldTransform(next);
+        scheduleExplore(next);
+      });
       return;
     }
     const start = dragRef.current;
     if (!start || start.id !== event.pointerId) return;
-    scheduleFrame(() => setCamera({ ...start.camera, x: start.camera.x - (point.x - start.x) / start.camera.zoom, y: start.camera.y - (point.y - start.y) / start.camera.zoom }));
-  }, [localPoint, scheduleFrame, size.height, size.width]);
+    const next = { ...start.camera, x: start.camera.x - (point.x - start.x) / start.camera.zoom, y: start.camera.y - (point.y - start.y) / start.camera.zoom };
+    scheduleFrame(() => {
+      cameraRef.current = next;
+      applyWorldTransform(next);
+      scheduleExplore(next);
+    });
+  }, [applyWorldTransform, localPoint, scheduleExplore, scheduleFrame, size.height, size.width]);
 
   const pointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     pointers.current.delete(event.pointerId);
     pinchRef.current = null;
     if (pointers.current.size === 1) {
       const [id, point] = [...pointers.current.entries()][0];
-      dragRef.current = { id, x: point.x, y: point.y, camera };
-    } else dragRef.current = null;
-  }, [camera]);
+      dragRef.current = { id, x: point.x, y: point.y, camera: cameraRef.current };
+    } else {
+      dragRef.current = null;
+      if (interactionCommitTimer.current) window.clearTimeout(interactionCommitTimer.current);
+      commitCamera(cameraRef.current, false);
+    }
+  }, [commitCamera]);
 
   const wheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -292,11 +358,10 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
     const clientX = event.clientX - rect.left;
     const clientY = event.clientY - rect.top;
     const direction = event.deltaY > 0 ? .9 : 1.1;
-    scheduleFrame(() => zoomAt(camera.zoom * direction, clientX, clientY));
-  }, [camera.zoom, scheduleFrame, zoomAt]);
+    scheduleFrame(() => zoomAt(cameraRef.current.zoom * direction, clientX, clientY, false));
+  }, [scheduleFrame, zoomAt]);
 
   const detail: "far" | "mid" | "near" = camera.zoom < .52 ? "far" : camera.zoom < 1.02 ? "mid" : "near";
-  const transform = `translate3d(${size.width / 2 - camera.x * camera.zoom}px, ${size.height / 2 - camera.y * camera.zoom}px, 0) scale(${camera.zoom})`;
   const normalizedQuery = query.trim().replace(/^@/, "").toLocaleLowerCase("ru-RU");
   const searchResults = useMemo(() => normalizedQuery ? snapshot.islands.filter((state) => displayName(state).toLocaleLowerCase("ru-RU").includes(normalizedQuery) || (state.stateUsername || "").toLocaleLowerCase("ru-RU").includes(normalizedQuery)).slice(0, 8) : [], [normalizedQuery, snapshot.islands]);
   const visibleStates = useMemo(() => snapshot.islands.filter((state) => state.isMine || selected?.id === state.id || filter === "all" || (filter === "enemy" && state.relation === "war") || (filter === "ally" && state.relation === "allied") || (filter === "neutral" && !state.relation)), [filter, selected?.id, snapshot.islands]);
@@ -306,12 +371,14 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
   const activeBattle = snapshot.activeBattle && snapshot.activeBattle.status !== "resolved" && new Date(snapshot.activeBattle.endsAt).getTime() > now ? snapshot.activeBattle : null;
 
   const terrainBounds = useMemo(() => {
-    const padding = 1800;
+    // Keep the terrain plane far outside the camera range. A finite green card was previously
+    // visible as hard black/green rectangles when zooming out.
+    const padding = 9000;
     return {
       left: bounds.minX - padding,
       top: bounds.minY - padding,
-      width: Math.max(4200, bounds.maxX - bounds.minX + padding * 2),
-      height: Math.max(4200, bounds.maxY - bounds.minY + padding * 2),
+      width: Math.max(24000, bounds.maxX - bounds.minX + padding * 2),
+      height: Math.max(24000, bounds.maxY - bounds.minY + padding * 2),
     };
   }, [bounds]);
 
@@ -329,7 +396,7 @@ function IslandMapInner({ snapshot, selected, onSelect, onAttack, onSwitchState,
         onClick={() => onSelect(null)}
       >
         <div className="continent-background" aria-hidden="true" />
-        <div className="continent-world" style={{ transform }}>
+        <div ref={worldRef} className="continent-world">
           <div
             className="continent-world-terrain"
             aria-hidden="true"

@@ -33,11 +33,12 @@ import { publishStateEvent } from "@/lib/state-events";
 import { isProjectAdminTelegramId } from "@/lib/config";
 import { isProjectAdminChatMode, setProjectAdminChatMode } from "@/lib/project-admin-session";
 import { normalizeWarstateCopy } from "@/lib/copy";
+import { sendInterstateMessage } from "@/lib/state-messages";
 
 const LEADERS = new Set(["president", "minister", "deputy", "curator"]);
 const WAR_LEADERS = new Set(["president", "minister", "deputy"]);
 
-const WARSTATE_BUILD = "5.0-continent";
+const WARSTATE_BUILD = "5.3-map-messaging";
 
 // Russian alias mappings for !активность command
 // activity_key → Russian alias, option_key → Russian alias
@@ -84,7 +85,7 @@ const WARSTATE_COMMANDS = new Set([
   "роли", "roles", "роль", "role", "министртруда", "снятьминистра", "чп", "часовойпояс", "timezone", "tz",
   "выборы", "голосовать", "назначитьпрезидента", "снятьпрезидента",
   "назначитьзама", "снятьзама", "создатьюз", "юз", "название",
-  "найти", "рейтинг", "карта", "альянсы", "голосование", "vote",
+  "найти", "рейтинг", "карта", "альянсы", "соо", "голосование", "vote",
   "импичмент", "impeach",
   "статус", "status", "ресурсы", "resources", "профиль", "profile",
   "вклад", "contribution", "государства", "states", "казна", "налоги",
@@ -190,7 +191,7 @@ async function send(chatId: number, text: string, keyboard?: Array<Array<{ text:
 const HELP_SECTIONS: Record<string, { title: string; text: string }> = {
   castle: { title: "🏰 Замок", text: "Центр государства. Здесь находятся казна, постройки, развитие и восстановление. Основные команды: !государство, !ресурсы, !постройки, !улучшить." },
   army: { title: "⚔️ Армия", text: "Войны, разведка и текущие бои. Атака запускается через голосование. Команды: !война, !бой, !разведка, !поддержать, !сдаться." },
-  alliances: { title: "🤝 Союзы", text: "Дипломатия с другими государствами. Можно предложить союз, принять запрос, завершить союз или договориться о перемирии." },
+  alliances: { title: "🤝 Союзы", text: "Дипломатия и связь с другими государствами. Союзы, перемирия и межгосударственные сообщения. Написать: !соо @юз_государства текст. На входящее сообщение можно ответить через Reply." },
   decrees: { title: "📜 Указы", text: "Управленческие решения и ежедневные операции государства. Используйте !активность, !миссия и действия руководства." },
   elections: { title: "🗳 Выборы", text: "Президент избирается гражданами. Команды: !выборы, !голосовать, !президент. Отдельные решения также проходят через голосование." },
   treasury: { title: "💰 Казна", text: "Ресурсы государства, производство и расходы. Команды: !ресурсы, !казна, !налоги, !вклад." },
@@ -357,7 +358,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         "⚔ WARSTATE · ЧТО ЭТО ЗА БОТ\n\n" +
         "WARSTATE превращает Telegram-группы в государства на общей карте материка. У каждого государства есть территория, экономика, руководство, граждане, армия, дипломатия, выборы и войны.\n\n" +
         "Как начать:\n1. Добавьте бота в группу.\n2. Напишите !вступить.\n3. Основатель задаёт юз: !создатьюз название.\n4. Управляйте страной прямо командами в группе или через Mini App.\n\n" +
-        "Главные команды: !помощь, !играть, !государство, !карта, !президент, !замы, !ресурсы, !постройки, !союз, !война.\n\n" +
+        "Главные команды: !помощь, !играть, !государство, !карта, !президент, !замы, !ресурсы, !постройки, !союз, !соо, !война.\n\n" +
         "Важно: Mini App удобен для визуального управления, но основные игровые действия доступны и из чата."
       );
       return true;
@@ -443,6 +444,30 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     const effectiveActorPlayerId = superAdminMode
       ? String(snapshot.government.founder?.playerId || snapshot.government.president?.playerId || snapshot.player.id)
       : snapshot.player.id;
+
+    if (command === "соо") {
+      if (snapshot.state.isFreeport) throw new Error("Нейтральная зона не участвует в межгосударственной переписке.");
+      const targetUsername = String(args[0] || "").trim();
+      const messageText = args.slice(1).join(" ").trim();
+      if (!targetUsername || !messageText) throw new Error("Формат: !соо @юз_государства текст сообщения");
+      if (!(await tryCommandCooldown(chatId, Number(from.id), "interstate_message", 8))) {
+        await send(chatId, "Сообщения можно отправлять не чаще одного раза в 8 секунд.");
+        return true;
+      }
+      const result = await sendInterstateMessage({
+        sourceStateId: snapshot.state.id,
+        sourceStateName: snapshot.state.name,
+        sourceStateUsername: snapshot.state.stateUsername,
+        sourceChatId: chatId,
+        sourcePlayerId: snapshot.player.id,
+        sourcePlayerName: snapshot.player.displayName,
+        targetUsername,
+        text: messageText,
+        sourceMessageId: Number(message?.message_id || 0) || null,
+      });
+      await send(chatId, `Сообщение отправлено государству «${result.targetName}»${result.targetUsername ? ` (@${result.targetUsername})` : ""}.`);
+      return true;
+    }
 
     if (command === "государство" || command === "state") {
       const gov = snapshot.government;

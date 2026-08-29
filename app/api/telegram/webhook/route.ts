@@ -9,6 +9,7 @@ import { reconcileStateRuntimeByChatId } from "@/lib/maintenance";
 import { initializeDynamicTrackers, reconcileDynamicEventsForChat } from "@/lib/dynamic-events";
 import { markSeenOnce } from "@/lib/redis";
 import { handleAdminAccessReply } from "@/lib/admin-rewards";
+import { handleInterstateReply } from "@/lib/state-messages";
 import { assertBotOpenForUser, botClosedText, getBotStatus } from "@/lib/bot-maintenance";
 
 export const runtime = "nodejs";
@@ -168,7 +169,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    console.info("WARSTATE_RUNTIME=5.1-admin-rewards");
+    console.info("WARSTATE_RUNTIME=5.3-map-messaging");
     // Pre-checkout and successful-payment updates use their own Telegram/charge
     // idempotency flow because a failed payment write must be allowed to retry.
     // All ordinary commands, callbacks and membership events are claimed once
@@ -319,6 +320,7 @@ export async function POST(request: Request) {
       // The request is tied to the exact bot message id, and only a Telegram
       // owner/admin reply containing an invite link is accepted.
       if (await handleAdminAccessReply(message)) return Response.json({ ok: true, adminAccessReply: true });
+      if (await handleInterstateReply(message)) return Response.json({ ok: true, interstateReply: true });
 
       // Telegram does not expose a complete historical member list to bots.
       // We therefore enrol every newly joined human immediately, and any existing

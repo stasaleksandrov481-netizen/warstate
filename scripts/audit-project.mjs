@@ -59,9 +59,10 @@ for (const forbidden of [".env", ".env.local", ".next", "node_modules", ".vercel
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 if (packageJson.name !== "warstate") failures.push(`Unexpected package name: ${packageJson.name}`);
-if (!String(packageJson.version || "").startsWith("5.1.")) failures.push(`Expected v5.1.x package version, found ${packageJson.version}`);
+if (!String(packageJson.version || "").startsWith("5.3.")) failures.push(`Expected v5.3.x package version, found ${packageJson.version}`);
 
 const requiredV20 = [
+  "supabase/migrations/039_interstate_messages.sql",
   "supabase/migrations/035_admin_rewards_medals_access.sql",
   "supabase/migrations/034_continent_redesign.sql",
   "supabase/migrations/015_event_driven_runtime.sql",
@@ -172,7 +173,7 @@ if (/РЕСУРСЫ ЗА АКТИВНОСТЬ|Чат нафармил|10 соо�
 if (!webhookSource.includes("handleGroupTextCommand(message)")) failures.push("Telegram group command handler is not wired into webhook");
 if (!webhookSource.includes('ignored: "unknown_bang_command"')) failures.push("Unknown !commands are not hard-stopped in Telegram webhook");
 if (!webhookSource.includes('p_lease_seconds: 45')) failures.push("Telegram update receipt claim does not use the explicit lease signature");
-if (!webhookSource.includes('WARSTATE_RUNTIME=5.1-admin-rewards')) failures.push("Runtime version marker is missing from Telegram webhook logs");
+if (!webhookSource.includes('WARSTATE_RUNTIME=5.3-map-messaging')) failures.push("Runtime version marker is missing from Telegram webhook logs");
 if (!webhookSource.includes('observeTelegramGroupMember')) failures.push("Telegram member observation is not wired into webhook");
 const stableMigration = fs.readFileSync(path.join(root, "supabase/migrations/027_webhook_idempotency_and_presence.sql"), "utf8");
 for (const marker of ["telegram_chat_members", "gw_claim_telegram_update", "update public.state_members", "uq_state_members_one_home"]) {
@@ -188,8 +189,12 @@ if (!islandSource.includes('.eq("is_beginner_island", true)')) failures.push("Be
 if (!islandSource.includes("direct state query is a safe read-only fallback") || !islandSource.includes('String(row.id) === String(stateId)')) failures.push("Island world lacks RPC fallback or own-island injection");
 if (!islandSource.includes("Freeport is the second global landmark")) failures.push("Freeport is not force-included as a global map landmark");
 const islandMapSource = fs.readFileSync(path.join(root, "components/game/island-map.tsx"), "utf8");
-for (const marker of ["continent-world", 'detail: "far"', 'detail !== "far"', 'detail === "near"', 'replace(/^@/, "")']) {
+for (const marker of ["buildRenderItems", "markerSize", "startInertia", "CLICK_THRESHOLD_TOUCH", 'replace(/^@/, "")', "Юз государства не создан"]) {
   if (!islandMapSource.includes(marker)) failures.push(`Continental map UX is missing: ${marker}`);
+}
+if (/needTerrainRepaint|terrainCanvasRef|terrainKeyRef/.test(islandMapSource)) failures.push("Continental map still contains broken legacy terrain cache code");
+for (const marker of ["const MIN_ZOOM = 0.045", "screen space", "clusterCount", "gestureRef.current.pinched"]) {
+  if (!islandMapSource.includes(marker)) failures.push(`Map scale/performance hardening is missing: ${marker}`);
 }
 const compactWorldMigration = fs.readFileSync(path.join(root, "supabase/migrations/025_compact_world_and_map_repair.sql"), "utf8");
 for (const marker of ["520.0", "row_number() over", "new.island_slot", "trg_gw_place_island"]) {
@@ -208,6 +213,13 @@ const guideSource = fs.readFileSync(path.join(root, "lib/game-guide.ts"), "utf8"
 if (!guideSource.includes("GAME_GUIDE_SECTIONS") || !guideSource.includes("telegramGameGuideText")) failures.push("Detailed game guide is missing");
 const stateViewSource = fs.readFileSync(path.join(root, "components/game/state-view.tsx"), "utf8");
 if (!stateViewSource.includes("GameGuidePanel") || !stateViewSource.includes("GAME_GUIDE_SECTIONS")) failures.push("Mini App game guide section is missing");
+const gameAppSource = fs.readFileSync(path.join(root, "components/game-app.tsx"), "utf8");
+for (const marker of ["contentSafeAreaInset", "--ws-telegram-top", "safeAreaChanged"]) {
+  if (!gameAppSource.includes(marker)) failures.push(`Telegram safe-area integration is missing: ${marker}`);
+}
+if ((gameAppSource.match(/const \[lastSyncAt, setLastSyncAt\]/g) || []).length !== 1) failures.push("game-app.tsx contains a duplicated lastSyncAt state declaration");
+const redesignCss = fs.readFileSync(path.join(root, "app/warstate-redesign.css"), "utf8");
+if (!redesignCss.includes("--tg-content-safe-area-inset-top") || !redesignCss.includes("--ws-safe-top")) failures.push("Mini App CSS does not account for Telegram content safe area");
 const governmentRouteSource = fs.readFileSync(path.join(root, "app/api/game/government/route.ts"), "utf8");
 if (!governmentRouteSource.includes("assertTelegramChatOwner") || !governmentRouteSource.includes('action === "delete_state"')) failures.push("Owner-only state deletion route is incomplete");
 
@@ -223,7 +235,7 @@ const requiredCommands = [
   "помощь","государство","статус","ресурсы","рейтинг","карта","альянсы","президент","замы","выборы","голосовать",
   "назначитьпрезидента","назначитьзама","снятьзама","казна","постройки","улучшить","налоги","война","бой","сдаться","разведка",
   "оборона","союз","разорватьсоюз","активность","миссия","награда","профиль","создатьюз","юз","название","найти",
-  "роли","роль","голосование","шпион","играть","как_играть","гайд","мойид","админ","диагностика","версия",
+  "роли","роль","голосование","шпион","соо","играть","как_играть","гайд","мойид","админ","диагностика","версия",
 ];
 for (const command of requiredCommands) if (!commandSource.includes(`"${command}"`) && !commandSource.includes(`'${command}'`)) failures.push(`Requested chat command is missing: !${command}`);
 
@@ -259,6 +271,15 @@ if (!webhookSource.includes("handleAdminAccessReply")) failures.push("Telegram w
 const requestAuthSource = fs.readFileSync(path.join(root, "lib/request-auth.ts"), "utf8");
 if (!requestAuthSource.includes("requireTelegramBotUsername")) failures.push("Mini App is not gated by TELEGRAM_BOT_USERNAME");
 if (!webhookSource.includes("requireTelegramBotUsername")) failures.push("Telegram webhook is not gated by TELEGRAM_BOT_USERNAME");
+const stateMessagesSource = fs.readFileSync(path.join(root, "lib/state-messages.ts"), "utf8");
+for (const marker of ["sendInterstateMessage", "handleInterstateReply", "target_message_id", "Reply"]) {
+  if (!stateMessagesSource.includes(marker)) failures.push(`Interstate messaging core is missing: ${marker}`);
+}
+if (!webhookSource.includes("handleInterstateReply")) failures.push("Telegram webhook does not route interstate Reply messages");
+const interstateMigration = fs.readFileSync(path.join(root, "supabase/migrations/039_interstate_messages.sql"), "utf8");
+for (const marker of ["state_messages", "target_message_id", "uq_state_messages_target_telegram_message"]) {
+  if (!interstateMigration.includes(marker)) failures.push(`Interstate messaging migration is missing: ${marker}`);
+}
 
 const routes = walk("app/api").filter((file) => file.endsWith("route.ts"));
 notes.push(`${sourceFiles.length} source files scanned`);
@@ -268,7 +289,7 @@ notes.push(`${referencedRpc.size}/${referencedRpc.size} referenced RPCs found in
 notes.push(`${requiredCommands.length}/${requiredCommands.length} required chat commands present`);
 notes.push(`${registeredCommandAliases.length}/${registeredCommandAliases.length} registered command aliases routed`);
 notes.push("Vercel Cron dependency: disabled by default (event-driven runtime)");
-notes.push("WARSTATE v5.1 admin rewards/medals/access migration: present");
+notes.push("WARSTATE v5.3 map interaction + interstate messaging migration: present");
 if (!fs.readFileSync(path.join(root, "README.md"), "utf8").includes("/setprivacy")) failures.push("README must document disabling BotFather Privacy Mode for !commands");
 notes.push("Telegram webhook idempotency: PostgreSQL-backed");
 notes.push("Baseline security headers: enabled");

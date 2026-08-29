@@ -37,6 +37,10 @@ type TelegramWebApp = {
   setBottomBarColor?: (color: string) => void;
   disableVerticalSwipes?: () => void;
   openTelegramLink?: (url: string) => void;
+  safeAreaInset?: { top?: number; bottom?: number; left?: number; right?: number };
+  contentSafeAreaInset?: { top?: number; bottom?: number; left?: number; right?: number };
+  onEvent?: (event: string, callback: () => void) => void;
+  offEvent?: (event: string, callback: () => void) => void;
   BackButton?: { show?: () => void; hide?: () => void; onClick?: (cb: () => void) => void; offClick?: (cb: () => void) => void };
   HapticFeedback?: { impactOccurred?: (style: string) => void; notificationOccurred?: (type: string) => void };
 };
@@ -271,6 +275,26 @@ export default function GameApp() {
     if (!telegramReady || isAdminEntry) return;
     void bootstrap();
   }, [bootstrap, isAdminEntry, telegramReady]);
+
+  useEffect(() => {
+    if (!telegramReady || typeof document === "undefined") return;
+    const app = tg();
+    const syncInsets = () => {
+      const safeTop = Math.max(Number(app?.safeAreaInset?.top || 0), Number(app?.contentSafeAreaInset?.top || 0));
+      const safeBottom = Math.max(Number(app?.safeAreaInset?.bottom || 0), Number(app?.contentSafeAreaInset?.bottom || 0));
+      document.documentElement.style.setProperty("--ws-telegram-top", `${safeTop}px`);
+      document.documentElement.style.setProperty("--ws-telegram-bottom", `${safeBottom}px`);
+    };
+    syncInsets();
+    app?.onEvent?.("safeAreaChanged", syncInsets);
+    app?.onEvent?.("contentSafeAreaChanged", syncInsets);
+    app?.onEvent?.("viewportChanged", syncInsets);
+    return () => {
+      app?.offEvent?.("safeAreaChanged", syncInsets);
+      app?.offEvent?.("contentSafeAreaChanged", syncInsets);
+      app?.offEvent?.("viewportChanged", syncInsets);
+    };
+  }, [telegramReady]);
   useEffect(() => () => {
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     if (refreshLiveTimer.current) window.clearTimeout(refreshLiveTimer.current);
@@ -700,7 +724,7 @@ function sectionHelpFor(view: View) {
     island: { title: "Замок", text: "Центр государства: казна, инфраструктура, развитие и восстановление." },
     battle: { title: "Армия", text: "Текущий бой, участие граждан, приказы и состояние сил государства." },
     rating: { title: "Рейтинг", text: "Позиции государств по ELO и результаты текущего сезона." },
-    alliances: { title: "Союзы", text: "Партнёры, запросы на союз, перемирия и дипломатические действия." },
+    alliances: { title: "Союзы", text: "Партнёры, запросы на союз, перемирия и межгосударственная связь. В Telegram-чате используйте !соо @юз_государства текст; на входящее сообщение отвечайте через Reply." },
     strategy: { title: "Операции", text: "Ежедневные действия, поддержка союзников и решения по текущим конфликтам." },
     profile: { title: "Профиль и выборы", text: "Роль, заслуги, ежедневные задачи, руководство государства и президентские выборы." },
   };

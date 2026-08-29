@@ -33,6 +33,10 @@ function IslandAlliancesInner({ snapshot, onDiplomacy }: { snapshot: GameSnapsho
         <span className="diplomacy-score"><small>СВЯЗЕЙ</small><b>{diplomacy.length}</b></span>
       </section>
 
+      <section className="diplomacy-message-guide">
+        <div><small>СВЯЗЬ МЕЖДУ ГОСУДАРСТВАМИ</small><h3>Сообщение в другой чат</h3><p>Отправьте в Telegram-группе команду <code>!соо @юз_государства текст</code>. Получатель сможет ответить обычным Reply на сообщение бота, и ответ вернётся в ваш государственный чат.</p></div>
+      </section>
+
       <section className="diplomacy-kpis">
         <span className="ally"><small>СОЮЗЫ</small><b>{allied}</b><em>активных</em></span>
         <span className="enemy"><small>ВОЙНЫ</small><b>{wars}</b><em>открытых</em></span>

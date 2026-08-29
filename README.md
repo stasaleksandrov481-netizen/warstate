@@ -237,3 +237,23 @@ Project admins configured through `WARSTATE_PROJECT_ADMIN_TELEGRAM_IDS` can open
 - request access to private groups. The bot sends a force-reply request to the group and forwards a valid owner/admin invite-link reply to the requesting project admin in a private message.
 
 Admin grants are confirmed in the UI before execution and are logged in `admin_reward_log`. Player and state medals are stored separately in `player_medals` and `state_medals`.
+
+## WARSTATE v5.3: map interaction, Telegram safe-area and interstate messages
+
+Before deploying v5.3, apply `supabase/migrations/039_interstate_messages.sql` after the previous migrations.
+
+### Interstate communication
+
+A citizen can write from one state chat to another registered state:
+
+```text
+!соо @state_username Текст сообщения
+```
+
+The target chat receives a system interstate message. A participant of that chat can answer it with Telegram Reply; the bot routes the answer back to the originating state. Replies remain routable in both directions because each delivered bot message is stored by exact Telegram `chat_id + message_id`.
+
+### Map and camera
+
+The map is Canvas-rendered. State coordinates are transformed by the camera, while castles are rendered in screen space at a stable visual size. Far zoom uses screen-space decluttering so readable castles do not overlap excessively. Panning has a click threshold and inertia; pinch gestures never select a state on release.
+
+Telegram `safeAreaInset` / `contentSafeAreaInset` values and the official Mini App CSS safe-area variables are included in layout calculations so the native Telegram header does not cover the Mini App UI.

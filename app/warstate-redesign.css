@@ -250,3 +250,38 @@ body{background:radial-gradient(circle at 50% -20%,#312d21 0,#171713 48%,#11110e
 .admin-bot-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}.admin-bot-actions button{height:43px;border-radius:12px;font-size:9px;font-weight:900;border:1px solid rgba(224,198,137,.13)}.admin-bot-actions button.danger{background:linear-gradient(180deg,#653a2d,#4b2921);color:#f0c1b0}.admin-bot-actions button.success{background:linear-gradient(180deg,#536f35,#3e5629);color:#d8e9c2}.admin-bot-actions button:disabled{opacity:.35}
 @media(max-width:520px){.admin-bot-control{margin:7px;padding:11px}.admin-bot-head{display:grid;grid-template-columns:1fr}.admin-bot-head>b{width:max-content;padding:0 12px}.admin-bot-actions{grid-template-columns:1fr}}
 .bot-closed-splash h2{margin:6px 0 0;font:800 19px Cinzel,Georgia,serif;color:#e3c67d}.bot-closed-splash p{max-width:320px;line-height:1.55}.bot-closed-splash>small{max-width:300px;color:#938a79;font-size:9px;line-height:1.45}
+
+/* WARSTATE v5.3.0 — Telegram safe areas + map interaction hardening. */
+:root{
+  --ws-safe-top:max(env(safe-area-inset-top,0px),var(--tg-safe-area-inset-top,0px),var(--tg-content-safe-area-inset-top,0px),var(--ws-telegram-top,0px));
+  --ws-safe-bottom:max(env(safe-area-inset-bottom,0px),var(--tg-safe-area-inset-bottom,0px),var(--tg-content-safe-area-inset-bottom,0px),var(--ws-telegram-bottom,0px));
+}
+.app-shell{height:100dvh!important;padding-top:var(--ws-safe-top)!important}
+.island-viewport{height:calc(100dvh - 78px - 70px - var(--ws-safe-top) - var(--ws-safe-bottom))!important;min-height:0!important}
+.has-world-pulse .island-viewport{height:calc(100dvh - 76px - 76px - 52px - var(--ws-safe-top) - var(--ws-safe-bottom))!important}
+.island-bottom-nav{bottom:calc(4px + var(--ws-safe-bottom))!important}
+.section-help-trigger{bottom:calc(78px + var(--ws-safe-bottom))!important}
+.toast{bottom:calc(84px + var(--ws-safe-bottom))!important}
+
+.continent-viewport{touch-action:none!important;overscroll-behavior:contain!important;user-select:none!important;-webkit-user-select:none!important;cursor:grab!important}
+.continent-viewport:active{cursor:grabbing!important}
+.continent-map-canvas{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;display:block!important;z-index:1!important;touch-action:none!important;contain:strict!important}
+.continent-map-head,.continent-map-tools,.continent-radar{z-index:8!important}
+.state-inspector-title em{display:block!important;margin-top:3px!important;color:#d5b66f!important;font-size:9px!important;font-style:normal!important;letter-spacing:.02em!important}
+
+@media(max-width:420px){
+  .island-viewport{height:calc(100dvh - 74px - 67px - var(--ws-safe-top) - var(--ws-safe-bottom))!important}
+  .has-world-pulse .island-viewport{height:calc(100dvh - 74px - 67px - 52px - var(--ws-safe-top) - var(--ws-safe-bottom))!important}
+}
+
+/* Collapse conflicting legacy header generations into two predictable responsive layouts. */
+.game-mobile-header{height:78px!important;min-height:78px!important;padding:8px 9px!important;display:flex!important;grid-template-rows:none!important;align-items:center!important;gap:8px!important}
+.game-header-identity{min-width:0!important}.game-header-stats{min-width:0!important}
+@media(max-width:420px){
+  .game-mobile-header{height:104px!important;min-height:104px!important;padding:6px 7px 8px!important;display:grid!important;grid-template-columns:minmax(0,1fr)!important;grid-template-rows:46px 42px!important;gap:2px!important}
+  .game-header-identity,.game-header-stats{width:100%!important;min-width:0!important}
+  .island-viewport{height:calc(100dvh - 104px - 66px - var(--ws-safe-top) - var(--ws-safe-bottom))!important}
+  .has-world-pulse .island-viewport{height:calc(100dvh - 104px - 66px - 52px - var(--ws-safe-top) - var(--ws-safe-bottom))!important}
+}
+.diplomacy-message-guide{margin:8px 10px 10px;padding:14px 15px;border:1px solid rgba(220,197,137,.17);border-radius:16px;background:linear-gradient(145deg,rgba(77,59,29,.26),rgba(23,28,18,.82));box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+.diplomacy-message-guide small{display:block;color:#d3aa56;font-size:7px;font-weight:900;letter-spacing:.12em}.diplomacy-message-guide h3{margin:4px 0 6px;font-size:16px;color:#f1e7ce}.diplomacy-message-guide p{margin:0;color:#bcb29d;font-size:9px;line-height:1.5}.diplomacy-message-guide code{padding:2px 5px;border-radius:5px;background:rgba(0,0,0,.24);color:#efd48e;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:8px}

@@ -22,21 +22,26 @@ Apply migrations strictly in numeric order:
 017_telegram_update_claim_lease.sql
 018_state_switch_delete_ui.sql
 019_fix_state_switch_cooldown.sql
-020_fix_state_switch_row_lock.sql
-021_fix_state_switch_api_schema.sql
-022_election_vote_fix.sql
+020_integrity_repair.sql
+021_fix_stale_election_conflict.sql
+022_fix_state_color_contrast.sql
 023_founder_president_admin.sql
 024_repair_government_commands.sql
 025_compact_world_and_map_repair.sql
-026_live_membership_state_size.sql
+026_global_project_admin_and_chat_join.sql
 027_webhook_idempotency_and_presence.sql
-028_runtime_hardening.sql
+028_admin_activity_index.sql
 029_world_fit_all_states.sql
-030_admin_controls.sql
+030_impeachment_vote_kind.sql
 031_bot_presence_visibility.sql
 032_dynamic_events.sql
-033_dynamic_events_10m.sql
+033_election_guard_and_reminders.sql
 034_continent_redesign.sql
+035_admin_rewards_medals_access.sql
+036_command_cooldowns.sql
+037_bot_maintenance_mode.sql
+038_comprehensive_fixes_v520.sql
+039_interstate_messages.sql
 ```
 
 For an existing v1.9 installation that already has `014`, apply the rest in order:
@@ -77,3 +82,7 @@ All balances, memberships, state roles, activity cooldowns, battle finalization 
 ## v5 continental redesign
 
 `034_continent_redesign.sql` adds a per-state IANA `time_zone`, resets pending emergency scheduling for the new five-hour cadence, and removes the retired marine label from the active supply activity while keeping its stable key. Historical `island_*` identifiers remain internal for compatibility.
+
+## v5.3 interstate messages
+
+`039_interstate_messages.sql` adds `state_messages`, which stores the source/target states and the exact Telegram target `chat_id + message_id`. This is the reply-routing source of truth for `!соо @state text` and subsequent Telegram Reply chains between state chats.

@@ -1,4 +1,4 @@
-# WARSTATE v5.0 — Continental Redesign
+# WARSTATE v5.4.2 — Continental Strategy Release
 
 WARSTATE is a Telegram bot + Mini App where every connected Telegram group becomes a state on one shared continent.
 
@@ -56,18 +56,15 @@ Allied states are connected visually. State cards expose ELO, territory integrit
 
 ### `!помощь`
 
-The command no longer sends one large manual. It opens an inline menu:
+The command uses one editable Telegram message with five compact sections:
 
 - 🏰 Замок
-- ⚔️ Армия
-- 🤝 Союзы
-- 📜 Указы
-- 🗳 Выборы
-- 💰 Казна
-- 🎭 Роли
-- ⚠️ ЧП
+- 💼 Роли
+- 💰 Экономика
+- ⚔️ Военные действия
+- 👤 Профиль
 
-Selecting a section edits the same Telegram message and shows one concise explanation plus `← Назад`.
+The inline keyboard stays under the same message while `editMessageText` switches the content. The sections document the current role economy, `!добыча`, `!сдать`, `!магазин`, Spy/Diplomat commands, wars, interstate `!соо`, profile progression and project-admin diagnostics.
 
 ### Emergency schedule
 
@@ -257,3 +254,17 @@ The target chat receives a system interstate message. A participant of that chat
 The map is Canvas-rendered. State coordinates are transformed by the camera, while castles are rendered in screen space at a stable visual size. Far zoom uses screen-space decluttering so readable castles do not overlap excessively. Panning has a click threshold and inertia; pinch gestures never select a state on release.
 
 Telegram `safeAreaInset` / `contentSafeAreaInset` values and the official Mini App CSS safe-area variables are included in layout calculations so the native Telegram header does not cover the Mini App UI.
+
+## WARSTATE v5.4: closed economy, buffered Canvas and interactive help
+
+Before deploying v5.4, apply `supabase/migrations/040_personal_economy_v54.sql`.
+
+The update separates personal economy from the state treasury, adds role gathering, selling, tools, Houses, consumables, noble titles and ELO investments. Raw state resources are now citizen-driven. A humanitarian reserve of 50 units prevents economy softlocks, while infrastructure sleeps instead of being destroyed when upkeep cannot be paid.
+
+The Canvas map now uses a 25% render buffer, buffered terrain, a shared sprite atlas, far-LOD anti-overlap and context restoration handling. Telegram `!помощь` is a five-section inline menu that edits one message in place.
+
+## WARSTATE v5.4.2 release hardening
+
+For a fresh or upgraded deployment, apply migrations through `supabase/migrations/043_release_final_hardening.sql`. In particular, v5.4.2 requires `041`, `042` and `043` after the v5.4 economy migration.
+
+The release-candidate audit now verifies API authorization boundaries, every application RPC against migrations, Telegram webhook lease/completion idempotency, SECURITY DEFINER revokes, command routing, Mini App safe areas and the final UI normalization layer. Canvas avatar decoding is bounded so long map sessions cannot grow an unlimited image cache.

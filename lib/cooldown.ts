@@ -12,6 +12,9 @@ export async function tryCommandCooldown(chatId: number, telegramId: number, com
     p_command: command,
     p_window_seconds: windowSeconds,
   });
-  if (error) { console.warn("WARSTATE command cooldown check failed, allowing through", error); return true; }
+  if (error) {
+    console.warn("WARSTATE command cooldown check failed", error);
+    throw new Error("Антиспам временно недоступен. Повторите команду позже.");
+  }
   return Boolean(data);
 }

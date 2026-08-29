@@ -133,19 +133,21 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment, onOpenS
 
       <div className="island-command-strip">
         <span><small>ЛИГА</small><b>{league.icon} {league.label}</b><em>{state.rating} ELO</em></span>
-        <span><small>НАСЕЛЕНИЕ</small><b>{state.memberCount.toLocaleString("ru-RU")}</b><em>{state.memberCount.toLocaleString("ru-RU")} домов</em></span>
+        <span><small>НАСЕЛЕНИЕ</small><b>{state.memberCount.toLocaleString("ru-RU")}</b><em>{state.memberCount.toLocaleString("ru-RU")} граждан</em></span>
         <span><small>СЕРИЯ</small><b>×{state.winStreak}</b><em>рекорд ×{state.bestWinStreak}</em></span>
         <span><small>МИР</small><b>#{state.seasonRank}</b><em>{state.islandWins}W · {state.islandLosses}L</em></span>
       </div>
 
+      {state.economySleeping && <div className="economy-sleep-banner compact"><b>Инфраструктура приостановлена</b><span>Резерв Казны защищён. Сдайте личное сырьё командой !сдать, чтобы снова включить бонусы зданий.</span></div>}
+
       <section className="state-economy-overview">
-        <div className="state-economy-head"><div><small>ЭКОНОМИКА ОСТРОВА</small><b>Ресурсы и производство</b></div><span><i style={{ width: `${developmentPct}%` }} /><b>{developmentPct}%</b><small>развитие</small></span></div>
+        <div className="state-economy-head"><div><small>ЭКОНОМИКА ГОСУДАРСТВА</small><b>Казна и сырьевой резерв</b></div><span><i style={{ width: `${developmentPct}%` }} /><b>{developmentPct}%</b><small>развитие</small></span></div>
         <div className="state-resource-row">
           <span><i>₡</i><small>КАЗНА</small><b>{state.treasury.credits.toLocaleString("ru-RU")}</b><em>+{state.productionPerHour.credits.toLocaleString("ru-RU")}/ч</em></span>
-          <span><i>▰</i><small>СТАЛЬ</small><b>{state.treasury.steel.toLocaleString("ru-RU")}</b><em>+{state.productionPerHour.steel.toLocaleString("ru-RU")}/ч</em></span>
-          <span><i>◈</i><small>ТОПЛИВО</small><b>{state.treasury.fuel.toLocaleString("ru-RU")}</b><em>+{state.productionPerHour.fuel.toLocaleString("ru-RU")}/ч</em></span>
-          <span><i>◆</i><small>ЕДА</small><b>{state.treasury.food.toLocaleString("ru-RU")}</b><em>+{state.productionPerHour.food.toLocaleString("ru-RU")}/ч</em></span>
-          <span><i>⌁</i><small>TECH</small><b>{state.treasury.tech.toLocaleString("ru-RU")}</b><em>+{state.productionPerHour.tech.toLocaleString("ru-RU")}/ч</em></span>
+          <span><i>▰</i><small>СТАЛЬ</small><b>{state.treasury.steel.toLocaleString("ru-RU")}</b><em>через !сдать</em></span>
+          <span><i>◈</i><small>ТОПЛИВО</small><b>{state.treasury.fuel.toLocaleString("ru-RU")}</b><em>через !сдать</em></span>
+          <span><i>◆</i><small>ЕДА</small><b>{state.treasury.food.toLocaleString("ru-RU")}</b><em>через !сдать</em></span>
+          <span><i>⌁</i><small>TECH</small><b>{state.treasury.tech.toLocaleString("ru-RU")}</b><em>через !сдать</em></span>
         </div>
         {activeConstruction > 0 && <div className="construction-live"><i /><b>{activeConstruction} {activeConstruction === 1 ? "стройка идёт" : "стройки идут"}</b><span>завершение применяется автоматически</span></div>}
       </section>
@@ -159,7 +161,7 @@ function StateIslandHome({ snapshot, onUpgrade, onRepair, onRecruitment, onOpenS
       )}
 
       {destroyed ? <div className="rebuild-card"><b>☠ Государство разрушено</b><p>Идёт аварийное восстановление. После восстановления государство вернётся с базовой прочностью и щитом.</p></div> : state.islandIntegrity < 100 ? (
-        <div className="repair-card"><div><small>РЕМОНТ ОСТРОВА</small><b>{state.islandIntegrity}% → {Math.min(100, state.islandIntegrity + repairAmount)}%</b><span>Повреждения снижают производство.</span></div><button type="button" disabled={!canRepair} onClick={() => onRepair(repairAmount)}>Ремонт<small>{repairCredits} ₡ · {repairSteel} стали</small></button></div>
+        <div className="repair-card"><div><small>УКРЕПЛЕНИЕ ТЕРРИТОРИИ</small><b>{state.islandIntegrity}% → {Math.min(100, state.islandIntegrity + repairAmount)}%</b><span>Повреждения снижают пассивный бюджет государства.</span></div><button type="button" disabled={!canRepair} onClick={() => onRepair(repairAmount)}>Ремонт<small>{repairCredits} ₡ · {repairSteel} стали</small></button></div>
       ) : null}
 
       <section className="island-section">

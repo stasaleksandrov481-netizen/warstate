@@ -341,7 +341,8 @@ export async function executeApprovedStateVote(voteId: string) {
       const { removePresident } = await import("@/lib/government");
       const presidentPlayerId = String(vote.payload?.presidentPlayerId || "");
       if (!presidentPlayerId) throw new Error("В голосовании импичмента не указан президент.");
-      const { data: state } = await supabase.from("states").select("founder_player_id").eq("id", vote.state_id).single();
+      const { data: state, error: stateError } = await supabase.from("states").select("founder_player_id").eq("id", vote.state_id).single();
+      if (stateError) throw stateError;
       if (!state) throw new Error("Государство не найдено.");
       await removePresident(vote.state_id, String(state.founder_player_id));
       return { executed: true as const, kind: "impeachment" as const, vote };
@@ -351,9 +352,10 @@ export async function executeApprovedStateVote(voteId: string) {
     return { executed: true as const, kind: "alliance" as const, action, vote };
   } catch (error) {
     try {
-      await supabase.from("state_votes").update({ executed_at: null }).eq("id", voteId);
-    } catch {
-      // Best effort: the vote remains approved and can be retried manually.
+      const { error: rollbackError } = await supabase.from("state_votes").update({ executed_at: null }).eq("id", voteId);
+      if (rollbackError) console.warn("WARSTATE vote execution rollback failed", rollbackError);
+    } catch (rollbackError) {
+      console.warn("WARSTATE vote execution rollback failed", rollbackError);
     }
     throw error;
   }

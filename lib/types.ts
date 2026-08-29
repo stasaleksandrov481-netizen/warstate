@@ -51,12 +51,31 @@ export interface StrategyView {
   rules: { maxDailyActivities: number; maxAttackSizePenalty: number; maxUnderdogBonus: number; maxAggressionPenalty: number; maxAllianceSupport: number; raidLootBudgetPct: number; raidLootInfluencePct: number };
 }
 
+
+export interface PersonalEconomyView {
+  coins: number;
+  inventory: { steel: number; fuel: number; food: number; tech: number };
+  dutyRole: "diplomat" | "spy" | "miner" | "worker" | null;
+  gatherCooldownSeconds: number;
+  toolTier: number;
+  toolUsesLeft: number;
+  homeLevel: number;
+  homeHourlyCoins: number;
+  homeIncomeCollected: number;
+  gatherBoostUntil?: string | null;
+  cooldownElixirs: number;
+  gatherBoostElixirs: number;
+  nobleTitle?: string | null;
+  economySleeping: boolean;
+}
+
 export interface PlayerView {
   id: string;
   telegramId: number;
   displayName: string;
   username?: string | null;
   adminTitle?: string | null;
+  nobleTitle?: string | null;
   level: number;
   xp: number;
   energy: number;
@@ -121,6 +140,8 @@ export interface StateView {
   adminThreatShieldUntil?: string | null;
   adminXpBoostPct: number;
   adminXpBoostUntil?: string | null;
+  economySleeping: boolean;
+  humanitarianLastAt?: string | null;
 }
 
 export interface BuildingView {
@@ -436,6 +457,7 @@ export interface GameSnapshot {
   badges: StateBadgeView[];
   playerMedals: MedalView[];
   stateMedals: MedalView[];
+  personalEconomy: PersonalEconomyView;
   activeBattle?: BattleView | null;
   recruitment: RecruitmentHubView;
   strategy: StrategyView;

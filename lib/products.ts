@@ -9,25 +9,25 @@ export interface GameProduct {
 
 export const PRODUCTS: Record<string, GameProduct> = {
   season_pass: {
-    title: "Season Pass",
+    title: "Сезонный пропуск",
     description: "Сезонная косметическая ветка WARSTATE",
     stars: 250,
     scope: "player",
   },
   state_banner: {
-    title: "State Banner Pack",
+    title: "Набор знамён государства",
     description: "Премиальный набор оформления государства",
     stars: 125,
     scope: "state",
   },
   city_noir: {
-    title: "Night Island Skin",
+    title: "Ночная тема государства",
     description: "Ночная тема профиля государства",
     stars: 300,
     scope: "state",
   },
   profile_frame: {
-    title: "Veteran Profile Frame",
+    title: "Рамка ветерана",
     description: "Редкая рамка профиля игрока",
     stars: 75,
     scope: "player",

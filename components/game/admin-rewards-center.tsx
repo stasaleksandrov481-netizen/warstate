@@ -70,6 +70,7 @@ export function AdminRewardsCenter({ initData }: { initData: string }) {
   const [stateQuery, setStateQuery] = useState("");
   const [selected, setSelected] = useState<AdminState | null>(null);
   const [members, setMembers] = useState<AdminMember[]>([]);
+  const [memberQuery, setMemberQuery] = useState("");
   const [playerId, setPlayerId] = useState("");
   const [rewardType, setRewardType] = useState<RewardType>("resource");
   const [resource, setResource] = useState("credits");
@@ -112,11 +113,21 @@ export function AdminRewardsCenter({ initData }: { initData: string }) {
   }, [stateQuery, loadStates]);
 
   useEffect(() => {
-    setMembers([]); setPlayerId("");
+    setMembers([]); setMemberQuery(""); setPlayerId("");
     if (!selected) return;
-    void adminCall<{ members: AdminMember[] }>(initData, "/api/admin/rewards", { action: "members", stateId: selected.id }).then((r) => setMembers(r.members || [])).catch(() => undefined);
     void loadHistory(selected.id).catch(() => undefined);
-  }, [selected?.id, initData, loadHistory]);
+  }, [selected?.id, loadHistory]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const stateId = selected.id;
+    const timer = window.setTimeout(() => {
+      void adminCall<{ members: AdminMember[] }>(initData, "/api/admin/rewards", { action: "members", stateId, query: memberQuery })
+        .then((r) => setMembers(r.members || []))
+        .catch((e) => setError(e instanceof Error ? e.message : "Не удалось загрузить граждан государства"));
+    }, 220);
+    return () => window.clearTimeout(timer);
+  }, [selected?.id, memberQuery, initData]);
 
   const selectedPlayer = useMemo(() => members.find((item) => item.id === playerId) || null, [members, playerId]);
   const needsPlayer = rewardType === "title" || (rewardType === "medal" && medalScope === "player");
@@ -134,8 +145,8 @@ export function AdminRewardsCenter({ initData }: { initData: string }) {
     return cached;
   }, [initData]);
 
-  // Prefetch links in the background for groups we don't already know a public username for (private
-  // groups need a server round-trip to check/mint an invite link). Public groups don't need this — their
+  // Prefetch link/access state in the background for groups without a public username. Private
+  // groups never get bot-minted invites: the server only checks for a fulfilled owner/admin Reply request. Public groups don't need this — their
   // username already arrives with the state list, so opening them never has to wait on the network.
   // notify=false here: this is silent background warm-up, not a real "open" the admin asked for.
   useEffect(() => {
@@ -263,7 +274,7 @@ export function AdminRewardsCenter({ initData }: { initData: string }) {
         {["resource","prestige","treasury","reputation","influence"].includes(rewardType) && <label><span>Сумма</span><input type="number" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>}
         {["military_boost","xp_boost"].includes(rewardType) && <><label><span>Усиление, %</span><input type="number" min="1" max="300" value={boostPct} onChange={(e) => setBoostPct(e.target.value)} /></label><label><span>Срок, часов</span><input type="number" min="1" max="720" value={durationHours} onChange={(e) => setDurationHours(e.target.value)} /></label></>}
         {rewardType === "protection" && <label><span>Срок защиты от ЧП, часов</span><input type="number" min="1" max="720" value={durationHours} onChange={(e) => setDurationHours(e.target.value)} /></label>}
-        {needsPlayer && <label><span>Игрок</span><select value={playerId} onChange={(e) => setPlayerId(e.target.value)}><option value="">Выберите игрока</option>{members.map((member) => <option key={member.id} value={member.id}>{member.displayName}{member.username ? ` (@${member.username})` : ""}</option>)}</select></label>}
+        {needsPlayer && <><label><span>Поиск игрока</span><input value={memberQuery} onChange={(e) => { setMemberQuery(e.target.value); setPlayerId(""); }} placeholder="Имя или @username" /></label><label><span>Игрок</span><select value={playerId} onChange={(e) => setPlayerId(e.target.value)}><option value="">{memberQuery.trim() ? "Выберите из результатов" : "Выберите игрока"}</option>{members.map((member) => <option key={member.id} value={member.id}>{member.displayName}{member.username ? ` (@${member.username})` : ""}</option>)}</select></label></>}
         {rewardType === "medal" && <label><span>Кому медаль</span><select value={medalScope} onChange={(e) => setMedalScope(e.target.value as "state" | "player")}><option value="state">Государству</option><option value="player">Игроку</option></select></label>}
         {(rewardType === "title" || rewardType === "medal") && <label className="wide"><span>{rewardType === "title" ? "Название титула" : "Название медали"}</span><input maxLength={100} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={rewardType === "title" ? "Защитник границ" : "Лучший шахтёр месяца"} /></label>}
         {rewardType === "medal" && <><label><span>Иконка / URL картинки</span><input maxLength={300} value={medalIcon} onChange={(e) => setMedalIcon(e.target.value)} /></label><label className="wide"><span>Описание</span><textarea value={medalDescription} onChange={(e) => setMedalDescription(e.target.value)} maxLength={500} rows={3} /></label></>}

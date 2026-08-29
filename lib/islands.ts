@@ -147,10 +147,13 @@ export async function getIslandWorld(
         .select("state_a_id, state_b_id, status")
         .eq("status", "allied"),
     ]);
+    if (presidentRows.error) console.warn("WARSTATE island president state lookup failed", presidentRows.error);
+    if (allianceRows.error) console.warn("WARSTATE island alliance lookup failed", allianceRows.error);
     // Batch-resolve president display names
     const presidentIds = [...new Set((presidentRows?.data || []).map((r: any) => String(r.owner_player_id)).filter(Boolean))];
     if (presidentIds.length) {
-      const { data: presPlayers } = await supabase.from("players").select("id, display_name").in("id", presidentIds);
+      const { data: presPlayers, error: presPlayerError } = await supabase.from("players").select("id, display_name").in("id", presidentIds);
+      if (presPlayerError) console.warn("WARSTATE island president lookup failed", presPlayerError);
       const presMap = new Map<string, string>((presPlayers || []).map((p: any): [string, string] => [String(p.id), String(p.display_name || "")]));
       for (const row of presidentRows?.data || []) {
         presidentNames.set(String(row.id), presMap.get(String(row.owner_player_id)) || "");

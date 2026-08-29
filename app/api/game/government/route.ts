@@ -107,7 +107,8 @@ export async function POST(request: Request) {
     } else if (action === "start_impeachment") {
       if (!auth.state.owner_player_id) throw new Error("Президента нет — импичмент невозможен.");
       const presidentPlayerId = String(auth.state.owner_player_id);
-      const { data: president } = await getSupabaseAdmin().from("players").select("display_name,username").eq("id", presidentPlayerId).maybeSingle();
+      const { data: president, error: presidentError } = await getSupabaseAdmin().from("players").select("display_name,username").eq("id", presidentPlayerId).maybeSingle();
+      if (presidentError) throw presidentError;
       const presidentName = president?.display_name || "президент";
       await createStateVote({
         stateId,

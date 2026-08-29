@@ -92,11 +92,6 @@ export function AdminPanel({ initData }: Props) {
   }, [initData]);
 
   useEffect(() => {
-    const app = (typeof window !== "undefined" ? (window as any).Telegram?.WebApp : null) || null;
-    app?.ready?.();
-    app?.expand?.();
-    app?.setHeaderColor?.("#1d1c17");
-    app?.setBackgroundColor?.("#1d1c17");
     void load();
   }, [load]);
 

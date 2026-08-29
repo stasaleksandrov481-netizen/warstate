@@ -92,16 +92,23 @@ async function createPendingRoute(input: {
 
 async function finalizeRoute(id: string, targetMessageId: number) {
   const supabase = getSupabaseAdmin();
-  const { error } = await supabase.from("state_messages").update({ target_message_id: targetMessageId }).eq("id", id);
-  if (error) throw error;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const { error } = await supabase.from("state_messages").update({ target_message_id: targetMessageId }).eq("id", id);
+    if (!error) return;
+    lastError = error;
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 120 * (attempt + 1)));
+  }
+  throw lastError instanceof Error ? lastError : new Error("Не удалось сохранить маршрут межгосударственного сообщения.");
 }
 
 async function removePendingRoute(id: string) {
   const supabase = getSupabaseAdmin();
   try {
-    await supabase.from("state_messages").delete().eq("id", id).is("target_message_id", null);
-  } catch {
-    // Best-effort cleanup only; the unsent row cannot route replies without target_message_id.
+    const { error } = await supabase.from("state_messages").delete().eq("id", id).is("target_message_id", null);
+    if (error) console.warn("WARSTATE pending interstate route cleanup failed", error);
+  } catch (error) {
+    console.warn("WARSTATE pending interstate route cleanup failed", error);
   }
 }
 
@@ -190,13 +197,14 @@ export async function handleInterstateReply(message: any): Promise<boolean> {
     return true;
   }
 
-  const [{ data: replyingState, error: stateError }, { data: player }] = await Promise.all([
+  const [{ data: replyingState, error: stateError }, { data: player, error: playerError }] = await Promise.all([
     supabase.from("states").select("id,name,state_username,telegram_chat_id,bot_present").eq("id", route.target_state_id).single(),
     message?.from?.id
       ? supabase.from("players").select("id,display_name,username").eq("telegram_id", Number(message.from.id)).maybeSingle()
-      : Promise.resolve({ data: null } as any),
+      : Promise.resolve({ data: null, error: null } as any),
   ]);
   if (stateError) throw stateError;
+  if (playerError) console.warn("WARSTATE interstate reply author lookup failed", playerError);
   if (!replyingState || Number(replyingState.telegram_chat_id) !== chatId) return false;
 
   const sourceChatId = Number(route.source_chat_id);

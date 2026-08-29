@@ -18,12 +18,14 @@ export async function GET(request: NextRequest) {
   const supabase = getSupabaseAdmin();
   const notified: string[] = [];
   for (const item of results) {
-    const { data: state } = await supabase.from("states").select("name,telegram_chat_id").eq("id", item.stateId).maybeSingle();
+    const { data: state, error: stateError } = await supabase.from("states").select("name,telegram_chat_id").eq("id", item.stateId).maybeSingle();
+    if (stateError) { console.warn("Election state lookup failed", item.stateId, stateError); continue; }
     if (!state?.telegram_chat_id) continue;
     const winnerId = item.result?.winnerPlayerId ? String(item.result.winnerPlayerId) : null;
     let text = `🗳 Выборы в государстве «${state.name}» завершены.`;
     if (winnerId) {
-      const { data: winner } = await supabase.from("players").select("display_name,username").eq("id", winnerId).maybeSingle();
+      const { data: winner, error: winnerError } = await supabase.from("players").select("display_name,username").eq("id", winnerId).maybeSingle();
+      if (winnerError) console.warn("Election winner lookup failed", winnerId, winnerError);
       text += `\n\nНовый президент: ${winner?.display_name || "кандидат"}${winner?.username ? ` (@${winner.username})` : ""}.`;
     } else {
       text += "\n\nПрезидент не избран: голосование завершилось без кандидата.";

@@ -40,11 +40,12 @@ async function notifyElectionResult(stateId: string, result: any) {
   const winnerId = result?.winnerPlayerId ? String(result.winnerPlayerId) : null;
   let text = `🗳 Выборы в государстве «${state.name}» завершены.`;
   if (winnerId) {
-    const { data: winner } = await supabase
+    const { data: winner, error: winnerError } = await supabase
       .from("players")
       .select("display_name,username")
       .eq("id", winnerId)
       .maybeSingle();
+    if (winnerError) console.warn("WARSTATE maintenance election winner lookup failed", winnerError);
     text += `\n\nНовый президент: ${winner?.display_name || "кандидат"}${winner?.username ? ` (@${winner.username})` : ""}.`;
   } else {
     text += "\n\nПрезидент не избран: голосование завершилось без кандидата.";

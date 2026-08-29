@@ -28,6 +28,8 @@ export function isProjectAdminTelegramId(telegramId: number | string | null | un
 
 export function requireTelegramBotUsername() {
   const username = String(process.env.TELEGRAM_BOT_USERNAME || "").trim().replace(/^@/, "");
-  if (!username) throw new Error("Telegram-бот не активирован: сначала задайте username бота.");
+  if (!/^[A-Za-z0-9_]{5,32}$/.test(username) || !username.toLowerCase().endsWith("bot")) {
+    throw new Error("Telegram-бот не активирован: задайте корректный username бота, оканчивающийся на bot.");
+  }
   return username;
 }

@@ -60,11 +60,9 @@ export async function searchBroadcastTargets(query: string, limit = 30): Promise
 // Sends one message to state Telegram group chats. By default every state
 // (minus Freeport and states whose bot was kicked — bot_present=false, see
 // markStateBotRemoved) is targeted; pass stateIds to send to a hand-picked
-// subset instead. `signed` prepends the standard "from administration"
-// header; when false the text goes out exactly as written. Fired
-// sequentially with a small delay between sends to stay comfortably under
-// Telegram's ~30 msg/sec global rate limit without needing a queue for what
-// is an occasional, admin-only action.
+// subset instead. `signed` prepends the standard administration header.
+// Delivery uses bounded batches so a large broadcast does not spend the whole
+// Vercel request budget waiting on one Telegram round-trip at a time.
 export async function broadcastAdminMessage(
   text: string,
   options: { stateIds?: string[]; signed?: boolean } = {},
@@ -94,21 +92,35 @@ export async function broadcastAdminMessage(
     ? message
     : `📣 СООБЩЕНИЕ ОТ АДМИНИСТРАЦИИ WARSTATE\n────────────\n${message}`;
 
-  for (const state of targets) {
-    try {
-      await telegramApi("sendMessage", { chat_id: Number(state.telegram_chat_id), text: body });
-      result.sent += 1;
-    } catch (sendError) {
-      result.failed += 1;
-      result.failedChats.push({
-        name: String(state.name || state.telegram_chat_id),
-        error: sendError instanceof Error ? sendError.message : "Неизвестная ошибка",
-      });
+  const batchSize = 18;
+  for (let offset = 0; offset < targets.length; offset += batchSize) {
+    const batch = targets.slice(offset, offset + batchSize);
+    const outcomes = await Promise.all(batch.map(async (state: any) => {
+      try {
+        await telegramApi("sendMessage", { chat_id: Number(state.telegram_chat_id), text: body });
+        return { ok: true as const, state };
+      } catch (sendError) {
+        return { ok: false as const, state, error: sendError };
+      }
+    }));
+
+    for (const outcome of outcomes) {
+      if (outcome.ok) {
+        result.sent += 1;
+      } else {
+        result.failed += 1;
+        result.failedChats.push({
+          name: String(outcome.state.name || outcome.state.telegram_chat_id),
+          error: outcome.error instanceof Error ? outcome.error.message : "Неизвестная ошибка",
+        });
+      }
     }
-    // Telegram's global bot rate limit is roughly 30 messages/second across
-    // all chats. 40ms between sends keeps a large broadcast well under that
-    // without needing exponential backoff for a one-off admin action.
-    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    // Stay below Telegram's global bot throughput while avoiding a slow
+    // fully-serial loop. 18 messages per ~850 ms is comfortably conservative.
+    if (offset + batchSize < targets.length) {
+      await new Promise((resolve) => setTimeout(resolve, 850));
+    }
   }
 
   return result;
@@ -165,7 +177,7 @@ export async function getAdminStats(): Promise<AdminStats> {
     updates7d,
     activityEvents24h,
     paymentsCount,
-    paymentsRows,
+    paymentTotals,
     paymentsRecent,
     topStatesRows,
   ] = await Promise.all([
@@ -181,9 +193,7 @@ export async function getAdminStats(): Promise<AdminStats> {
     supabase.from("telegram_update_receipts").select("update_id", { count: "exact", head: true }).gte("received_at", since7d),
     supabase.from("contribution_events").select("id", { count: "exact", head: true }).eq("source", "activity").gte("created_at", since24h),
     supabase.from("payments").select("id", { count: "exact", head: true }),
-    // Payment amounts are summed in JS: Supabase's free-tier PostgREST has no
-    // server-side aggregate here, and payment volume on a hobby bot is small.
-    supabase.from("payments").select("stars,created_at").order("created_at", { ascending: false }).limit(2000),
+    supabase.rpc("gw_admin_payment_totals"),
     supabase.from("payments").select("sku,stars,created_at,players(display_name)").order("created_at", { ascending: false }).limit(5),
     supabase.from("states").select("name,rating,active_player_count,telegram_chat_id").eq("is_freeport", false).eq("bot_present", true).order("rating", { ascending: false }).limit(5),
   ]);
@@ -191,15 +201,14 @@ export async function getAdminStats(): Promise<AdminStats> {
   for (const result of [
     statesTotal, statesNew7d, playersTotal, playersActive24h, playersActive7d, playersNew7d,
     battlesTotal, battlesLast24h, updates24h, updates7d, activityEvents24h, paymentsCount,
-    paymentsRows, paymentsRecent, topStatesRows,
+    paymentTotals, paymentsRecent, topStatesRows,
   ]) {
     if (result.error) throw result.error;
   }
 
-  const starsTotal = (paymentsRows.data || []).reduce((sum, row: any) => sum + Number(row.stars || 0), 0);
-  const starsLast7d = (paymentsRows.data || [])
-    .filter((row: any) => row.created_at >= since7d)
-    .reduce((sum, row: any) => sum + Number(row.stars || 0), 0);
+  const paymentAggregate = (paymentTotals.data || {}) as { starsTotal?: number | string; starsLast7d?: number | string };
+  const starsTotal = Number(paymentAggregate.starsTotal || 0);
+  const starsLast7d = Number(paymentAggregate.starsLast7d || 0);
 
   return {
     generatedAt: now.toISOString(),

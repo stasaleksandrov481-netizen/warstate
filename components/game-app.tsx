@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import { getSupabaseBrowser } from "@/lib/supabase/browser";
+import { stateMarkText } from "@/lib/visual";
 import type {
   BattleClass,
   BattleView,
@@ -32,6 +33,7 @@ type TelegramWebApp = {
   initDataUnsafe?: { start_param?: string; user?: { first_name?: string } };
   ready?: () => void;
   expand?: () => void;
+  requestFullscreen?: () => void;
   setHeaderColor?: (color: string) => void;
   setBackgroundColor?: (color: string) => void;
   setBottomBarColor?: (color: string) => void;
@@ -230,14 +232,6 @@ export default function GameApp() {
     setBotClosedReason(null);
     try {
       const app = tg();
-      app?.ready?.();
-      app?.expand?.();
-      // Telegram does not support a truly transparent native chrome on every client.
-      // Matching the chrome to the app background makes the Mini App frame visually disappear.
-      app?.setHeaderColor?.("#1d1c17");
-      app?.setBackgroundColor?.("#1d1c17");
-      app?.setBottomBarColor?.("#1d1c17");
-      app?.disableVerticalSwipes?.();
       if (!app?.initData) {
         throw new Error("Откройте live-версию игры внутри Telegram Mini App.");
       }
@@ -272,6 +266,20 @@ export default function GameApp() {
   }, []);
 
   useEffect(() => {
+    if (!telegramReady) return;
+    const app = tg();
+    app?.ready?.();
+    app?.expand?.();
+    try { app?.requestFullscreen?.(); } catch { /* older Telegram clients may reject fullscreen */ }
+    // Keep native Telegram chrome visually merged with the game on clients
+    // where fullscreen is unavailable or temporarily denied.
+    app?.setHeaderColor?.("#1d1c17");
+    app?.setBackgroundColor?.("#1d1c17");
+    app?.setBottomBarColor?.("#1d1c17");
+    app?.disableVerticalSwipes?.();
+  }, [telegramReady]);
+
+  useEffect(() => {
     if (!telegramReady || isAdminEntry) return;
     void bootstrap();
   }, [bootstrap, isAdminEntry, telegramReady]);
@@ -282,8 +290,12 @@ export default function GameApp() {
     const syncInsets = () => {
       const safeTop = Math.max(Number(app?.safeAreaInset?.top || 0), Number(app?.contentSafeAreaInset?.top || 0));
       const safeBottom = Math.max(Number(app?.safeAreaInset?.bottom || 0), Number(app?.contentSafeAreaInset?.bottom || 0));
+      const safeLeft = Math.max(Number(app?.safeAreaInset?.left || 0), Number(app?.contentSafeAreaInset?.left || 0));
+      const safeRight = Math.max(Number(app?.safeAreaInset?.right || 0), Number(app?.contentSafeAreaInset?.right || 0));
       document.documentElement.style.setProperty("--ws-telegram-top", `${safeTop}px`);
       document.documentElement.style.setProperty("--ws-telegram-bottom", `${safeBottom}px`);
+      document.documentElement.style.setProperty("--ws-telegram-left", `${safeLeft}px`);
+      document.documentElement.style.setProperty("--ws-telegram-right", `${safeRight}px`);
     };
     syncInsets();
     app?.onEvent?.("safeAreaChanged", syncInsets);
@@ -453,7 +465,12 @@ export default function GameApp() {
         const data = await api<{ islands: IslandView[] }>(`/api/game/islands?stateId=${snapshot.state.id}&x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}&radius=${Math.round(radius)}`, initData, { signal: controller.signal });
         setSnapshot((current) => current ? { ...current, islands: mergeIslandLists(current.islands, data.islands) } : current);
         setSelectedIsland((current) => current ? data.islands.find((item) => item.id === current.id) || current : null);
-      } catch { /* blank water is better than noisy errors while panning */ }
+      } catch {
+        // A real network/server failure must not poison the location throttle.
+        // Keep aborted requests quiet (a newer request replaced them), but allow
+        // the same viewport to retry immediately on the next camera event.
+        if (!controller.signal.aborted) lastExploreRef.current = null;
+      }
       finally { if (exploreAbortRef.current === controller) exploreAbortRef.current = null; }
     }, 220);
   }, [snapshot?.state.id, initData]);
@@ -743,7 +760,7 @@ function CommandCenter({ snapshot, onNavigate, onExplain }: { snapshot: GameSnap
   return <div className="command-center">
     <section className="command-hero">
       <div><small>WARSTATE</small><h2>Управление государством</h2><p>Выберите раздел. Основные действия доступны без поиска по меню.</p></div>
-      <span className="command-crest" style={{ background: snapshot.state.color }}>{snapshot.state.emblem || "W"}</span>
+      <span className="command-crest" style={{ background: snapshot.state.color }}>{stateMarkText(snapshot.state.name, snapshot.state.emblem)}</span>
     </section>
     <div className="command-summary">
       <span><small>Казна</small><b>{COMPACT_FORMATTER.format(snapshot.state.treasury.credits)}</b></span>
@@ -851,7 +868,7 @@ const MobileHeader = memo(function MobileHeader({ snapshot, online, lastSyncAt, 
     <header className="island-mobile-header game-mobile-header">
       <div className="game-header-identity">
         <span className="game-brand-rune" aria-hidden="true">WS</span>
-        <span className="header-avatar game-header-avatar" style={{ background: state.color }}>{state.avatarUrl ? <Image src={state.avatarUrl} alt="" width={42} height={42} unoptimized /> : state.emblem}</span>
+        <span className="header-avatar game-header-avatar" style={{ background: state.color }}>{state.avatarUrl ? <Image src={state.avatarUrl} alt="" width={42} height={42} unoptimized /> : stateMarkText(state.name, state.emblem)}</span>
         <div className="header-state-name game-header-name"><b>{state.isFreeport ? "Нейтральная зона" : state.name}</b>{state.stateUsername && !state.isFreeport ? <em>@{state.stateUsername}</em> : null}<small>{role}{state.isFreeport ? " · нейтральная зона" : ` · #${state.seasonRank}`}</small></div>
         <button type="button" className={`game-sync ${online ? "online" : "offline"} ${syncing ? "syncing" : ""}`} onClick={onSync} disabled={!online || syncing} aria-label="Синхронизировать данные" title={online ? `Последняя синхронизация · ${new Date(lastSyncAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Нет соединения"}><i />{syncing ? "SYNC" : online ? "LIVE" : "OFF"}</button>
       </div>

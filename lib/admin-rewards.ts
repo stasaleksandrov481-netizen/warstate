@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { getChat, getChatMember, telegramApi, createSingleUseInviteLink } from "@/lib/telegram-bot";
+import { getChat, getChatMember, telegramApi } from "@/lib/telegram-bot";
 
 export type AdminRewardType =
   | "resource"
@@ -120,20 +120,52 @@ export async function searchAdminStates(query = "", limit = 60): Promise<AdminSt
 export async function searchAdminStateMembers(stateId: string, query = "", limit = 40): Promise<AdminMemberTarget[]> {
   const supabase = getSupabaseAdmin();
   const q = clampText(query, 40).replace(/^@/, "");
+  const safeLimit = Math.max(1, Math.min(100, limit));
+
+  // With a search query, resolve matching players first and only then intersect
+  // them with citizenship. The previous implementation fetched an arbitrary
+  // first page of state_members and could never find citizens outside it.
+  if (q) {
+    const safe = q.replace(/[^a-zA-Z0-9_а-яА-ЯёЁ -]/g, "");
+    const { data: players, error: playerError } = await supabase
+      .from("players")
+      .select("id,display_name,username")
+      .or(`display_name.ilike.%${safe}%,username.ilike.%${safe}%`)
+      .limit(safeLimit);
+    if (playerError) throw playerError;
+    const ids = (players || []).map((row: any) => String(row.id));
+    if (!ids.length) return [];
+    const { data: memberships, error: memberError } = await supabase
+      .from("state_members")
+      .select("player_id,role")
+      .eq("state_id", stateId)
+      .in("player_id", ids);
+    if (memberError) throw memberError;
+    const roles = new Map((memberships || []).map((row: any) => [String(row.player_id), String(row.role || "citizen")]));
+    return (players || [])
+      .filter((row: any) => roles.has(String(row.id)))
+      .map((row: any) => ({
+        id: String(row.id),
+        displayName: String(row.display_name || "Игрок"),
+        username: row.username ? String(row.username) : null,
+        role: roles.get(String(row.id)) || "citizen",
+      }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, "ru"));
+  }
+
   const { data: memberships, error: memberError } = await supabase
     .from("state_members")
     .select("player_id,role")
     .eq("state_id", stateId)
-    .limit(Math.max(1, Math.min(100, limit)));
+    .limit(safeLimit);
   if (memberError) throw memberError;
   const ids = (memberships || []).map((row: any) => String(row.player_id));
   if (!ids.length) return [];
-  let playersBuilder = supabase.from("players").select("id,display_name,username").in("id", ids).limit(Math.max(1, Math.min(100, limit)));
-  if (q) {
-    const safe = q.replace(/[^a-zA-Z0-9_а-яА-ЯёЁ -]/g, "");
-    playersBuilder = playersBuilder.or(`display_name.ilike.%${safe}%,username.ilike.%${safe}%`);
-  }
-  const { data: players, error: playerError } = await playersBuilder;
+  const { data: players, error: playerError } = await supabase
+    .from("players")
+    .select("id,display_name,username")
+    .in("id", ids)
+    .limit(safeLimit);
   if (playerError) throw playerError;
   const roles = new Map((memberships || []).map((row: any) => [String(row.player_id), String(row.role || "citizen")]));
   return (players || []).map((row: any) => ({
@@ -198,8 +230,10 @@ export async function grantAdminReward(input: {
   if (!state.bot_present || !state.telegram_chat_id) throw new Error("Бот сейчас недоступен в этом Telegram-чате.");
   let playerName: string | null = null;
   if (input.playerId) {
-    const { data: player } = await supabase.from("players").select("display_name,username").eq("id", input.playerId).maybeSingle();
-    if (player) playerName = player.username ? `${String(player.display_name)} (@${String(player.username).replace(/^@/, "")})` : String(player.display_name || "Игрок");
+    const { data: player, error: playerError } = await supabase.from("players").select("display_name,username").eq("id", input.playerId).maybeSingle();
+    if (playerError) throw playerError;
+    if (!player) throw new Error("Игрок для награды не найден.");
+    playerName = player.username ? `${String(player.display_name)} (@${String(player.username).replace(/^@/, "")})` : String(player.display_name || "Игрок");
   }
 
   const parameters = input.parameters && typeof input.parameters === "object" ? input.parameters : {};
@@ -263,13 +297,14 @@ export async function sendAdminStateMessage(input: {
     parameters: {},
     message_text: message,
   });
-  if (logError) throw logError;
-  return { ok: true };
+  if (logError) {
+    // The Telegram message has already been delivered. Do not report the whole
+    // action as failed, otherwise the admin may retry and duplicate it in chat.
+    console.error("WARSTATE admin free-message history write failed after delivery", logError);
+    return { ok: true, historyRecorded: false };
+  }
+  return { ok: true, historyRecorded: true };
 }
-
-// Sentinel request_message_id used for invite links the bot minted itself (no owner reply involved).
-// Real owner-reply flows always have a positive Telegram message id, so 0 never collides with those.
-const AUTO_INVITE_MESSAGE_ID = 0;
 
 async function dmAdminGroupLink(adminTelegramId: number, stateName: string, url: string, isInvite: boolean) {
   await telegramApi("sendMessage", {
@@ -278,41 +313,6 @@ async function dmAdminGroupLink(adminTelegramId: number, stateName: string, url:
     reply_markup: { inline_keyboard: [[{ text: "Открыть группу", url }]] },
     link_preview_options: { is_disabled: true },
   });
-}
-
-// Reuses a previously bot-minted invite for this group if we have one, otherwise asks Telegram to create
-// one. Requires the bot to be an admin with "invite users" rights in the group — the same right it already
-// needs for the ordinary player-join flow, so this normally just works without any owner involvement.
-async function getOrCreateAutoInvite(stateId: string, chatId: number, stateName: string): Promise<string | null> {
-  const supabase = getSupabaseAdmin();
-  const { data: existing } = await supabase
-    .from("admin_chat_access_requests")
-    .select("invite_link")
-    .eq("state_id", stateId)
-    .eq("request_message_id", AUTO_INVITE_MESSAGE_ID)
-    .eq("status", "fulfilled")
-    .order("fulfilled_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (existing?.invite_link) return String(existing.invite_link);
-
-  try {
-    const invite = await createSingleUseInviteLink(chatId, `Admin · ${stateName}`);
-    if (!invite?.invite_link) return null;
-    await supabase.from("admin_chat_access_requests").insert({
-      state_id: stateId,
-      admin_telegram_id: 0,
-      admin_username: null,
-      request_message_id: AUTO_INVITE_MESSAGE_ID,
-      status: "fulfilled",
-      invite_link: invite.invite_link,
-      fulfilled_at: new Date().toISOString(),
-    });
-    return invite.invite_link;
-  } catch (inviteError) {
-    console.warn("WARSTATE admin auto-invite failed (bot likely lacks invite rights)", inviteError);
-    return null;
-  }
 }
 
 export async function resolveAdminGroupLink(
@@ -327,7 +327,8 @@ export async function resolveAdminGroupLink(
   try {
     const chat = await getChat(Number(state.telegram_chat_id));
     username = chat.username ? String(chat.username).replace(/^@/, "") : "";
-    await supabase.from("states").update({ telegram_chat_username: username || null, telegram_chat_title: chat.title || state.name }).eq("id", stateId);
+    const { error: cacheError } = await supabase.from("states").update({ telegram_chat_username: username || null, telegram_chat_title: chat.title || state.name }).eq("id", stateId);
+    if (cacheError) console.warn("WARSTATE admin group cache update failed", cacheError);
   } catch (chatError) {
     console.warn("WARSTATE admin group link refresh failed", chatError);
   }
@@ -340,24 +341,18 @@ export async function resolveAdminGroupLink(
     return { stateId, name: String(state.name), isPublic: true, url, pendingRequest: null, inviteRecovered: false };
   }
 
-  // Private group without a username: try to have the bot mint (or reuse) an invite link itself, so the
-  // admin doesn't have to wait on the group owner at all.
-  const autoInvite = await getOrCreateAutoInvite(stateId, Number(state.telegram_chat_id), String(state.name));
-  if (autoInvite) {
-    if (notify) void dmAdminGroupLink(options.admin!.telegramId, String(state.name), autoInvite, true).catch((e) => console.warn("WARSTATE admin link DM failed", e));
-    return { stateId, name: String(state.name), isPublic: false, url: autoInvite, pendingRequest: null, inviteRecovered: false };
-  }
-
-  // Bot has no invite rights in this group — fall back to the manual owner-reply flow.
-  const { data: latestAccess } = await supabase
+  // Private groups deliberately use the owner/admin Reply flow. The project bot
+  // does not mint an invitation on the Administration's behalf.
+  const { data: latestAccess, error: latestAccessError } = await supabase
     .from("admin_chat_access_requests")
     .select("id,status,requested_at,invite_link,fulfilled_at")
     .eq("state_id", stateId)
-    .neq("request_message_id", AUTO_INVITE_MESSAGE_ID)
+    .gt("request_message_id", 0)
     .in("status", ["pending", "fulfilled"])
     .order("requested_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (latestAccessError) throw latestAccessError;
   const fulfilledInvite = latestAccess?.status === "fulfilled" && latestAccess?.invite_link ? String(latestAccess.invite_link) : null;
   if (fulfilledInvite && notify) void dmAdminGroupLink(options.admin!.telegramId, String(state.name), fulfilledInvite, true).catch((e) => console.warn("WARSTATE admin link DM failed", e));
   return {
@@ -376,7 +371,8 @@ export async function requestAdminGroupAccess(input: { stateId: string; adminTel
   if (error || !state) throw new Error("Государство не найдено.");
   if (!state.bot_present || !state.telegram_chat_id) throw new Error("Бот сейчас недоступен в этой группе.");
 
-  await supabase.from("admin_chat_access_requests").update({ status: "cancelled" }).eq("state_id", input.stateId).eq("admin_telegram_id", input.adminTelegramId).eq("status", "pending");
+  const { error: cancelError } = await supabase.from("admin_chat_access_requests").update({ status: "cancelled" }).eq("state_id", input.stateId).eq("admin_telegram_id", input.adminTelegramId).eq("status", "pending");
+  if (cancelError) throw cancelError;
   const sent = await telegramApi<{ message_id: number }>("sendMessage", {
     chat_id: Number(state.telegram_chat_id),
     text:
@@ -394,17 +390,24 @@ export async function requestAdminGroupAccess(input: { stateId: string; adminTel
     request_message_id: Number(sent.message_id),
     status: "pending",
   }).select("id,requested_at").single();
-  if (requestError) throw requestError;
+  if (requestError) {
+    // Avoid leaving an orphan ForceReply message that can never be matched to
+    // an access request if the DB write fails after Telegram accepted it.
+    await telegramApi("deleteMessage", { chat_id: Number(state.telegram_chat_id), message_id: Number(sent.message_id) })
+      .catch((cleanupError) => console.warn("WARSTATE orphan access request cleanup failed", cleanupError));
+    throw requestError;
+  }
   return { id: String(request.id), requestedAt: String(request.requested_at) };
 }
 
 function inviteFromMessage(message: any) {
+  const isInvite = (value: string) => /^https?:\/\/(?:t\.me|telegram\.me)\/(?:\+[A-Za-z0-9_-]+|joinchat\/[A-Za-z0-9_-]+)(?:[?#].*)?$/i.test(value.trim());
   const text = String(message?.text || message?.caption || "").trim();
-  const match = text.match(/https?:\/\/(?:t\.me|telegram\.me)\/(?:\+|joinchat\/)?[A-Za-z0-9_+\-]+/i);
-  if (match) return match[0];
+  const match = text.match(/https?:\/\/(?:t\.me|telegram\.me)\/(?:\+[A-Za-z0-9_-]+|joinchat\/[A-Za-z0-9_-]+)/i);
+  if (match && isInvite(match[0])) return match[0];
   const entities = [...(Array.isArray(message?.entities) ? message.entities : []), ...(Array.isArray(message?.caption_entities) ? message.caption_entities : [])];
   for (const entity of entities) {
-    if (entity?.type === "text_link" && typeof entity.url === "string" && /^https?:\/\/(?:t\.me|telegram\.me)\//i.test(entity.url)) return String(entity.url);
+    if (entity?.type === "text_link" && typeof entity.url === "string" && isInvite(String(entity.url))) return String(entity.url).trim();
   }
   return null;
 }

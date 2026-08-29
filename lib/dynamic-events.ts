@@ -338,19 +338,21 @@ export async function initializeDynamicTrackers(chatId: number) {
     const supabase = getSupabaseAdmin();
     const now = new Date();
     if (!state.owner_player_id && !state.president_vacant_since) {
-      await supabase
+      const { error: vacancyError } = await supabase
         .from("states")
         .update({ president_vacant_since: now.toISOString() })
         .eq("id", state.id)
         .is("owner_player_id", null)
         .is("president_vacant_since", null);
+      if (vacancyError) throw vacancyError;
     }
     if (!state.next_threat_at) {
-      await supabase
+      const { error: threatScheduleError } = await supabase
         .from("states")
         .update({ next_threat_at: nextThreatSlotAfter(now, stateTimeZone(state)).toISOString() })
         .eq("id", state.id)
         .is("next_threat_at", null);
+      if (threatScheduleError) throw threatScheduleError;
     }
   } catch (error) {
     warnOptional("initialize trackers", error);
@@ -467,24 +469,33 @@ async function syncPresidentVacancy(state: DynamicStateRow) {
     if (!state.owner_player_id && !state.president_vacant_since) {
       // The post is vacant and no countdown is running: start the 2-hour
       // timer now (covers both first bot-add and any later power vacuum).
-      await supabase
+      const vacantSince = new Date().toISOString();
+      const { data: vacancyClaim, error: vacancyError } = await supabase
         .from("states")
-        .update({ president_vacant_since: new Date().toISOString() })
+        .update({ president_vacant_since: vacantSince })
         .eq("id", state.id)
         .is("owner_player_id", null)
-        .is("president_vacant_since", null);
-      state.president_vacant_since = new Date().toISOString();
+        .is("president_vacant_since", null)
+        .select("id")
+        .maybeSingle();
+      if (vacancyError) throw vacancyError;
+      if (vacancyClaim) state.president_vacant_since = vacantSince;
     } else if (state.owner_player_id && state.president_vacant_since) {
       // A President is in office: cancel the countdown and reset the anarchy
       // clock so a future vacancy starts a fresh 2-hour grace period.
-      await supabase
+      const { data: cleared, error: clearError } = await supabase
         .from("states")
         .update({ president_vacant_since: null, last_anarchy_at: null })
         .eq("id", state.id)
         .not("owner_player_id", "is", null)
-        .not("president_vacant_since", "is", null);
-      state.president_vacant_since = null;
-      state.last_anarchy_at = null;
+        .not("president_vacant_since", "is", null)
+        .select("id")
+        .maybeSingle();
+      if (clearError) throw clearError;
+      if (cleared) {
+        state.president_vacant_since = null;
+        state.last_anarchy_at = null;
+      }
     }
   } catch (error) {
     warnOptional("vacancy sync", error);
@@ -508,8 +519,9 @@ async function maybeApplyAnarchy(state: DynamicStateRow, chatId: number, now: Da
       .not("president_vacant_since", "is", null)
       .lte("president_vacant_since", graceCutoff);
     let claimed: { id: string; name?: string } | null = null;
+    const claimAt = now.toISOString();
     // Path 1: anarchy has never fired for this vacancy.
-    const first = await claimFilters(supabase.from("states").update({ last_anarchy_at: now.toISOString() }))
+    const first = await claimFilters(supabase.from("states").update({ last_anarchy_at: claimAt }))
       .is("last_anarchy_at", null)
       .select("id,name")
       .maybeSingle();
@@ -522,7 +534,7 @@ async function maybeApplyAnarchy(state: DynamicStateRow, chatId: number, now: Da
     } else {
       // Path 2: previous wave fired more than 2 hours ago (NULL never
       // matches .lte, so this cannot double-fire after path 1).
-      const repeat = await claimFilters(supabase.from("states").update({ last_anarchy_at: now.toISOString() }))
+      const repeat = await claimFilters(supabase.from("states").update({ last_anarchy_at: claimAt }))
         .lte("last_anarchy_at", repeatCutoff)
         .select("id,name")
         .maybeSingle();
@@ -535,18 +547,26 @@ async function maybeApplyAnarchy(state: DynamicStateRow, chatId: number, now: Da
     if (!claimed) return false;
 
     // Real losses: resources are drained and the running deficit grows. The
-    // chat message intentionally never reveals the exact figures.
-    try {
-      await supabase.rpc("gw_apply_state_loss", { p_state_id: state.id, p_profile: "anarchy" });
-    } catch (lossError) {
+    // chat message intentionally never reveals the exact figures. If the loss
+    // RPC fails, release our atomic claim so a later reconciliation can retry.
+    const { error: lossError } = await supabase.rpc("gw_apply_state_loss", { p_state_id: state.id, p_profile: "anarchy" });
+    if (lossError) {
       warnOptional("anarchy loss", lossError);
+      const { error: rollbackError } = await supabase
+        .from("states")
+        .update({ last_anarchy_at: state.last_anarchy_at })
+        .eq("id", state.id)
+        .eq("last_anarchy_at", claimAt);
+      if (rollbackError) warnOptional("anarchy loss rollback", rollbackError);
+      return false;
     }
+    state.last_anarchy_at = claimAt;
 
     const stateName = String(claimed.name || state.name);
     const text =
       `🔥 АНАРХИЯ В ГОСУДАРСТВЕ «${stateName}»\n${MESSAGE_DIVIDER}\n` +
       `Прошло 2 часа, а Президент так и не избран. Из-за отсутствия власти в стране началась анархия: мародёры грабят склады, чиновники разбежались, экономика парализована.\n\n` +
-      `Государство понесло потери и ушло в минус. С каждыми новыми 2 часами безвластия потери будут расти.\n\n` +
+      `Государство понесло потери. С каждыми новыми 2 часами безвластия потери будут повторяться, но гуманитарный резерв не даст Казне полностью обнулиться.\n\n` +
       `🏛 Наведите порядок: чтобы начать выборы, отправьте команду !выборы`;
     try {
       await sendChatMessage(chatId, text);
@@ -619,11 +639,12 @@ async function maybeSendNightNotification(state: DynamicStateRow, chatId: number
 async function cancelThreatsForNight(state: DynamicStateRow): Promise<void> {
   try {
     const supabase = getSupabaseAdmin();
-    await supabase
+    const { error } = await supabase
       .from("state_threat_events")
       .update({ status: "failed", resolved_at: new Date().toISOString(), resolution_action: "night_pause" })
       .eq("state_id", state.id)
       .eq("status", "open");
+    if (error) throw error;
   } catch (error) {
     warnOptional("night threat cancel", error);
   }
@@ -647,7 +668,7 @@ async function expireDueThreats(state: DynamicStateRow, chatId: number, now: Dat
       return 0;
     }
     for (const threat of due || []) {
-      const { data: claimed } = await supabase
+      const { data: claimed, error: claimError } = await supabase
         .from("state_threat_events")
         .update({ status: "failed", resolved_at: nowIso })
         .eq("id", threat.id)
@@ -656,13 +677,25 @@ async function expireDueThreats(state: DynamicStateRow, chatId: number, now: Dat
         .lte("expires_at", nowIso)
         .select("id")
         .maybeSingle();
-      if (!claimed) continue;
-      expired += 1;
-      try {
-        await supabase.rpc("gw_apply_state_loss", { p_state_id: state.id, p_profile: "threat" });
-      } catch (lossError) {
-        warnOptional("threat loss", lossError);
+      if (claimError) {
+        warnOptional("threat expiry claim", claimError);
+        continue;
       }
+      if (!claimed) continue;
+      const { error: lossError } = await supabase.rpc("gw_apply_state_loss", { p_state_id: state.id, p_profile: "threat" });
+      if (lossError) {
+        warnOptional("threat loss", lossError);
+        const { error: rollbackError } = await supabase
+          .from("state_threat_events")
+          .update({ status: "open", resolved_at: null, resolution_action: null })
+          .eq("id", threat.id)
+          .eq("state_id", state.id)
+          .eq("status", "failed")
+          .eq("resolved_at", nowIso);
+        if (rollbackError) warnOptional("threat loss rollback", rollbackError);
+        continue;
+      }
+      expired += 1;
       const template = threatTemplate(String(threat.threat_kind));
       const text =
         `💥 ГОСУДАРСТВО ПОНЕСЛО УБЫТКИ\n${MESSAGE_DIVIDER}\n` +
@@ -690,14 +723,15 @@ async function maybeSpawnThreat(state: DynamicStateRow, chatId: number, now: Dat
     // never fire immediately on registration.
     if (!state.next_threat_at) {
       const armedTo = nextThreatSlotAfter(now, timeZone).toISOString();
-      const { data: armed } = await supabase
+      const { data: armed, error: armError } = await supabase
         .from("states")
         .update({ next_threat_at: armedTo })
         .eq("id", state.id)
         .is("next_threat_at", null)
         .select("id")
         .maybeSingle();
-      state.next_threat_at = armedTo;
+      if (armError) { warnOptional("threat scheduler arm", armError); return false; }
+      if (armed) state.next_threat_at = armedTo;
       // Whether we armed it or a concurrent instance did: no spawn this round.
       return false;
     }
@@ -791,8 +825,10 @@ async function maybeSpawnThreat(state: DynamicStateRow, chatId: number, now: Dat
       // Without the message there are no buttons, so the emergency could never
       // be resolved: roll it back and retry the slot on the next activity.
       console.warn("WARSTATE threat spawn message failed, rolling back", sendError);
-      await supabase.from("state_threat_events").delete().eq("id", threat.id).eq("status", "open");
-      await supabase.from("states").update({ next_threat_at: now.toISOString() }).eq("id", state.id);
+      const { error: deleteError } = await supabase.from("state_threat_events").delete().eq("id", threat.id).eq("status", "open");
+      if (deleteError) warnOptional("threat message rollback delete", deleteError);
+      const { error: scheduleRollbackError } = await supabase.from("states").update({ next_threat_at: now.toISOString() }).eq("id", state.id);
+      if (scheduleRollbackError) warnOptional("threat message rollback schedule", scheduleRollbackError);
       return false;
     }
     return true;

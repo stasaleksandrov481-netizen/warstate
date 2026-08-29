@@ -7,12 +7,13 @@ import { telegramApi } from "@/lib/telegram-bot";
  */
 export async function publishStateEvent(stateId: string, title: string, body: string) {
   const supabase = getSupabaseAdmin();
-  const { data: state } = await supabase
+  const { data: state, error: stateError } = await supabase
     .from("states")
     .select("telegram_chat_id,name")
     .eq("id", stateId)
     .maybeSingle();
 
+  if (stateError) { console.warn("WARSTATE state event target lookup failed", stateError); return; }
   if (!state?.telegram_chat_id) return;
 
   const text = `${title}\n────────────\n${body}`;
@@ -26,11 +27,12 @@ export async function publishStateEvent(stateId: string, title: string, body: st
 export async function publishStateAudit(stateId: string, action: string, details: string) {
   const supabase = getSupabaseAdmin();
   try {
-    await supabase.from("state_events").insert({
+    const { error: auditError } = await supabase.from("state_events").insert({
       state_id: stateId,
       event_type: action,
       message: details,
     });
+    if (auditError) throw auditError;
   } catch (error) {
     console.warn("WARSTATE state audit event skipped", error);
   }

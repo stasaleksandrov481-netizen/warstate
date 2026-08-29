@@ -14,14 +14,15 @@ import { getGovernmentView, registerTelegramState } from "@/lib/government";
 import { reconcileStateRuntime } from "@/lib/maintenance";
 import { applyWorkforceBonus, isMissingDutyRoleError } from "@/lib/community";
 import { getPlayerMedals, getStateMedals } from "@/lib/medals";
+import { getPersonalEconomy } from "@/lib/economy";
 
 const BUILDING_META: Record<BuildingType, { label: string; description: string; x: number; y: number }> = {
   hq: { label: "Казначейство и штаб", description: "Бюджет, управление, оборона и уровень государства", x: 50, y: 36 },
   barracks: { label: "Казармы", description: "Повышают силу атакующей армии", x: 31, y: 53 },
-  mine: { label: "Шахта", description: "Производит сталь", x: 69, y: 56 },
-  refinery: { label: "НПЗ", description: "Производит топливо", x: 76, y: 30 },
-  farm: { label: "Ферма", description: "Производит продовольствие", x: 22, y: 27 },
-  lab: { label: "Академия", description: "Производит технологии и усиливает стратегические ветки", x: 52, y: 67 },
+  mine: { label: "Шахта", description: "Усиливает личную добычу стали гражданами", x: 69, y: 56 },
+  refinery: { label: "НПЗ", description: "Усиливает личную добычу топлива гражданами", x: 76, y: 30 },
+  farm: { label: "Ферма", description: "Усиливает личную добычу еды гражданами", x: 22, y: 27 },
+  lab: { label: "Академия", description: "Усиливает личную добычу Tech и стратегические ветки", x: 52, y: 67 },
   outpost: { label: "Застава", description: "Усиливает оборону и Defensive Buffer", x: 15, y: 47 },
   trade_chamber: { label: "Торговая палата", description: "Усиливает бюджет, торговлю и дипломатическое влияние", x: 84, y: 47 },
 };
@@ -87,12 +88,14 @@ function scaleCost(type: BuildingType, level: number) {
 
 export function production(buildings: Array<{ building_type: BuildingType; level: number }>) {
   const levels = Object.fromEntries(buildings.map((b) => [b.building_type, b.level])) as Partial<Record<BuildingType, number>>;
+  // v5.4: raw resources are citizen-driven. State buildings now boost personal
+  // gathering; only taxes/commerce create passive state credits.
   return {
-    credits: 320 + (levels.hq || 1) * 95 + (levels.trade_chamber || 0) * 55,
-    steel: 80 + (levels.mine || 1) * 115,
-    fuel: 35 + (levels.refinery || 1) * 72,
-    food: 100 + (levels.farm || 1) * 130,
-    tech: 8 + (levels.lab || 1) * 18,
+    credits: 90 + (levels.hq || 1) * 32 + (levels.trade_chamber || 0) * 48,
+    steel: 0,
+    fuel: 0,
+    food: 0,
+    tech: 0,
   };
 }
 
@@ -458,22 +461,24 @@ export async function bootstrapGame(
     // v5.2.0 FIX: If the player recently switched citizenship, their home_state_id
     // points to the NEW state, but start_param still references the OLD chat.
     // Detect this mismatch and prefer the player's actual home state.
-    const { data: playerHome } = await supabase
+    const { data: playerHome, error: playerHomeError } = await supabase
       .from("players")
       .select("home_state_id, last_state_change_at")
       .eq("id", player.id)
       .single();
+    if (playerHomeError) throw playerHomeError;
     const recentSwitch = playerHome?.last_state_change_at
       && (Date.now() - new Date(playerHome.last_state_change_at).getTime()) < 300_000;
     const homeMismatch = recentSwitch && playerHome.home_state_id && playerHome.home_state_id !== ensuredState.id;
 
     if (homeMismatch) {
       // Player recently switched - use their actual home state, not the stale chat.
-      const { data: homeState } = await supabase
+      const { data: homeState, error: homeStateError } = await supabase
         .from("states")
         .select("*")
         .eq("id", playerHome.home_state_id)
         .single();
+      if (homeStateError) throw homeStateError;
       if (homeState) {
         state = homeState;
         const { data: homeMember, error: homeMemberError } = await supabase
@@ -635,7 +640,7 @@ export async function getGameSnapshot(
   if (strategyRefreshError && strategyRefreshError.code !== "PGRST202") throw strategyRefreshError;
   const [playerRes, stateRes, buildingsRes, membersRes, myMember] = await Promise.all([
     supabase.from("players").select("id,display_name,username,admin_title,level,xp,energy").eq("id", playerId).single(),
-    supabase.from("states").select("id,name,state_username,telegram_chat_title,color,motto,emblem,theme,telegram_chat_id,credits,steel,fuel,food,tech,rating,rating_peak,telegram_member_count,world_x,world_y,island_wins,island_losses,destroyed_until,chat_avatar_file_id,shield_until,next_attack_at,island_integrity,win_streak,best_win_streak,last_battle_at,is_freeport,is_beginner_island,game_level,max_level,influence,reputation,army_power,defense_power,active_player_count,state_size,achievement_points,admin_army_boost_pct,admin_army_boost_until,admin_threat_shield_until,admin_xp_boost_pct,admin_xp_boost_until").eq("id", stateId).single(),
+    supabase.from("states").select("id,name,state_username,telegram_chat_title,color,motto,emblem,theme,telegram_chat_id,credits,steel,fuel,food,tech,rating,rating_peak,telegram_member_count,world_x,world_y,island_wins,island_losses,destroyed_until,chat_avatar_file_id,shield_until,next_attack_at,island_integrity,win_streak,best_win_streak,last_battle_at,is_freeport,is_beginner_island,game_level,max_level,influence,reputation,army_power,defense_power,active_player_count,state_size,achievement_points,admin_army_boost_pct,admin_army_boost_until,admin_threat_shield_until,admin_xp_boost_pct,admin_xp_boost_until,economy_sleeping,humanitarian_last_at").eq("id", stateId).single(),
     supabase.from("buildings").select("building_type,level,upgrade_target_level,upgrade_started_at,upgrade_finishes_at,upgrade_cooldown_until").eq("state_id", stateId).order("building_type"),
     supabase.from("state_members").select("id", { count: "exact", head: true }).eq("state_id", stateId),
     getPlayerMemberSnapshot(stateId, playerId),
@@ -665,7 +670,7 @@ export async function getGameSnapshot(
   // getIslandWorld only needs `diplomacy` and `state`, both already resolved
   // above, so it can run inside this same parallel batch instead of as an
   // extra serial step tacked on after everything else finishes.
-  const [rankRes, worldFeed, leaderboard, dailyMissions, activeBattle, season, election, recruitment, recentWars, strategy, government, islands, playerMedals, stateMedals] = await Promise.all([
+  const [rankRes, worldFeed, leaderboard, dailyMissions, activeBattle, season, election, recruitment, recentWars, strategy, government, islands, playerMedals, stateMedals, personalEconomy] = await Promise.all([
     rankPromise,
     optionalSnapshotPart("world feed", [], () => getWorldFeed(24)),
     optionalSnapshotPart("leaderboard", [], () => getLeaderboard(10)),
@@ -680,6 +685,7 @@ export async function getGameSnapshot(
     optionalSnapshotPart("island world", [], () => getIslandWorld(stateId, diplomacy, { x: Number(state.world_x || 0), y: Number(state.world_y || 0) })),
     optionalSnapshotPart("player medals", [], () => getPlayerMedals(playerId)),
     state.is_freeport ? Promise.resolve([]) : optionalSnapshotPart("state medals", [], () => getStateMedals(stateId)),
+    getPersonalEconomy(playerId, stateId),
   ]);
   if (rankRes?.error) warnOptionalSnapshotPart("season rank", rankRes.error);
   if (!state.is_freeport) {
@@ -706,6 +712,7 @@ export async function getGameSnapshot(
       displayName: player.display_name,
       username: player.username,
       adminTitle: player.admin_title || null,
+      nobleTitle: personalEconomy.nobleTitle || null,
       level: player.level,
       xp: player.xp,
       energy: player.energy,
@@ -763,6 +770,8 @@ export async function getGameSnapshot(
       adminThreatShieldUntil: state.admin_threat_shield_until || null,
       adminXpBoostPct: Number(state.admin_xp_boost_pct || 0),
       adminXpBoostUntil: state.admin_xp_boost_until || null,
+      economySleeping: Boolean(state.economy_sleeping),
+      humanitarianLastAt: state.humanitarian_last_at || null,
     },
     buildings,
     wars: recentWars,
@@ -776,6 +785,7 @@ export async function getGameSnapshot(
     badges,
     playerMedals,
     stateMedals,
+    personalEconomy,
     activeBattle,
     recruitment,
     strategy,

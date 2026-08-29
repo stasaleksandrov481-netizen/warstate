@@ -34,7 +34,7 @@ function StrategyPanelInner({ snapshot, onActivity, onSupport, onSurrender }: Pr
   const { state, strategy, activeBattle } = snapshot;
   const [tab, setTab] = useState<StrategyTab>("overview");
   const remaining = Math.max(0, strategy.rules.maxDailyActivities - strategy.completedToday);
-  const productionTotal = Object.values(state.productionPerHour).reduce((sum, value) => sum + value, 0);
+  const passiveCredits = state.productionPerHour.credits;
   const battleSide = activeBattle ? (activeBattle.attackerStateId === state.id ? "Атака" : "Оборона") : null;
 
   return (
@@ -74,9 +74,14 @@ function StrategyPanelInner({ snapshot, onActivity, onSupport, onSurrender }: Pr
           </section>
 
           <section className="strategy-card strategy-economy-card">
-            <div className="strategy-title"><div><small>ЭКОНОМИКА</small><h3>Ресурсы государства</h3></div><b>+{productionTotal.toLocaleString("ru-RU")}/ч</b></div>
+            <div className="strategy-title"><div><small>ЭКОНОМИКА</small><h3>Ресурсы государства</h3></div><b>₡ +{passiveCredits.toLocaleString("ru-RU")}/ч</b></div>
+            <div className={`strategy-economy-status ${state.economySleeping ? "sleeping" : ""}`}>
+              {state.economySleeping
+                ? "Инфраструктура спит: её бонусы временно отключены. Сдайте личное сырьё через !сдать, чтобы возобновить работу."
+                : "Сырьё поступает в Казну от граждан через !сдать. Пассивно начисляются только бюджетные кредиты."}
+            </div>
             <div className="strategy-resource-grid">
-              {RESOURCE_META.map(([key, label, icon]) => <span key={key}><i>{icon}</i><small>{label}</small><b>{state.treasury[key].toLocaleString("ru-RU")}</b><em>+{state.productionPerHour[key].toLocaleString("ru-RU")}/ч</em></span>)}
+              {RESOURCE_META.map(([key, label, icon]) => <span key={key}><i>{icon}</i><small>{label}</small><b>{state.treasury[key].toLocaleString("ru-RU")}</b><em>{key === "credits" ? `+${state.productionPerHour.credits.toLocaleString("ru-RU")}/ч пассивно` : "через !сдать"}</em></span>)}
             </div>
           </section>
 

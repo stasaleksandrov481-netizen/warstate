@@ -38,17 +38,19 @@ async function addEvent(battleId: string, playerId: string | null, eventType: st
   // This keeps chats alive without turning the bot into a notification machine.
   if (eventType === "capture") {
     try {
-      const { data: battle } = await supabase
+      const { data: battle, error: battleError } = await supabase
         .from("battles")
         .select("attacker_state_id,defender_state_id")
         .eq("id", battleId)
         .maybeSingle();
+      if (battleError) throw battleError;
       const ids = [battle?.attacker_state_id, battle?.defender_state_id].filter(Boolean);
       if (ids.length) {
-        const { data: states } = await supabase
+        const { data: states, error: statesError } = await supabase
           .from("states")
           .select("name,telegram_chat_id")
           .in("id", ids);
+        if (statesError) throw statesError;
         const text = `⚔️ ИДЕТ БИТВА\n\n${String(payload.name || "Отряд")} захватил точку ${String(payload.point || "?")}. Бой продолжается.`;
         await Promise.allSettled((states || []).map((state: any) =>
           telegramApi("sendMessage", {

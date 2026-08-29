@@ -168,8 +168,10 @@ export async function POST(request: Request) {
     return new Response("invalid JSON", { status: 400 });
   }
 
+  let claimedUpdateId: number | null = null;
+  let updateFailed = false;
   try {
-    console.info("WARSTATE_RUNTIME=5.3-map-messaging");
+    console.info("WARSTATE_RUNTIME=5.4.2-release-polish");
     // Pre-checkout and successful-payment updates use their own Telegram/charge
     // idempotency flow because a failed payment write must be allowed to retry.
     // All ordinary commands, callbacks and membership events are claimed once
@@ -177,20 +179,30 @@ export async function POST(request: Request) {
     if (!update.pre_checkout_query && !update.message?.successful_payment && Number.isSafeInteger(Number(update.update_id))) {
       try {
         const supabase = getSupabaseAdmin();
-        const { data: claimed, error: claimError } = await supabase.rpc("gw_claim_telegram_update", {
-          p_update_id: Number(update.update_id),
-          p_lease_seconds: 45,
+        const updateId = Number(update.update_id);
+        const { data: claimStatus, error: claimError } = await supabase.rpc("gw_claim_telegram_update_v2", {
+          p_update_id: updateId,
+          p_lease_seconds: 75,
         });
-        // Migration 015 may be missing during a rolling deploy. In that one case
-        // fail open so group commands still work. Real database/transport errors
-        // must surface as 500, allowing Telegram to redeliver instead of losing the update.
-        if (claimError?.code === "PGRST202") {
-          console.warn("Telegram update receipt RPC is unavailable; processing without receipt claim");
-        } else if (claimError) {
-          throw claimError;
-        } else if (claimed === false) {
+        // A leased receipt is not the same as a completed receipt. Returning 200
+        // for an in-flight lease can lose an update if a serverless instance dies.
+        if (claimError) {
+          throw new Error(
+            ["PGRST202", "42883"].includes(String(claimError.code || ""))
+              ? "Telegram idempotency RPC is unavailable. Apply all Supabase migrations before enabling the webhook."
+              : claimError.message,
+          );
+        }
+        if (claimStatus === "completed") {
           return Response.json({ ok: true, duplicate: true });
         }
+        if (claimStatus === "processing") {
+          return Response.json({ ok: false, retry: true, processing: true }, { status: 500 });
+        }
+        if (claimStatus !== "claimed") {
+          throw new Error(`Unexpected Telegram update claim status: ${String(claimStatus)}`);
+        }
+        claimedUpdateId = updateId;
       } catch (claimError) {
         console.error("Telegram update receipt claim failed", claimError);
         return Response.json({ ok: false, retry: true }, { status: 500 });
@@ -254,7 +266,7 @@ export async function POST(request: Request) {
       if (["member", "administrator"].includes(status)) {
         await registerTelegramState(Number(membership.chat.id));
         await sendLaunchMessage(membership.chat.id, membership.chat.title);
-        // Arm the dynamic-events engine right at add-time: the 30-minute
+        // Arm the dynamic-events engine right at add-time: the 2-hour
         // President vacancy countdown and the daytime emergency scheduler
         // start together with the welcome message.
         await initializeDynamicTrackers(Number(membership.chat.id)).catch((error) =>
@@ -264,8 +276,10 @@ export async function POST(request: Request) {
         // leaderboards, search and diplomacy everywhere else immediately.
         // Nothing is deleted — re-adding the bot restores it via
         // registerTelegramState() above.
-        await markStateBotRemoved(Number(membership.chat.id)).catch((error) =>
-          console.warn("WARSTATE bot-removed state hide skipped", error));
+        // Hiding a state after the bot is removed is not optional. Let the
+        // webhook retry on a transient database failure instead of leaving a
+        // ghost state visible on the map indefinitely.
+        await markStateBotRemoved(Number(membership.chat.id));
       }
       return Response.json({ ok: true });
     }
@@ -281,9 +295,9 @@ export async function POST(request: Request) {
             first_name: String(member.first_name || "Игрок"),
             last_name: member.last_name ? String(member.last_name) : undefined,
             username: member.username ? String(member.username) : undefined,
-          }, Number(memberUpdate.chat.id)).catch((error) => console.warn("WARSTATE chat_member observation skipped", error));
+          }, Number(memberUpdate.chat.id));
         } else if (["left", "kicked"].includes(status)) {
-          await markTelegramGroupMemberLeft(Number(memberUpdate.chat.id), Number(member.id)).catch((error) => console.warn("WARSTATE chat_member leave mark skipped", error));
+          await markTelegramGroupMemberLeft(Number(memberUpdate.chat.id), Number(member.id));
         }
       }
       return Response.json({ ok: true });
@@ -425,9 +439,24 @@ export async function POST(request: Request) {
 
     }
   } catch (error) {
+    updateFailed = true;
     console.error("Telegram webhook error", error);
-    // Do not acknowledge a failed update as successful: Telegram can retry it.
+    // Do not acknowledge a failed update as successful. The processing lease
+    // remains unfinished, so a retry can reclaim it after the short lease.
     return Response.json({ ok: false, retry: true }, { status: 500 });
+  } finally {
+    if (claimedUpdateId !== null && !updateFailed) {
+      const supabase = getSupabaseAdmin();
+      const { data: completed, error: completeError } = await supabase.rpc("gw_complete_telegram_update", {
+        p_update_id: claimedUpdateId,
+      });
+      if (completeError || completed !== true) {
+        console.error("Telegram update completion receipt failed", completeError || { updateId: claimedUpdateId });
+        // Override an otherwise-successful response. A 2xx without a durable
+        // completion marker can cause a later lease reclaim to repeat the update.
+        throw completeError || new Error("Telegram update completion receipt was not persisted.");
+      }
+    }
   }
 
   return Response.json({ ok: true });

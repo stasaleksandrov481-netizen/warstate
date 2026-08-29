@@ -34,11 +34,12 @@ import { isProjectAdminTelegramId } from "@/lib/config";
 import { isProjectAdminChatMode, setProjectAdminChatMode } from "@/lib/project-admin-session";
 import { normalizeWarstateCopy } from "@/lib/copy";
 import { sendInterstateMessage } from "@/lib/state-messages";
+import { buyNobleTitle, buyPersonalItem, gatherPersonalResources, getPersonalEconomy, investGlory, sellPersonalResource, usePersonalConsumable, wildRaid } from "@/lib/economy";
 
 const LEADERS = new Set(["president", "minister", "deputy", "curator"]);
 const WAR_LEADERS = new Set(["president", "minister", "deputy"]);
 
-const WARSTATE_BUILD = "5.3-map-messaging";
+const WARSTATE_BUILD = "5.4.2-release-polish";
 
 // Russian alias mappings for !активность command
 // activity_key → Russian alias, option_key → Russian alias
@@ -89,6 +90,7 @@ const WARSTATE_COMMANDS = new Set([
   "импичмент", "impeach",
   "статус", "status", "ресурсы", "resources", "профиль", "profile",
   "вклад", "contribution", "государства", "states", "казна", "налоги",
+  "добыча", "gather", "сдать", "sell", "магазин", "shop", "купить", "buy", "использовать", "use", "титул", "title", "инвестировать", "invest", "кража", "steal", "договор", "contract",
   "постройки", "постройка", "стройки", "buildings", "миссия", "миссии", "награда", "награды", "reward", "rewards", "активность", "activity",
   "бой", "battle", "оборона", "defense", "улучшить", "upgrade",
   "союз", "alliance", "разорватьсоюз", "разведка", "шпион", "spy",
@@ -189,40 +191,197 @@ async function send(chatId: number, text: string, keyboard?: Array<Array<{ text:
 
 
 const HELP_SECTIONS: Record<string, { title: string; text: string }> = {
-  castle: { title: "🏰 Замок", text: "Центр государства. Здесь находятся казна, постройки, развитие и восстановление. Основные команды: !государство, !ресурсы, !постройки, !улучшить." },
-  army: { title: "⚔️ Армия", text: "Войны, разведка и текущие бои. Атака запускается через голосование. Команды: !война, !бой, !разведка, !поддержать, !сдаться." },
-  alliances: { title: "🤝 Союзы", text: "Дипломатия и связь с другими государствами. Союзы, перемирия и межгосударственные сообщения. Написать: !соо @юз_государства текст. На входящее сообщение можно ответить через Reply." },
-  decrees: { title: "📜 Указы", text: "Управленческие решения и ежедневные операции государства. Используйте !активность, !миссия и действия руководства." },
-  elections: { title: "🗳 Выборы", text: "Президент избирается гражданами. Команды: !выборы, !голосовать, !президент. Отдельные решения также проходят через голосование." },
-  treasury: { title: "💰 Казна", text: "Ресурсы государства, производство и расходы. Команды: !ресурсы, !казна, !налоги, !вклад." },
-  roles: { title: "🎭 Роли", text: "Руководство и специализации граждан. Команды: !роли, !роль, !замы, !министртруда. Назначения зависят от полномочий." },
-  emergency: { title: "⚠️ ЧП", text: "ЧП возникают каждые 5 часов с 08:00 до 23:00 по времени государства. На реакцию даётся 10 минут. Игнорирование приводит к убыткам. Руководство может задать часовой пояс командой !часовойпояс Europe/Paris." },
+  castle: {
+    title: "🏰 ЗАМОК",
+    text: [
+      "🏰 ГОСУДАРСТВО И ЗАМОК",
+      "━━━━━━",
+      "Управление государством, Казной и инфраструктурой.",
+      "",
+      "◈ ОСНОВА",
+      "• !вступить - стать гражданином текущей группы",
+      "• !государство - полная сводка государства",
+      "• !статус - короткий оперативный статус",
+      "• !карта - открыть карту материка",
+      "• !рейтинг - рейтинг государств",
+      "• !государства - список государств",
+      "• !найти @государство - найти государство",
+      "",
+      "◈ ИДЕНТИКА",
+      "• !создатьюз название - создать уникальный юз государства",
+      "• !юз - посмотреть текущий юз",
+      "• !название Новое имя - изменить название",
+      "",
+      "◈ РУКОВОДСТВО",
+      "• !президент - сведения о президенте",
+      "• !замы - список заместителей",
+      "• !назначитьпрезидента @игрок / !снятьпрезидента",
+      "• !назначитьзама @игрок / !снятьзама @игрок",
+      "• !выборы - текущие президентские выборы",
+      "• !голосовать - участие в выборах",
+      "• !голосование - активные государственные голосования",
+      "• !импичмент - начать процедуру отстранения",
+      "",
+      "◈ КАЗНА И СТРОЙКА",
+      "• !ресурсы - состояние Казны",
+      "• !казна - экономика и содержание",
+      "• !налоги - сводка по бюджету и содержанию",
+      "• !постройки - инфраструктура и уровни",
+      "• !улучшить [здание] - стройка за ресурсы Казны",
+      "",
+      "Резерв 50 ед. каждого ресурса неприкосновенен. При нехватке содержания здания не разрушаются: их бонусы переходят в спящий режим до первой !сдать.",
+    ].join("\n"),
+  },
+  roles: {
+    title: "💼 РОЛИ",
+    text: [
+      "💼 РОЛИ И ДОБЫЧА",
+      "━━━━━━",
+      "Базовая !добыча доступна каждому гражданину раз в 2 часа.",
+      "",
+      "◈ УПРАВЛЕНИЕ РОЛЯМИ",
+      "• !роли - текущие специализации",
+      "• !роль @игрок шахтер|рабочий|шпион|дипломат",
+      "• !министртруда @игрок - назначить управляющего ролями",
+      "• !снятьминистра @игрок - снять полномочия",
+      "",
+      "⛏ ШАХТЁР",
+      "• !добыча - Сталь + Топливо",
+      "• Инструменты дают +20% / +35% и служат 25 добыч",
+      "",
+      "🏗 РАБОЧИЙ",
+      "• !добыча - Еда + Сталь",
+      "",
+      "🕵 ШПИОН",
+      "• !добыча - Tech + небольшой запас Стали",
+      "• !разведка @государство - получить военные данные",
+      "• !шпион @государство - открыть спецоперацию",
+      "• !кража - 15% шанс найти сырьё в диких землях",
+      "",
+      "🤝 ДИПЛОМАТ",
+      "• !добыча - Tech + небольшой запас Еды",
+      "• !договор - торговый статус и бонусы",
+      "• +10% к цене личного сырья при !сдать",
+      "• !союз @государство - инициировать союз",
+      "",
+      "Без роли !добыча всё равно выдаёт минимальный базовый набор, поэтому игрок не может попасть в экономический тупик.",
+    ].join("\n"),
+  },
+  economy: {
+    title: "💰 ЭКОНОМИКА",
+    text: [
+      "💰 ЛИЧНАЯ ЭКОНОМИКА",
+      "━━━━━━",
+      "Цикл: !добыча → личный инвентарь → !сдать → Казна + личные монеты.",
+      "",
+      "◈ ДОБЫЧА И ПРОДАЖА",
+      "• !добыча - получить личное сырьё, кулдаун 2 часа",
+      "• !сдать сталь 20 - передать сырьё в Казну за личные монеты",
+      "• !профиль - кошелёк, инвентарь, Дом, инструмент и титул",
+      "",
+      "◈ МАГАЗИН",
+      "• !магазин - каталог личного развития",
+      "• !купить инструмент - +20% к добыче, 25 применений",
+      "• !купить профинструмент - +35%, 25 применений",
+      "• !купить дом - личный пассивный доход монетами",
+      "• !купить сброс - эликсир сброса таймера",
+      "• !купить буст - +50% к добыче на 2 часа",
+      "• !использовать сброс|буст - активировать расходник",
+      "",
+      "◈ ЭНДГЕЙМ",
+      "• !титул - Барон, Граф, Магнат",
+      "• !титул барон|граф|магнат - купить статус",
+      "• !инвестировать 1000 - сжечь личные монеты ради ELO государства",
+      "",
+      "Сырьё Сталь / Топливо / Еда / Tech не появляется бесконечно в Казне. Его основной источник - реальные действия граждан.",
+    ].join("\n"),
+  },
+  military: {
+    title: "⚔️ ВОЕННЫЕ ДЕЙСТВИЯ",
+    text: [
+      "⚔️ ВОЙНА И ДИПЛОМАТИЯ",
+      "━━━━━━",
+      "◈ ВОЕННЫЕ КОМАНДЫ",
+      "• !война @государство raid|siege|territory - голосование о войне",
+      "• !бой - активный бой",
+      "• !оборона - состояние защиты",
+      "• !поддержать <ID> defense|attack - помощь союзнику",
+      "• !сдаться - капитуляция руководства",
+      "• !разведка @государство - разведданные",
+      "• !шпион @государство - шпионская операция",
+      "• !кража - личный набег Шпиона на дикие земли",
+      "",
+      "◈ ДИПЛОМАТИЯ",
+      "• !альянсы - дипломатическая сводка",
+      "• !союз @государство - предложить / принять союз",
+      "• !разорватьсоюз @государство - прекратить союз",
+      "• !договор - бонус Дипломата к торговле",
+      "• !соо @государство текст - сообщение другому государству",
+      "• Reply на межгосударственное сообщение - автоматический ответ отправителю",
+      "",
+      "◈ ЧРЕЗВЫЧАЙНЫЕ СИТУАЦИИ",
+      "• !чп - активное ЧП и правила реакции",
+      "• !часовойпояс Europe/Riga - расписание ЧП государства",
+    ].join("\n"),
+  },
+  profile: {
+    title: "👤 ПРОФИЛЬ",
+    text: [
+      "👤 ПРОФИЛЬ И ПРОГРЕСС",
+      "━━━━━━",
+      "◈ ИГРОК",
+      "• !профиль - уровень, XP, роль, титул, монеты и инвентарь",
+      "• !вклад - вклад игрока в государство",
+      "• !активность - доступные государственные активности",
+      "• !миссия - ежедневные задания",
+      "• !награда - забрать готовую награду",
+      "• !магазин - инструменты, Дом и расходники",
+      "• !титул - дворянский статус",
+      "",
+      "◈ ИНФОРМАЦИЯ И ЗАПУСК",
+      "• !играть / !гайд - открыть игру и полный гайд",
+      "• !помощь - это интерактивное меню",
+      "• !оботе - кратко о WARSTATE",
+      "• !версия - версия игрового ядра",
+      "• !мойид - ваш Telegram ID",
+      "",
+      "◈ АДМИНИСТРАТОР ПРОЕКТА",
+      "• !админ - состояние глобального режима администратора",
+      "• !диагностика - проверка критических RPC",
+      "",
+      "Медали, награды Администрации и административный титул хранятся отдельно от покупаемого дворянского титула и отображаются в профиле.",
+    ].join("\n"),
+  },
 };
 
 function helpMenuKeyboard(ownerId: number) {
   return [
-    [{ text: "🏰 Замок", callback_data: `gw:help:castle:${ownerId}` }, { text: "⚔️ Армия", callback_data: `gw:help:army:${ownerId}` }],
-    [{ text: "🤝 Союзы", callback_data: `gw:help:alliances:${ownerId}` }, { text: "📜 Указы", callback_data: `gw:help:decrees:${ownerId}` }],
-    [{ text: "🗳 Выборы", callback_data: `gw:help:elections:${ownerId}` }, { text: "💰 Казна", callback_data: `gw:help:treasury:${ownerId}` }],
-    [{ text: "🎭 Роли", callback_data: `gw:help:roles:${ownerId}` }, { text: "⚠️ ЧП", callback_data: `gw:help:emergency:${ownerId}` }],
+    [{ text: "🏰 Замок", callback_data: `gw:help:castle:${ownerId}` }, { text: "💼 Роли", callback_data: `gw:help:roles:${ownerId}` }],
+    [{ text: "💰 Экономика", callback_data: `gw:help:economy:${ownerId}` }, { text: "⚔️ Военные действия", callback_data: `gw:help:military:${ownerId}` }],
+    [{ text: "👤 Профиль", callback_data: `gw:help:profile:${ownerId}` }],
   ];
 }
 
 function helpSectionKeyboard(ownerId: number) {
-  return [[{ text: "← Назад", callback_data: `gw:help:menu:${ownerId}` }]];
+  return helpMenuKeyboard(ownerId);
 }
 
 async function editHelpMessage(query: any, text: string, keyboard: Array<Array<{ text: string; callback_data: string }>>) {
   const chatId = Number(query?.message?.chat?.id);
   const messageId = Number(query?.message?.message_id);
   if (!Number.isSafeInteger(chatId) || !Number.isSafeInteger(messageId)) return;
-  await telegramApi("editMessageText", {
-    chat_id: chatId,
-    message_id: messageId,
-    text,
-    link_preview_options: { is_disabled: true },
-    reply_markup: { inline_keyboard: keyboard },
-  });
+  try {
+    await telegramApi("editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text,
+      link_preview_options: { is_disabled: true },
+      reply_markup: { inline_keyboard: keyboard },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || "");
+    if (!message.toLocaleLowerCase("ru-RU").includes("message is not modified")) throw error;
+  }
 }
 
 function typeLabel(type: WarType) {
@@ -349,7 +508,9 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (["help", "помощь", "команды"].includes(command)) {
-      await send(chatId, "Вот что я умею. Выбери раздел.", helpMenuKeyboard(Number(from.id)));
+      await send(chatId, `WARSTATE · СПРАВКА
+━━━━━━
+Выбери раздел. Сообщение будет обновляться без новых сообщений в чате.`, helpMenuKeyboard(Number(from.id)));
       return true;
     }
 
@@ -445,6 +606,102 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       ? String(snapshot.government.founder?.playerId || snapshot.government.president?.playerId || snapshot.player.id)
       : snapshot.player.id;
 
+    if (command === "добыча" || command === "gather") {
+      if (snapshot.state.isFreeport) throw new Error("В Нейтральной зоне нет государственной добычи. Сначала вступите в государство.");
+      const result = await gatherPersonalResources(snapshot.player.id, snapshot.state.id);
+      const role = result.role ? DUTY_ROLE_LABELS[result.role as keyof typeof DUTY_ROLE_LABELS] || result.role : "Без специализации";
+      const gains = [
+        result.steel ? `⚙️ Сталь +${result.steel}` : null,
+        result.fuel ? `⛽ Топливо +${result.fuel}` : null,
+        result.food ? `🌾 Еда +${result.food}` : null,
+        result.tech ? `🔬 Tech +${result.tech}` : null,
+      ].filter(Boolean).join("\n");
+      await send(chatId,
+        `⛏ ДОБЫЧА ЗАВЕРШЕНА\n\n${gains || "Ресурсы не получены."}\n\nРоль: ${role}\n${result.toolUsesLeft > 0 ? `Инструмент: ${result.toolUsesLeft}/25 использований` : "Инструмент: нет"}${result.economySleeping ? "\n\n⚠️ Инфраструктура государства спит, поэтому строительные бонусы к добыче сейчас не применяются. Сдайте сырьё в Казну." : ""}\n\nСледующая обычная добыча через 2 часа.`);
+      return true;
+    }
+
+    if (command === "сдать" || command === "sell") {
+      if (snapshot.state.isFreeport) throw new Error("В Нейтральной зоне нет государственной Казны для сдачи сырья. Сначала вступите в государство.");
+      const resource = String(args[0] || "");
+      const amount = Number(args[1] || 0);
+      if (!resource || !Number.isSafeInteger(amount) || amount <= 0) throw new Error("Формат: !сдать сталь 20");
+      const result = await sellPersonalResource(snapshot.player.id, snapshot.state.id, resource, amount);
+      const names: Record<string,string> = { steel:"Сталь", fuel:"Топливо", food:"Еда", tech:"Tech" };
+      await send(chatId,
+        `💰 СЫРЬЁ СДАНО\n\n${names[result.resource] || result.resource}: ${result.amount}\nЛичные монеты: +${result.coins.toLocaleString("ru-RU")}\nКоэффициент цены: ×${Number(result.multiplier || 1).toFixed(2)}${result.wokeEconomy ? "\n\n✅ Инфраструктура государства вышла из спящего режима." : ""}`);
+      return true;
+    }
+
+    if (command === "магазин" || command === "shop") {
+      const economy = await getPersonalEconomy(snapshot.player.id, snapshot.state.id);
+      await send(chatId,
+        `🛒 ЛИЧНЫЙ МАГАЗИН\n\nБаланс: ${economy.coins.toLocaleString("ru-RU")} монет\n\n` +
+        `⛏ Инструмент I — 500\n+20% к добыче · 25 применений\n!купить инструмент\n\n` +
+        `⚒ Инструмент II — 1 200\n+35% к добыче · 25 применений\n!купить профинструмент\n\n` +
+        `🏠 Дом — 1 600 / 4 500 / 10 000\nПассивно: 35 / 90 / 180 монет в час\n!купить дом\n\n` +
+        `🧪 Эликсир сброса — 450\nСбрасывает таймер !добыча\n!купить сброс → !использовать сброс\n\n` +
+        `⚡ Буст добычи — 700\n+50% к добыче на 2 часа\n!купить буст → !использовать буст\n\n` +
+        `Дворянские титулы: !титул\nИнвестиции в ELO: !инвестировать 1000`);
+      return true;
+    }
+
+    if (command === "купить" || command === "buy") {
+      const item = String(args[0] || "");
+      if (!item) throw new Error("Укажите товар. Список: !магазин");
+      const result = await buyPersonalItem(snapshot.player.id, item);
+      await send(chatId, `✅ ПОКУПКА\n\n${result.label}\nСписано: ${Number(result.price).toLocaleString("ru-RU")} личных монет.`);
+      return true;
+    }
+
+    if (command === "использовать" || command === "use") {
+      const item = String(args[0] || "");
+      if (!item) throw new Error("Формат: !использовать сброс или !использовать буст");
+      const result = await usePersonalConsumable(snapshot.player.id, item);
+      await send(chatId, `🧪 РАСХОДНИК ИСПОЛЬЗОВАН\n\n${result.message}`);
+      return true;
+    }
+
+    if (command === "титул" || command === "title") {
+      const requested = String(args[0] || "");
+      if (!requested) {
+        const economy = await getPersonalEconomy(snapshot.player.id, snapshot.state.id);
+        await send(chatId,
+          `🎖 ДВОРЯНСКИЕ ТИТУЛЫ\n\nТекущий: ${economy.nobleTitle || "нет"}\nБаланс: ${economy.coins.toLocaleString("ru-RU")} монет\n\nБарон — 3 500\nГраф — 12 000\nМагнат — 30 000\n\nПокупка: !титул барон`);
+        return true;
+      }
+      const result = await buyNobleTitle(snapshot.player.id, requested);
+      await send(chatId, `🎖 НОВЫЙ ТИТУЛ\n\n${result.title}\nСписано: ${Number(result.price).toLocaleString("ru-RU")} личных монет. Титул теперь отображается в профиле.`);
+      return true;
+    }
+
+    if (command === "инвестировать" || command === "invest") {
+      if (snapshot.state.isFreeport) throw new Error("В Нейтральной зоне нельзя инвестировать в государственный ELO.");
+      const amount = Number(args[0] || 0);
+      if (!Number.isSafeInteger(amount) || amount < 250) throw new Error("Формат: !инвестировать 1000. Минимум 250 монет.");
+      const result = await investGlory(snapshot.player.id, snapshot.state.id, amount);
+      await send(chatId, `🏆 ИНВЕСТИЦИЯ В СЛАВУ\n\nСожжено: ${Number(result.coins).toLocaleString("ru-RU")} монет\nГосударству: +${result.elo} ELO\nДневной остаток лимита: ${Number(result.dailyRemaining).toLocaleString("ru-RU")} монет.`);
+      return true;
+    }
+
+    if (command === "кража" || command === "steal") {
+      if (snapshot.player.dutyRole !== "spy") throw new Error("Набег на дикие земли доступен только Шпиону.");
+      const result = await wildRaid(snapshot.player.id, snapshot.state.id);
+      const names: Record<string,string> = { steel:"Сталь", fuel:"Топливо", food:"Еда", tech:"Tech" };
+      await send(chatId, result.success
+        ? `🕵 НАБЕГ УДАЛСЯ\n\nРазведгруппа нашла запас в диких землях: ${names[String(result.resource)] || result.resource} +${result.amount}. Ресурс зачислен в ваш личный инвентарь.`
+        : "🕵 НАБЕГ НЕ УДАЛСЯ\n\nДикие земли оказались пустыми. Потерь нет, но следующий выход будет доступен после кулдауна.");
+      return true;
+    }
+
+    if (command === "договор" || command === "contract") {
+      if (snapshot.player.dutyRole !== "diplomat" && !superAdminMode) throw new Error("Команда доступна только Дипломату.");
+      const economy = await getPersonalEconomy(snapshot.player.id, snapshot.state.id);
+      await send(chatId,
+        `🤝 ТОРГОВЫЙ ДОГОВОР\n\nВаш дипломатический бонус: +10% к цене личного сырья при !сдать.\nТорговая палата государства добавляет ещё +2% за уровень, пока инфраструктура активна.\n\nТекущий режим инфраструктуры: ${economy.economySleeping ? "спящий" : "активный"}.\nДля межгосударственного союза: !союз @государство`);
+      return true;
+    }
+
     if (command === "соо") {
       if (snapshot.state.isFreeport) throw new Error("Нейтральная зона не участвует в межгосударственной переписке.");
       const targetUsername = String(args[0] || "").trim();
@@ -501,7 +758,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         : "";
       await send(chatId, p
         ? `👑 Президент: ${p.displayName}${p.username ? ` (@${p.username})` : ""}${botAdmin}`
-        : `👑 Президент пока не назначен.\n\n⚠️ Пока пост пуст, идёт 30-минутный отсчёт: если не выбрать лидера, в государстве начнётся анархия и казна уйдёт в минус.\n\nЧтобы начать выборы, отправьте команду !выборы${botAdmin}`);
+        : `👑 Президент пока не назначен.\n\n⚠️ Пока пост пуст, идёт 2-часовой отсчёт: если не выбрать лидера, в государстве начнётся анархия и государство будет регулярно терять ресурсы.\n\nЧтобы начать выборы, отправьте команду !выборы${botAdmin}`);
       return true;
     }
 
@@ -525,8 +782,11 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         `👑 Президент — ${president ? `${president.displayName}${president.username ? ` (@${president.username})` : ""}` : "не назначен"}\n` +
         `🧰 Министр труда — ${laborMinister ? `${laborMinister.displayName}${laborMinister.username ? ` (@${laborMinister.username})` : ""}` : "не назначен"}\n\n` +
         `${dutyLines}\n\n` +
-        `⛏ Шахтёр: +8% к стали за каждого, максимум +40%.\n` +
-        `🏗 Рабочий: +4% ко всей добыче за каждого, максимум +20%.\n\n` +
+        `⛏ Шахтёр — Сталь + Топливо через !добыча.\n` +
+        `🏗 Рабочий — Еда + Сталь через !добыча.\n` +
+        `🕵 Шпион — Tech, !разведка и !кража.\n` +
+        `🤝 Дипломат — Tech, +10% к !сдать, !договор и !союз.\n\n` +
+        `!добыча доступна раз в 2 часа. Здания усиливают личную добычу, пока инфраструктура активна.\n\n` +
         `Специализации назначают Президент, Заместители и Министр труда: !роль @игрок шахтер\n` +
         `Министра труда назначают Президент и Замы: !министртруда @игрок`
       );
@@ -598,7 +858,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     if (command === "чп") {
       const open = await getOpenThreatForChat(chatId);
       if (!open) {
-        await send(chatId, "🚨 АКТИВНЫХ ЧП НЕТ\n\nС 08:00 до 23:00 чрезвычайные ситуации возникают каждые 5 часов по времени государства. Реагируйте кнопками в течение 10 минут, иначе государство понесёт убытки и уйдёт в минус.");
+        await send(chatId, "🚨 АКТИВНЫХ ЧП НЕТ\n\nС 08:00 до 23:00 чрезвычайные ситуации возникают каждые 5 часов по времени государства. Реагируйте кнопками в течение 10 минут, иначе государство понесёт убытки. Гуманитарный резерв защищает Казну от полного обнуления.");
         return true;
       }
       await send(chatId,
@@ -820,7 +1080,9 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       const p = fresh.state.productionPerHour;
       await send(chatId,
         `📦 КАЗНА ${fresh.state.name}\n\n${resourceLine(fresh)}\n\n` +
-        `Доход/ч: 💰 +${p.credits} · ⚙️ +${p.steel} · ⛽ +${p.fuel} · 🌾 +${p.food} · 🔬 +${p.tech}`,
+        `Пассивно/ч: 💰 +${p.credits}. Сырьё поступает через !сдать от граждан.\n` +
+        `Инфраструктура: ${fresh.state.economySleeping ? "💤 спит — бонусы добычи заморожены" : "✅ активна"}.\n` +
+        `Гуманитарный резерв: минимум 50 ед. каждого ресурса.`,
       );
       return true;
     }
@@ -853,13 +1115,27 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
         if (battle.winner_state_id && String(battle.winner_state_id) === String(myState)) wins += 1;
         if ((row as any).team === "defender") defenses += 1;
       }
-      const titleLine = snapshot.player.adminTitle ? `\nТитул: ${snapshot.player.adminTitle}` : "";
+      const economy = await getPersonalEconomy(snapshot.player.id, snapshot.state.id);
+      const titleLines = [
+        snapshot.player.adminTitle ? `Админ-титул: ${snapshot.player.adminTitle}` : null,
+        economy.nobleTitle ? `Дворянский титул: ${economy.nobleTitle}` : null,
+      ].filter(Boolean);
       const medals = snapshot.playerMedals.slice(0, 6);
       const medalsLine = medals.length
         ? `\n\nМедали:\n${medals.map((medal) => `${medal.icon || "🏅"} ${medal.title}`).join("\n")}`
         : "";
+      const cooldown = economy.gatherCooldownSeconds > 0 ? `${Math.ceil(economy.gatherCooldownSeconds / 60)} мин` : "готова";
       await send(chatId,
-        `👤 ${snapshot.player.displayName}\n\nРоль: ${roleLabel}${dutyLabel ? ` · ${dutyLabel}` : ""}${titleLine}\nУровень: ${snapshot.player.level}\nОпыт: ${snapshot.player.xp.toLocaleString("ru-RU")} XP\nВклад: ${snapshot.player.contribution.toLocaleString("ru-RU")}\nПобеды: ${wins}\nЗащиты: ${defenses}\nГосударство: ${snapshot.state.name}${snapshot.state.stateUsername ? ` (@${snapshot.state.stateUsername})` : ""}${medalsLine}`
+        `👤 ${snapshot.player.displayName}\n\n` +
+        `Роль: ${roleLabel}${dutyLabel ? ` · ${dutyLabel}` : ""}\n` +
+        `${titleLines.length ? `${titleLines.join("\n")}\n` : ""}` +
+        `Уровень: ${snapshot.player.level}\nОпыт: ${snapshot.player.xp.toLocaleString("ru-RU")} XP\nВклад: ${snapshot.player.contribution.toLocaleString("ru-RU")}\n` +
+        `Победы: ${wins} · Защиты: ${defenses}\nГосударство: ${snapshot.state.name}${snapshot.state.stateUsername ? ` (@${snapshot.state.stateUsername})` : ""}\n\n` +
+        `💰 Личный кошелёк: ${economy.coins.toLocaleString("ru-RU")}\n` +
+        `📦 Инвентарь: ⚙️ ${economy.inventory.steel} · ⛽ ${economy.inventory.fuel} · 🌾 ${economy.inventory.food} · 🔬 ${economy.inventory.tech}\n` +
+        `⛏ Добыча: ${cooldown}\n` +
+        `🛠 Инструмент: ${economy.toolTier ? `ур.${economy.toolTier} · ${economy.toolUsesLeft}/25` : "нет"}\n` +
+        `🏠 Дом: ур.${economy.homeLevel}${economy.homeHourlyCoins ? ` · +${economy.homeHourlyCoins}/ч` : ""}${medalsLine}`
       );
       return true;
     }
@@ -883,7 +1159,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
       await tickState(snapshot.state.id);
       const fresh = await getGameSnapshot(snapshot.player.id, snapshot.state.id, Number(from.id), snapshot.player.role);
       const p = fresh.state.productionPerHour;
-      await send(chatId, `💰 КАЗНА И НАЛОГИ\n\n${resourceLine(fresh)}\n\nПассивное поступление/ч: 💰 +${p.credits} · ⚙️ +${p.steel} · ⛽ +${p.fuel} · 🌾 +${p.food} · 🔬 +${p.tech}.\nНалоги начисляются сервером автоматически вместе с экономическим тиком.`);
+      await send(chatId, `💰 КАЗНА И ЭКОНОМИКА\n\n${resourceLine(fresh)}\n\nПассивный бюджет/ч: 💰 +${p.credits}.\nСырьё в Казну поступает от граждан через !сдать. Содержание зданий расходует бюджет, Еду и Топливо.\n\n${fresh.state.economySleeping ? "💤 Инфраструктура спит: бонусы к личной добыче отключены до первой сдачи сырья." : "✅ Инфраструктура активна и усиливает добычу граждан."}\n🆘 Ресурсы не опускаются ниже резервных 50 единиц.`);
       return true;
     }
 
@@ -965,7 +1241,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "союз" || command === "alliance" || command === "разорватьсоюз") {
-      const canDiplomacy = projectAdmin || snapshot.player.role === "president" || snapshot.player.dutyRole === "diplomat";
+      const canDiplomacy = superAdminMode || snapshot.player.role === "president" || snapshot.player.dutyRole === "diplomat";
       if (!canDiplomacy) throw new Error("Союзами управляет Президент или Дипломат.");
       const actionRaw = command === "разорватьсоюз" ? "выйти" : String(args[0] || "").toLowerCase();
       const isAction = ["принять", "accept", "отклонить", "reject", "выйти", "leave"].includes(actionRaw);
@@ -1017,7 +1293,7 @@ export async function handleGroupTextCommand(message: any): Promise<boolean> {
     }
 
     if (command === "разведка") {
-      if (!WAR_LEADERS.has(snapshot.player.role) && !superAdminMode) throw new Error("Разведкой управляет президент или заместитель.");
+      if (!WAR_LEADERS.has(snapshot.player.role) && snapshot.player.dutyRole !== "spy" && !superAdminMode) throw new Error("Разведка доступна руководству государства и Шпионам.");
       const target = await resolveStateTarget(String(args[0] || ""));
       const supabase = getSupabaseAdmin();
       const { data, error } = await supabase.from("states").select("name,state_username,game_level,rating,army_power,defense_power,reputation,active_player_count,island_integrity").eq("id", target.id).single();
@@ -1119,7 +1395,9 @@ export async function handleGroupCallback(query: any): Promise<boolean> {
       return true;
     }
     try {
-      if (key === "menu") await editHelpMessage(query, "Вот что я умею. Выбери раздел.", helpMenuKeyboard(ownerId || Number(from.id)));
+      if (key === "menu") await editHelpMessage(query, `WARSTATE · СПРАВКА
+━━━━━━
+Выбери раздел.`, helpMenuKeyboard(ownerId || Number(from.id)));
       else {
         const section = HELP_SECTIONS[key];
         if (!section) { await answer("Раздел не найден.", true); return true; }
